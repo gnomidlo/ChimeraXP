@@ -2,17 +2,17 @@
 
 **Osobny, prywatny projekt AutoExp dla oficjalnej Chimery 5.x w Mudlecie.** Nie jest modułem ChimeraVIP i nie jest częścią oficjalnych skryptów. Korzysta wyłącznie z publicznego API wtyczek Chimery (`gmcp`, `mapper`, `walker`, zdarzenia `chimera.*`).
 
-**Wydanie:** `0.5.0-beta.1` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
+**Wydanie:** `0.5.0-beta.3` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
 
 ## Instalacja bezposrednio w Mudlecie (XML)
 
-Udostepniamy teraz **`packages/ChimeraXP.xml`**, samodzielny pakiet zawierajacy pelny kod wtyczki. W Mudlecie otworz profil, wylacz stary `EXP` i przeciagnij pobrany `ChimeraXP.xml` na okno albo wykonaj:
+Pakiet **`ChimeraXP.xml`** jest na razie dostepny w zalaczniku wydania ZIP; plik XML nie zostal jeszcze opublikowany w prywatnym repozytorium. W Mudlecie otworz profil, wylacz stary `EXP` i przeciagnij pobrany `ChimeraXP.xml` na okno albo wykonaj:
 
 ```lua
 lua installPackage([[C:\sciezka\do\ChimeraXP.xml]])
 ```
 
-Pakiet tworzy `chimera_wtyczki/chimera_autoexp/init.lua`, nie modyfikuje oficjalnej Chimery ani ChimeraVIP; potem wykonaj `/przeladuj` i `/exp test`. Pakiet jest idempotentny i **nie nadpisuje nowszej wtyczki** podczas kolejnych startow Mudleta. Aktualizacje nadal mozna wykonywac przez `update.cmd` po zalogowaniu `gh auth login`.
+Pakiet z zalacznika tworzy `chimera_wtyczki/chimera_autoexp/init.lua`, nie modyfikuje oficjalnej Chimery ani ChimeraVIP; potem wykonaj `/przeladuj` i `/exp test`. Pakiet jest idempotentny i **nie nadpisuje nowszej wtyczki** podczas kolejnych startow Mudleta. Aktualizacje nadal mozna wykonywac przez `update.cmd` po zalogowaniu `gh auth login`.
 
 **WAZNE: prywatne repozytorium.** Samo polecenie `lua installPackage("https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/packages/ChimeraXP.xml")` **nie zadziala** z prywatnym repo — Mudlet nie dolacza do zwyklego pobrania uwierzytelnienia GitHuba. Aby instalowac jednym poleceniem URL, trzeba publicznie udostepnic pakiet XML (co ujawni osadzony w nim kod) albo opublikowac maly publiczny loader korzystajacy z odrebnej autoryzacji. **Nie udostepniaj prywatnych tokenow w URL.**
 
@@ -73,3 +73,26 @@ Nie udostępniaj nikomu własnego PAT, tokenów GitHub CLI ani prywatnych kluczy
 - `tests/test_manifest.py` — kontrola poprawności manifestu i integralności paczki (`python tests/test_manifest.py`).
 
 **Zakres beta:** patrol, GMCP ID, mapa, progi bezpieczeństwa, sesyjny stan, import. **Nie obejmuje** handlu/banku/łupów ani panelu Geyser. Pierwsze testy wykonuj na łatwym expowisku pod nadzorem.
+
+## Omijanie NPC (beta.3)
+
+`/exp unikaj pajak`: jezeli aktualne GMCP `Room.Entities` pokazuje pajaka,
+AutoExp nie wysyla `zabij`. Zamiast pauzowac, natychmiast probuje wyjsc
+pojedynczym krokiem przez wyjscie GMCP, preferujac dalsza trase patrolu.
+Probuje rowniez po agresywnym ataku pajaka: chodzik oficjalny zatrzymuje sie
+w walce, dlatego do opuszczenia lokacji uzywana jest zwykla komenda kierunku.
+Przez 10 minut nie prowadzi patrolu przez pokoj, w ktorym zobaczyl omijanego NPC.
+Ruch jest potwierdzany przez zmiane `Room.Info`; brak potwierdzenia powoduje
+proby innych wyjsc (maksymalnie 3), a ostatecznie pauze z ostrzezeniem.
+
+Nie da sie wykryc NPC w sasiednim pokoju, dopoki GMCP nie dostarczy jego zawartosci.
+Nie ma gwarancji ucieczki, jesli serwer zabrania ruchu podczas walki; nie mozna
+tez powstrzymac automatycznego kontrataku postaci lub towarzysza samym AutoExp.
+Ponadto AutoExp nie uzywa automatycznego chodzika podczas samej ucieczki.
+
+Automat czeka co najmniej 7 sekund po wykryciu zakonczenia walki zanim przejdzie dalej,
+aby dac oficjalnemu zbieraniu czas na wykonanie komend. Nie naprawia to blednych
+komend modulu `collect` oficjalnej Chimery. Podczas testowania warto wykonac
+`/zbieranie nie` (Chimera 5) i sprawdzic stary pakiet EXP oraz pozostale aliasy lootowania.
+
+Niski poziom HP podczas rozpoczetego odwrotu nie uruchamia ponownie chodzika.

@@ -50,7 +50,8 @@ local function rooms_from(raw)
     return out
 end
 local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
-    minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3 }
+    minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7,
+    avoidRoomCooldown = 600, escapeWait = 4, escapeMaxTries = 3 }
 local function normalize_profile(src, name)
     local old = type(src) == "table" and src or {}
     local rules = type(old.rules) == "table" and old.rules or {}
@@ -78,7 +79,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.1",
+    version = "0.5.0-beta.3",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -99,6 +100,7 @@ return {
         local attacked_in_room = {}
         local last_seen = {} -- room ID -> time at which room was checked and empty
         local blocked_until = {} -- room ID -> time until we may try again
+        local escape = nil -- { origin, sent_at, tries, tried = { cmd = true } }
         local last_visited = nil
         local entities_ready = false
         local observed_room = nil
@@ -223,6 +225,97 @@ return {
             end
             return found, count
         end
+        -- NPCs on the NEXT room are not known from GMCP. On spotting an
+        -- avoided NPC in our current room, leave immediately without issuing
+        -- a combat command. During combat the native walker auto-stops, so
+        -- this escape uses a single direct room exit (GMCP), not walker.go().
+        local function avoided_npc(p, group_ids)
+            if not ready_entities() then return nil end
+            for _, e in ipairs(gmcp_api.entities().entities) do
+                local id = e.id and tostring(e.id) or nil
+                local friendly = bool(e.self) or e.relation == "self"
+                    or e.relation == "group" or e.relation == "ally"
+                    or (id and group_ids and group_ids[id])
+                if e.kind == "npc" and not friendly and not bool(e.dead)
+                    and contains(e.name, p.avoid) then
+                    return tostring(e.name or e.id or "NPC")
+                end
+            end
+            return nil
+        end
+        -- Commands used by Chimera.Room.Info.exits; other named exits
+        -- ("wrota", "wejscie", etc.) are sent unchanged.
+        local EXIT_COMMANDS = {
+            polnoc = "n", poludnie = "s", wschod = "e", zachod = "w",
+            ["polnocny-wschod"] = "ne", ["polnocny-zachod"] = "nw",
+            ["poludniowy-wschod"] = "se", ["poludniowy-zachod"] = "sw",
+            gora = "u", dol = "d", up = "u", down = "d",
+        }
+        local function is_blocked(id)
+            return id and os.time() < (blocked_until[id] or 0)
+        end
+        local function route_path_clear()
+            -- Mudlet getPath() fills speedWalkPath. Never knowingly route
+            -- through a room we just escaped from.
+            for _, map_id in ipairs(type(speedWalkPath) == "table" and speedWalkPath or {}) do
+                local hash = type(getRoomHashByID) == "function" and getRoomHashByID(map_id) or nil
+                if is_blocked(hash) then return false end
+            end
+            return true
+        end
+        local function escape_exit(p, r, tried)
+            local exits = type(r.exits) == "table" and r.exits or {}
+            local options = {}
+            local position = 0
+            for i, hash in ipairs(p.route) do
+                if hash == r.id then position = i; break end
+            end
+            -- Prefer an adjacent room further along the mapped patrol.
+            local priority = {}
+            for step = 1, #p.route do
+                local index = ((position + step - 1) % #p.route) + 1
+                local hash = p.route[index]
+                if hash ~= r.id and priority[hash] == nil then priority[hash] = step end
+            end
+            for exit, hash in pairs(exits) do
+                local command = EXIT_COMMANDS[exit] or exit
+                if valid_id(hash) and valid_id(command) and not is_blocked(hash)
+                    and not tried[command] then
+                    options[#options + 1] = {
+                        command = command, id = hash,
+                        rank = priority[hash] or 1000,
+                    }
+                end
+            end
+            table.sort(options, function(a, b)
+                if a.rank ~= b.rank then return a.rank < b.rank end
+                return a.command < b.command
+            end)
+            if #options == 0 then return nil end
+
+            -- A direct route neighbour is ideal. If we cannot step directly
+            -- onto the patrol route, prefer the FIRST step toward a waypoint.
+            if options[1].rank < 1000 then return options[1].command end
+            local from = mapper.current_room()
+            if from and type(getPath) == "function" then
+                for step = 1, #p.route do
+                    local index = ((position + step - 1) % #p.route) + 1
+                    local hash = p.route[index]
+                    local dest = not is_blocked(hash) and getRoomIDbyHash(hash) or nil
+                    if dest and dest > 0 and dest ~= from and getPath(from, dest)
+                        and route_path_clear() then
+                        local path = type(speedWalkPath) == "table" and speedWalkPath or {}
+                        local next_hash = type(getRoomHashByID) == "function"
+                            and getRoomHashByID(path[1]) or nil
+                        for _, option in ipairs(options) do
+                            if option.id == next_hash then return option.command end
+                        end
+                    end
+                end
+            end
+            -- Even without a mapped route ahead, try a non-blocked exit.
+            return options[1].command
+        end
         local function queue(delay)
             if not started or paused or pending then return end
             pending = ctx:timer(delay or 0, function()
@@ -233,7 +326,7 @@ return {
         local function halt(reason)
             if pending then ctx:cancel(pending); pending = nil end
             started, paused, dry = false, false, false
-            phase, pending_attack, move = "OFF", nil, nil
+            phase, pending_attack, move, escape = "OFF", nil, nil, nil
             post_combat_at = nil
             last_reason = reason or "Zatrzymano"
             if stop_ours == false and state.owns_walk then
@@ -256,7 +349,7 @@ return {
                 stop_ours = false
             end
             state.owns_walk = false
-            move, pending_attack = nil, nil
+            move, pending_attack, escape = nil, nil, nil
             note("AutoExp WSTRZYMANY: " .. reason, "warn")
         end
         local function move_to(id, purpose)
@@ -283,6 +376,47 @@ return {
             end
             return true
         end
+        local function escape_avoided(p, r, name)
+            local now = os.time()
+            if not escape or escape.origin ~= r.id then
+                escape = { origin = r.id, tried = {}, tries = 0 }
+                blocked_until[r.id] = now + math.max(
+                    tonumber(p.rules.avoidRoomCooldown) or DEFAULT.avoidRoomCooldown,
+                    tonumber(p.rules.minRoomRevisit) or DEFAULT.minRoomRevisit)
+                pending_attack, post_combat_at = nil, nil
+                note("AutoExp: omijany NPC (" .. name .. ") - opuszczam lokacje!", "warn")
+            end
+            if state.owns_walk then
+                stop_ours = true
+                walker.stop("AutoExp: wyjscie z lokacji z omijanym NPC")
+                stop_ours = false
+                state.owns_walk, move = false, nil
+            end
+            if escape.sent_at and now - escape.sent_at <
+                (tonumber(p.rules.escapeWait) or DEFAULT.escapeWait) then
+                announce("AVOID_ESCAPE")
+                return
+            end
+            if escape.tries >= (tonumber(p.rules.escapeMaxTries) or DEFAULT.escapeMaxTries) then
+                pause("Nie udalo sie opuscic lokacji z omijanym NPC: " .. name)
+                return
+            end
+            local command = escape_exit(p, r, escape.tried)
+            if not command then
+                pause("Brak dostepnego wyjscia z lokacji z omijanym NPC: " .. name)
+                return
+            end
+            if dry then
+                note("AutoExp TEST: omijam " .. name .. " -> " .. command)
+                pause("Zakonczono test - zadnej komendy nie wyslano")
+                return
+            end
+            escape.tries = escape.tries + 1
+            escape.tried[command] = true
+            escape.sent_at = now
+            announce("AVOID_ESCAPE")
+            ctx:send(command)
+        end
         local function select_next(p, current)
             local route, now = p.route, os.time()
             local position = 0
@@ -300,7 +434,8 @@ return {
                     if id ~= current then
                         local dest = getRoomIDbyHash(id)
                         local from = mapper.current_room()
-                        if from and dest and dest > 0 and getPath(from, dest) then
+                        if from and dest and dest > 0 and getPath(from, dest)
+                            and route_path_clear() then
                             return id
                         end
                     else
@@ -342,6 +477,21 @@ return {
             local danger = hp <= p.rules.retreatHP or
                 (weakest and weakest.hp <= p.rules.retreatHP)
             local active, foreign = combat_status(group_ids)
+            -- Apply avoid even if already attacked; the game may have started
+            -- combat before Room.Entities arrived. Never call zabij here.
+            local forbidden = avoided_npc(p, group_ids)
+            if forbidden then
+                escape_avoided(p, r, forbidden)
+                return
+            end
+            if escape and escape.origin == r.id and escape.sent_at
+                and os.time() - escape.sent_at <
+                    (tonumber(p.rules.escapeWait) or DEFAULT.escapeWait) then
+                -- Movement was sent; await room change before resuming patrol.
+                announce("AVOID_ESCAPE")
+                return
+            end
+            if escape and escape.origin == r.id then escape = nil end
             if active == nil then announce("WAIT_COMBAT"); return end
             if danger then
                 if active then
@@ -352,6 +502,12 @@ return {
                     if dry then
                         note("AutoExp TEST: odwrot -> " .. tostring(p.safeRoom))
                         pause("Zakonczono test - zadnej komendy nie wyslano")
+                        return
+                    end
+                    -- A running retreat is already heading to safety.
+                    -- Do not stop/restart it on every vitals/timer callback.
+                    if state.owns_walk and move and move.purpose == "safe" then
+                        announce("RETREAT")
                         return
                     end
                     if state.owns_walk then
@@ -377,7 +533,9 @@ return {
                 announce("POST_COMBAT")
             end
             if post_combat_at then
-                if os.time() - post_combat_at < 2 then return end
+                -- The official collect module sends several commands on kill;
+                -- allow a grace period before moving away from the corpse.
+                if os.time() - post_combat_at < (tonumber(p.rules.lootGrace) or DEFAULT.lootGrace) then return end
                 post_combat_at = nil
             end
             if state.owns_walk then return end
@@ -477,7 +635,7 @@ return {
                 return
             end
             started, paused, dry = true, false, test_mode == true
-            pending_attack, move, post_combat_at = nil, nil, nil
+            pending_attack, move, post_combat_at, escape = nil, nil, nil, nil
             attacked_in_room, last_seen, blocked_until = {}, {}, {}
             last_visited = os.time()
             last_group = {}
@@ -493,6 +651,11 @@ return {
             maybe_record(r)
         end)
         ctx:on("chimera.room.changed", function(r)
+            local was_escaping = escape and r and r.id ~= escape.origin
+            if was_escaping then
+                escape = nil -- direct step from an avoided room succeeded
+                pending_attack, post_combat_at = nil, nil
+            end
             if r and r.id ~= observed_room then
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
@@ -501,7 +664,7 @@ return {
             maybe_record(room())
             if started and not paused and not state.owns_walk then
                 -- Manual navigation while running is not treated as a patrol step.
-                if r and r.how == "reczny" then
+                if r and r.how == "reczny" and not was_escaping then
                     pause("Wykryto ruch reczny gracza")
                 else
                     queue(0)
@@ -557,7 +720,14 @@ return {
             state.owns_walk = false
             move = nil
             if started and not paused then
-                pause("Chodzik przerwany: " .. tostring(event and event.reason or "brak powodu"))
+                if event and event.reason == "atak" then
+                    -- Official walker stops whenever combat starts. Inspect
+                    -- current entities before deciding: avoided => escape,
+                    -- regular fight => COMBAT. Do not pause prematurely.
+                    queue(0)
+                else
+                    pause("Chodzik przerwany: " .. tostring(event and event.reason or "brak powodu"))
+                end
             end
         end)
         ctx:on("chimera.session.end", function() halt("Rozlaczono - automat zatrzymany") end)
@@ -762,7 +932,8 @@ return {
         end)
         -- Helpful test-only API, no shared globals or monkeypatches.
         return { status = function() return { phase = phase, started = started, paused = paused,
-            selected = selected, moving = move and move.id, mapping = mapping and mapping.name } end,
+            selected = selected, moving = move and move.id, mapping = mapping and mapping.name,
+            escaping = escape and escape.origin } end,
             import_old_profiles = import_old_profiles }
     end,
 }

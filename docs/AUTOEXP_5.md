@@ -47,3 +47,19 @@ Wersja prywatna **nie udostępnia anonimowego endpointu raw.githubusercontent.co
 - `python tests/test_manifest.py` — sprawdzenie integralności pliku względem manifestu.
 
 Wersja beta **nie była jeszcze przetestowana w rzeczywistej sesji na serwerze**. Testy jednostkowe i symulacyjne nie zastępują testów w Mudlecie.
+
+### Poprawki 0.5.0-beta.3
+
+- Zachowanie `/exp unikaj ...` od beta.3: po wykryciu omijanego NPC wychodzi przez dostepne wyjscie GMCP, rowniez podczas walki, bez wysylania `zabij`.
+- Po walce odczekuje minimum 7 sekund przed kolejnym krokiem; komendy lootowania wysyla wylacznie oficjalna Chimera, nie ChimeraXP.
+- Odwrot rozpoczetym chodzikiem nie jest w kolko restartowany przez kolejne pakiety HP.
+- Nie naprawia bledow zbierania oficjalnej Chimery. W testach mozna tymczasowo uzyc `/zbieranie nie`.
+
+### Ucieczka z lokacji z omijanym NPC (0.5.0-beta.3)
+
+- W pierwszej kolejnosci wyjscie do kolejnego pokoju z zapisanej trasy, dalej kierunek do dostepnej lokacji; sprawdzane sa wyjscia z aktualnego `Room.Info`.
+- W trakcie walki oficjalny `walker.go` nie daje gwarancji ruchu, wiec ucieczka wysyla bezposrednio jedna komende kierunku i czeka na GMCP `Room.Info`.
+- Ochrona przed spamem: 4 s na potwierdzenie kroku, do 3 prob roznymi wyjsciami, nastepnie pauza. Brak wyjsc = pauza.
+- Lokacja z omijanym NPC zostaje zablokowana na 600 s, by nie wracac na nia natychmiast; znane zablokowane pomieszczenia sa odrzucane jako posrednie pokoje planowanej trasy, o ile Mudlet dostarcza `speedWalkPath`.
+- AutoExp nie zleca ataku na omijanego NPC, lecz serwer moze sam uruchamiac automatyczne kontrataki / zachowania najemnikow.
+- Nie ma mozliwosci przewidzenia NPC w kolejnej lokacji bez GMCP o jej zawartosci.

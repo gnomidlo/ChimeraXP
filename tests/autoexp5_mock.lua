@@ -124,4 +124,85 @@ cmd("exp stop")
 cmd("exp start")
 emit("chimera.session.end")
 assert(api.status().started==false)
+-- Avoided NPC is a room hazard, not an excuse to stop patrolling.
+world.room={id="r2", exits={polnoc="r1", poludnie="r3"}};world.current=2
+world.vitals.hp=100
+world.combat={self_active=0,relations={}}
+world.entities={room="r2",entities={{id="me",kind="player",relation="self"},
+  {id="mob-ork",name="wsciekly ork",kind="npc"},
+  {id="mob-spider",name="gigantyczny pajak",kind="npc"}}}
+cmd("exp unikaj","pajak")
+local sent_before,moves_before=#sent,#moves
+cmd("exp start")
+tick()
+assert(not api.status().paused and api.status().phase=="AVOID_ESCAPE", "avoid must attempt escape")
+assert(#sent==sent_before+1 and sent[#sent]=="n", "escape through patrol-facing GMCP exit")
+assert(#moves==moves_before, "do not start official walker during emergency escape")
+-- Events from combat must not create duplicate escape attempts.
+world.combat={self_active=1,relations={{attacker="mob-spider",defender="me"}}}
+emit("chimera.combat.state",world.combat)
+emit("chimera.room.entities",world.entities)
+tick()
+assert(#sent==sent_before+1, "only one movement command pending")
+-- Confirm exit; an automatic step may be tagged 'reczny' by upstream GMCP.
+world.room={id="r1",exits={poludnie="r2"}};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"}}}
+world.combat={self_active=0,relations={}}
+emit("chimera.room.changed",{id="r1",how="reczny"})
+emit("chimera.room.entities",world.entities)
+emit("chimera.combat.state",world.combat)
+tick()
+assert(not api.status().paused, "successful escape must not be confused with manual movement")
+assert(#moves==moves_before, "patrol must not immediately return to blocked spider room")
+cmd("exp stop")
+-- Even if attacked BEFORE starting patrol, escape without attacking spider.
+world.room={id="r2",exits={polnoc="r1",poludnie="r3"}};world.current=2
+world.entities={room="r2",entities={{id="me",kind="player",relation="self"},
+  {id="mob-spider",name="gigantyczny pajak",kind="npc"}}}
+world.combat={self_active=1,relations={{attacker="mob-spider",defender="me"}}}
+sent_before=#sent
+cmd("exp start")
+tick()
+assert(not api.status().paused and api.status().phase=="AVOID_ESCAPE", "escape already active combat")
+assert(#sent==sent_before+1 and sent[#sent]=="n", "attack never initiates a kill command")
+-- Failure to leave should be bounded: second distinct exit, then pause.
+time=time+5;emit("chimera.combat.state",world.combat);tick()
+assert(#sent==sent_before+2 and sent[#sent]=="s", "retry a different safe exit")
+time=time+5;emit("chimera.combat.state",world.combat);tick()
+assert(api.status().paused, "no available unused exit should stop safely")
+assert(#sent==sent_before+2, "do not spam escape commands")
+cmd("exp stop")
+-- An upstream walker stopped by attack must not prematurely pause AutoExp.
+world.room={id="r1",exits={poludnie="r2"}};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"}}}
+world.combat={self_active=0,relations={}}
+sent_before=#sent
+local before_moves=#moves
+cmd("exp start")
+tick()
+assert(#moves==before_moves+1, "patrol began walking")
+emit("chimera.walk.stopped",{reason="atak"})
+assert(not api.status().paused, "walker attack interruption is not a manual pause")
+world.room={id="r2",exits={polnoc="r1",poludnie="r3"}};world.current=2
+world.entities={room="r2",entities={{id="mob-spider",name="gigantyczny pajak",kind="npc"}}}
+world.combat={self_active=1,relations={{attacker="mob-spider",defender="me"}}}
+emit("chimera.room.changed",{id="r2",how="chodzik"})
+emit("chimera.room.entities",world.entities)
+emit("chimera.combat.state",world.combat)
+tick()
+assert(not api.status().paused and sent[#sent]=="n", "escape even after walker stopped on attack")
+cmd("exp stop")
+-- A retreat in progress must not restart whenever fresh vitals arrive.
+world.room={id="r1"};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"}}}
+world.combat={self_active=0,relations={}}
+world.vitals.hp=20
+local moves_prev=#moves
+cmd("exp start")
+tick()
+assert(#moves==moves_prev+1 and api.status().phase=="RETREAT", "retreat starts")
+emit("chimera.char.vitals",world.vitals)
+tick()
+assert(#moves==moves_prev+1 and api.status().phase=="RETREAT", "retreat is not restarted")
+cmd("exp stop")
 print("AutoExp 5: integration mock tests PASS; commands",#sent,"moves",#moves)
