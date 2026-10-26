@@ -1,13 +1,13 @@
 {
   "name": "ChimeraXP",
   "schema": 1,
-  "version": "0.5.0-beta.2",
+  "version": "0.5.0-beta.3",
   "channel": "beta",
   "official_chimera": "5.x",
   "files": [
     {
       "path": "plugins/chimera_autoexp/init.lua",
-      "sha256": "d666cc83fd7f9ea8eac274c952380cb0451e300cce4cdb42b6d0468117349606"
+      "sha256": "ac9a65a2fbae2832e85bc838402734cb45a11add37940a11a8ec089e036a96bc"
     }
   ]
 }
