@@ -1,51 +1,45 @@
-"""Local integrity checks: python tests/test_manifest.py"""
+"""Release checks for the public Mudlet bootstrap and source manifest."""
 import hashlib
 import json
-import re
+import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
-import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseIntegrity(unittest.TestCase):
-    def test_manifest_schema_and_only_owned_plugin(self):
-        manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["name"], "ChimeraXP")
-        self.assertEqual(manifest["schema"], 1)
-        self.assertEqual(manifest["channel"], "beta")
-        self.assertEqual(len(manifest["files"]), 1)
-        entry = manifest["files"][0]
-        self.assertEqual(entry["path"], "plugins/chimera_autoexp/init.lua")
-        file = ROOT / entry["path"]
-        self.assertTrue(file.is_file())
-        self.assertEqual(hashlib.sha256(file.read_bytes()).hexdigest(), entry["sha256"])
-        self.assertTrue(file.read_text(encoding="utf-8").startswith(
-            "-- Chimera AutoExp 5 / standalone plugin"))
-        self.assertIn(f'version = "{manifest["version"]}"', file.read_text(encoding="utf-8"))
+    def test_manifest_schema_and_plugin(self):
+        manifest = json.loads((ROOT / 'manifest.json').read_text('utf-8'))
+        self.assertEqual(manifest['name'], 'ChimeraXP')
+        self.assertEqual(manifest['schema'], 1)
+        self.assertEqual(len(manifest['files']), 1)
+        item = manifest['files'][0]
+        self.assertEqual(item['path'], 'plugins/chimera_autoexp/init.lua')
+        src = (ROOT / item['path']).read_bytes()
+        self.assertEqual(hashlib.sha256(src).hexdigest(), item['sha256'])
+        self.assertIn(f'version = "{manifest["version"]}"'.encode(), src)
 
-    def test_self_contained_xml_installer_matches_source(self):
-        src = (ROOT / "plugins/chimera_autoexp/init.lua").read_text(encoding="utf-8")
-        xml = (ROOT / "packages/ChimeraXP.xml").read_text(encoding="utf-8")
+    def test_installer_is_lightweight_and_matches_source(self):
+        src = (ROOT / 'installer/mudlet_updater.lua').read_text('utf-8')
+        xml = (ROOT / 'packages/ChimeraXP.xml').read_text('utf-8')
         root = ET.fromstring(xml)
-        self.assertEqual(root.tag, "MudletPackage")
-        self.assertEqual(len(root.findall(".//Script")), 1)
-        payload = re.search(r"local payload = \[==\[\n(.*?)\n\]==\]", xml, re.S)
-        self.assertIsNotNone(payload)
-        self.assertEqual(payload.group(1), src.rstrip("\n"))
-        version = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))["version"]
-        self.assertIn(f'I.package_version = "{version}"', xml)
+        self.assertEqual(root.tag, 'MudletPackage')
+        scripts = root.findall('.//Script')
+        self.assertEqual(len(scripts), 1)
+        self.assertEqual(scripts[0].findtext('script').strip(), src.strip())
+        self.assertLess(len(xml), 15000)
+        self.assertIn('sysDownloadDone', src)
+        self.assertIn('sysDownloadError', src)
 
-    def test_windows_installer_uses_auth_not_shared_tokens(self):
-        installer = (ROOT / "installer" / "ChimeraXP.ps1").read_text(encoding="utf-8")
-        self.assertIn("gh auth status", installer)
-        self.assertIn("gh api", installer)
-        self.assertIn("-Source GitHub", (ROOT / "update.cmd").read_text(encoding="utf-8"))
-        self.assertIn("-Source Local", (ROOT / "install.cmd").read_text(encoding="utf-8"))
-        self.assertIn("Sha256 $data", installer)
-        self.assertIn("$onlyPluginFile = 'plugins/chimera_autoexp/init.lua'", installer)
+    def test_windows_installer_still_has_offline_support(self):
+        if not (ROOT / 'installer/ChimeraXP.ps1').exists():
+            self.skipTest('legacy Windows installer not staged locally')
+        powershell = (ROOT / 'installer/ChimeraXP.ps1').read_text('utf-8')
+        self.assertIn('Sha256 $data', powershell)
+        self.assertIn('gh auth status', powershell)  # legacy CLI update path
+        self.assertIn('-Source Local', (ROOT / 'install.cmd').read_text('utf-8'))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

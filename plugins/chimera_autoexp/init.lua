@@ -80,7 +80,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.7",
+    version = "0.5.0-beta.8",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1023,7 +1023,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.6"},
+                {"Wersja", "0.5.0-beta.8"},
                 {"Stan", phase .. (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
@@ -1041,6 +1041,15 @@ return {
             ctx.log.info("/exp cel TEKST | cel- TEKST | unikaj TEKST | unikaj- TEKST")
             ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | odwrot-test | pauza | wznow | stop")
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
+            ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
+        end)
+        command("aktualizuj", nil, function()
+            local updater = rawget(_G, "chimera_xp_updater")
+            if type(updater) == "table" and type(updater.check) == "function" then
+                updater:check(true)
+            else
+                note("Nie zainstalowano internetowego instalatora ChimeraXP. Uruchom: lua installPackage(\"https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/packages/ChimeraXP.xml\")", "warn")
+            end
         end)
         command("start", nil, function() start(false) end)
         command("test", nil, function() start(true) end)
