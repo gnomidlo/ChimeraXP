@@ -1,0 +1,1425 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE MudletPackage>
+<MudletPackage version="1.001">
+  <ScriptPackage>
+    <ScriptGroup isActive="yes" isFolder="yes">
+      <name>ChimeraXP</name>
+      <packageName>ChimeraXP</packageName>
+      <script />
+      <eventHandlerList />
+      <Script isActive="yes" isFolder="no">
+        <name>ChimeraXP installer</name>
+        <packageName>ChimeraXP</packageName>
+        <script><![CDATA[
+-- ChimeraXP: samodzielny instalator Mudlet (bez polaczenia z GitHubem).
+-- Instaluje odrebna wtyczke oficjalnej Chimery 5.x, NIE modul ChimeraVIP.
+-- Kod z tej paczki jest osadzony w pliku XML, bo z prywatnego
+-- raw.githubusercontent.com zwykle nie da sie pobierac bez autoryzacji.
+
+chimera_xp_installer = chimera_xp_installer or {}
+local I = chimera_xp_installer
+I.package_version = "0.5.0-beta.7"
+
+local payload = [==[
+-- Chimera AutoExp 5 / standalone plugin for official Chimera 5.x.
+-- Not compatible with the legacy AutoExp XML package: disable that package.
+-- Native APIs only: gmcp, mapper, walker and the chimera.* event bus.
+-- A conservative, opt-in combat PATROL (no unattended loot/selling yet).
+local function trim(s)
+    return tostring(s or ""):match("^%s*(.-)%s*$")
+end
+local function normalized(s)
+    return trim(s):lower()
+end
+local function bool(v)
+    return v == true or v == 1 or v == "1"
+end
+local function pct(value, maximum)
+    local a, b = tonumber(value), tonumber(maximum)
+    if a and b and b > 0 then return a * 100 / b end
+    return nil
+end
+local function valid_id(value)
+    return type(value) == "string" and #value > 0
+        and #value < 128 and not value:find("[%s;\r\n]")
+end
+local function contains(name, words)
+    name = normalized(name)
+    for _, pattern in ipairs(words or {}) do
+        if name:find(normalized(pattern), 1, true) then return true end
+    end
+    return false
+end
+local function unique_names(raw)
+    local out, seen = {}, {}
+    for _, name in ipairs(type(raw) == "table" and raw or {}) do
+        name = trim(name)
+        if name ~= "" and not seen[normalized(name)] then
+            seen[normalized(name)] = true
+            out[#out + 1] = name
+        end
+    end
+    return out
+end
+local function rooms_from(raw)
+    local out, seen = {}, {}
+    for _, room in ipairs(type(raw) == "table" and raw or {}) do
+        local id = type(room) == "table" and room.id or room
+        if valid_id(id) and not seen[id] then
+            seen[id] = true
+            out[#out + 1] = id
+        end
+    end
+    return out
+end
+local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
+    minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7,
+    avoidRoomCooldown = 600, escapeWait = 4, escapeMaxTries = 3,
+    safeMoveWait = 3, safeMoveTries = 2, emergencyFallbackSteps = 40 }
+local function normalize_profile(src, name)
+    local old = type(src) == "table" and src or {}
+    local rules = type(old.rules) == "table" and old.rules or {}
+    local p = {
+        name = trim(name or old.name), route = rooms_from(old.route),
+        targets = unique_names(old.targets), avoid = unique_names(old.avoid),
+        safeRoom = valid_id(old.safeRoom) and old.safeRoom or nil,
+        rules = {},
+    }
+    for key, default in pairs(DEFAULT) do
+        p.rules[key] = tonumber(rules[key]) or default
+    end
+    return p
+end
+local function import_old_profiles(old)
+    local areas = {}
+    for key, profile in pairs(type(old.areas) == "table" and old.areas or {}) do
+        if type(profile) == "table" then
+            local p = normalize_profile(profile, profile.name or key)
+            if p.name ~= "" then areas[normalized(p.name)] = p end
+        end
+    end
+    return areas
+end
+
+return {
+    name = "autoexp",
+    version = "0.5.0-beta.7",
+    title = "ChimeraXP / AutoExp 5",
+    section = "automatyzacja",
+    description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
+    deps = { "gmcp", "mapper", "walker" },
+    setup = function(ctx)
+        local gmcp_api = ctx:use("gmcp")
+        local mapper = ctx:use("mapper")
+        local walker = ctx:use("walker")
+        local state = ctx.state
+        local areas = ctx:saved("profiles", {})
+        if type(areas) ~= "table" then areas = {} end
+        local selected = ctx:saved("selected", nil)
+        local started, paused, dry = false, false, false
+        local phase = "OFF"
+        local mapping = nil
+        local move = nil -- { id, map, purpose }
+        local pending_attack = nil -- { id, room, since }
+        local attacked_in_room = {}
+        local last_seen = {} -- room ID -> time at which room was checked and empty
+        local blocked_until = {} -- room ID -> time until we may try again
+        -- Remember real, GMCP-confirmed routes even when Mudlet's mapped
+        -- getPath() is unavailable or returns a path through an avoided room.
+        -- This is session state only; the history is NOT guessed from exits.
+        local known_exits = state.emergency_known_exits or {}
+        local trail = state.emergency_trail or {}
+        state.emergency_known_exits, state.emergency_trail = known_exits, trail
+        local function record_room(r)
+            if type(r) ~= "table" or not valid_id(r.id) then return end
+            if type(r.exits) == "table" then
+                local links = {}
+                for direction, id in pairs(r.exits) do
+                    if valid_id(direction) and valid_id(id) then links[direction] = id end
+                end
+                known_exits[r.id] = links
+            end
+            if trail[#trail] == r.id then return end
+            if #trail >= 2 and trail[#trail - 1] == r.id then
+                table.remove(trail)  -- confirmed backtrack, do not bounce back
+            else
+                trail[#trail + 1] = r.id
+                if #trail > 160 then table.remove(trail, 1) end
+            end
+        end
+        local escape = nil -- { origin, sent_at, tries, tried = { cmd = true } }
+        local emergency = nil -- { step = {origin, destination, command, sent_at}, tries, destination }
+        local last_visited = nil
+        local entities_ready = false
+        local observed_room = nil
+        local post_combat_at = nil
+        local last_reason = ""
+        local pending = nil
+        local stop_ours = false
+        local last_group = nil
+        local external_walk = false
+        local evaluate
+
+        local function note(message, level)
+            local fn = level == "warn" and ctx.log.warn or ctx.log.info
+            fn(tostring(message))
+        end
+        local function announce(label)
+            if phase ~= label then
+                phase = label
+                if started then note("AutoExp: " .. phase) end
+            end
+        end
+        local function remember()
+            ctx:save("profiles", areas)
+            ctx:save("selected", selected)
+        end
+        local function allowed_config()
+            if started and not paused then
+                note("Wstrzymaj lub zatrzymaj /exp przed zmiana konfiguracji.", "warn")
+                return false
+            end
+            return true
+        end
+        local function profile()
+            return selected and areas[selected] or nil
+        end
+        local function room()
+            return gmcp_api.room()
+        end
+        local function room_id()
+            local r = room()
+            return r and r.id or nil
+        end
+        local function ready_entities()
+            local packet = gmcp_api.entities()
+            local here = room_id()
+            return entities_ready and type(packet) == "table" and packet.room == here
+                and type(packet.entities) == "table"
+        end
+        local function me_and_group()
+            local members = (gmcp_api.group() or {}).members
+            if type(members) ~= "table" then return nil, nil end
+            local ids, me = {}, nil
+            for _, m in ipairs(members) do
+                if m.id ~= nil then ids[tostring(m.id)] = true end
+                if bool(m.self) then me = m end
+            end
+            return me, ids
+        end
+        local function health()
+            local vitals = gmcp_api.vitals() or {}
+            local hp = tonumber(vitals.hp)
+            local me, group_ids = me_and_group()
+            if hp == nil and me then hp = pct(me.hp, me.maxhp) end
+            local lowest = nil
+            local group = gmcp_api.group() or {}
+            local members = type(group.members) == "table" and group.members or {}
+            for _, m in ipairs(members) do
+                if not bool(m.self) and bool(m.here) then
+                    local value = pct(m.hp, m.maxhp)
+                    if value and (not lowest or value < lowest.hp) then
+                        lowest = { hp = value, name = m.name or tostring(m.id) }
+                    end
+                end
+            end
+            return hp, lowest, group_ids, me
+        end
+        local function combat_status(group_ids)
+            local combat = gmcp_api.combat()
+            if type(combat) ~= "table" then return nil, false end
+            local active = bool(combat.self_active)
+            local foreign = false
+            local by_id = {}
+            local packet = gmcp_api.entities()
+            if ready_entities() then
+                for _, e in ipairs(packet.entities) do
+                    if e.id then by_id[tostring(e.id)] = e end
+                end
+            end
+            for _, rel in ipairs(type(combat.relations) == "table" and combat.relations or {}) do
+                local a, b = tostring(rel.attacker), tostring(rel.defender)
+                if group_ids and (group_ids[a] or group_ids[b]) then
+                    active = true
+                else
+                    local ae, be = by_id[a], by_id[b]
+                    if ae and be and (
+                        (ae.kind == "player" and be.kind == "npc") or
+                        (ae.kind == "npc" and be.kind == "player")) then
+                        foreign = true
+                    end
+                end
+            end
+            return active, foreign
+        end
+        local function target_info(p, group_ids)
+            if not ready_entities() then return nil, nil end
+            local entities = gmcp_api.entities().entities
+            local found, count = nil, 0
+            for _, e in ipairs(entities) do
+                local id = e.id and tostring(e.id) or nil
+                local friendly = bool(e.self) or e.relation == "self"
+                    or e.relation == "group" or e.relation == "ally"
+                    or e.group_role == "leader" or e.group_role == "member"
+                    or (id and group_ids and group_ids[id])
+                if e.kind == "npc" and not friendly and not bool(e.dead) then
+                    count = count + 1
+                    if not found and id and valid_id(id)
+                        and contains(e.name, p.targets) and not contains(e.name, p.avoid)
+                        and not attacked_in_room[id] then
+                        found = e
+                    end
+                end
+            end
+            return found, count
+        end
+        -- NPCs on the NEXT room are not known from GMCP. On spotting an
+        -- avoided NPC in our current room, leave immediately without issuing
+        -- a combat command. During combat the native walker auto-stops, so
+        -- this escape uses a single direct room exit (GMCP), not walker.go().
+        local function avoided_npc(p, group_ids)
+            if not ready_entities() then return nil end
+            for _, e in ipairs(gmcp_api.entities().entities) do
+                local id = e.id and tostring(e.id) or nil
+                local friendly = bool(e.self) or e.relation == "self"
+                    or e.relation == "group" or e.relation == "ally"
+                    or (id and group_ids and group_ids[id])
+                if e.kind == "npc" and not friendly and not bool(e.dead)
+                    and contains(e.name, p.avoid) then
+                    return tostring(e.name or e.id or "NPC")
+                end
+            end
+            return nil
+        end
+        -- Commands used by Chimera.Room.Info.exits; other named exits
+        -- ("wrota", "wejscie", etc.) are sent unchanged.
+        local EXIT_COMMANDS = {
+            polnoc = "n", poludnie = "s", wschod = "e", zachod = "w",
+            ["polnocny-wschod"] = "ne", ["polnocny-zachod"] = "nw",
+            ["poludniowy-wschod"] = "se", ["poludniowy-zachod"] = "sw",
+            gora = "u", dol = "d", up = "u", down = "d",
+        }
+        -- Numpad emits chimera.step.manual for any directional send,
+        -- including our ctx:send; ownership lasts only during that call.
+        local owned_direction = nil
+        local expected_manual = nil -- one pending numpad echo of our own step
+        local function send_owned_direction(command)
+            local direction = EXIT_COMMANDS[command] or command
+            -- A "chimera.step.manual" callback may follow ctx:send() instead
+            -- of happening inside it. Keep ONE matching expected event while
+            -- still in the source room (max two seconds).
+            expected_manual = {
+                direction = direction, room = room_id(), time = os.time(), consumed = false,
+            }
+            local previous = owned_direction
+            owned_direction = direction
+            local ok, err = pcall(ctx.send, ctx, command)
+            owned_direction = previous
+            if not ok then expected_manual = nil end
+            return ok, err
+        end
+        local function is_blocked(id)
+            return id and os.time() < (blocked_until[id] or 0)
+        end
+        local function route_path_clear()
+            -- Mudlet getPath() fills speedWalkPath. Never knowingly route
+            -- through a room we just escaped from.
+            for _, map_id in ipairs(type(speedWalkPath) == "table" and speedWalkPath or {}) do
+                local hash = type(getRoomHashByID) == "function" and getRoomHashByID(map_id) or nil
+                if is_blocked(hash) then return false end
+            end
+            return true
+        end
+        local function known_step_toward(r, target, allow_blocked)
+            -- BFS through exits observed in previously visited rooms. Unlike
+            -- the Mudlet map, this needs no saved mapper rooms/coordinates.
+            if not valid_id(target) or r.id == target then return nil end
+            local queue_ids = { r.id }
+            local head, seen = 1, { [r.id] = true }
+            local first = {}
+            while head <= #queue_ids and head <= 600 do
+                local id = queue_ids[head]
+                head = head + 1
+                local links = (id == r.id and r.exits) or known_exits[id]
+                if type(links) == "table" then
+                    local options = {}
+                    for direction, dest in pairs(links) do
+                        local command = EXIT_COMMANDS[direction]
+                        if command and valid_id(dest) and not seen[dest]
+                            and (allow_blocked or not is_blocked(dest)) then
+                            options[#options + 1] = { command = command, id = dest }
+                        end
+                    end
+                    table.sort(options, function(a, b)
+                        if a.id == b.id then return a.command < b.command end
+                        return a.id < b.id
+                    end)
+                    for _, link in ipairs(options) do
+                        seen[link.id] = true
+                        first[link.id] = id == r.id and link or first[id]
+                        if link.id == target then
+                            local result = first[link.id]
+                            return result.command, result.id
+                        end
+                        queue_ids[#queue_ids + 1] = link.id
+                    end
+                end
+            end
+            return nil
+        end
+        local function emergency_step(p, r)
+            -- Priority 1: direct GMCP way to the saved safe room. No map needed.
+            local direct, dest = known_step_toward(r, p.safeRoom, false)
+            if direct then return direct, dest, "GMCP" end
+
+            -- Priority 2: Mudlet getPath. Some clients have only a partial
+            -- mapper graph, or mapper.current_room() updates after Room.Info.
+            local from = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(r.id)
+                or mapper.current_room()
+            if type(from) ~= "number" or from <= 0 then from = mapper.current_room() end
+            local safe = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(p.safeRoom) or nil
+            if from and safe and safe > 0 and type(getPath) == "function" then
+                local ok, found = pcall(getPath, from, safe)
+                if ok and found and route_path_clear() then
+                    local path = type(speedWalkPath) == "table" and speedWalkPath or {}
+                    local next_id = type(getRoomHashByID) == "function"
+                        and getRoomHashByID(path[1]) or nil
+                    if valid_id(next_id) and not is_blocked(next_id) then
+                        for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
+                            local command = EXIT_COMMANDS[direction]
+                            if command and hash == next_id then return command, hash, "mapper" end
+                        end
+                    end
+                end
+            end
+
+            -- Priority 3: retrace confirmed rooms, not a guessed route.
+            -- Two last trail rooms: [..., previous, current].
+            if trail[#trail] == r.id and #trail >= 2 then
+                local previous = trail[#trail - 1]
+                if not is_blocked(previous) then
+                    for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
+                        local command = EXIT_COMMANDS[direction]
+                        if command and hash == previous then return command, hash, "cofanie" end
+                    end
+                end
+            end
+
+            -- Priority 4: when neither safe route nor breadcrumb exists, an
+            -- actual GMCP exit is safer than standing still in lethal combat.
+            -- Avoid known dangerous rooms and loops; never invent an exit.
+            local options = {}
+            for direction, id in pairs(type(r.exits) == "table" and r.exits or {}) do
+                local command = EXIT_COMMANDS[direction]
+                if command and valid_id(id) and not is_blocked(id) then
+                    local n = emergency and emergency.visits[id] or 0
+                    options[#options + 1] = {command=command, id=id, visits=n or 0}
+                end
+            end
+            table.sort(options, function(a,b)
+                if a.visits ~= b.visits then return a.visits < b.visits end
+                if a.id ~= b.id then return a.id < b.id end
+                return a.command < b.command
+            end)
+            if #options > 0 then return options[1].command, options[1].id, "wyjscie GMCP" end
+            return nil
+        end
+        local function escape_exit(p, r, tried)
+            local exits = type(r.exits) == "table" and r.exits or {}
+            local options = {}
+            local position = 0
+            for i, hash in ipairs(p.route) do
+                if hash == r.id then position = i; break end
+            end
+            -- Prefer an adjacent room further along the mapped patrol.
+            local priority = {}
+            for step = 1, #p.route do
+                local index = ((position + step - 1) % #p.route) + 1
+                local hash = p.route[index]
+                if hash ~= r.id and priority[hash] == nil then priority[hash] = step end
+            end
+            for exit, hash in pairs(exits) do
+                local command = EXIT_COMMANDS[exit] or exit
+                if valid_id(hash) and valid_id(command) and not is_blocked(hash)
+                    and not tried[command] then
+                    options[#options + 1] = {
+                        command = command, id = hash,
+                        rank = priority[hash] or 1000,
+                    }
+                end
+            end
+            table.sort(options, function(a, b)
+                if a.rank ~= b.rank then return a.rank < b.rank end
+                return a.command < b.command
+            end)
+            if #options == 0 then return nil end
+
+            -- A direct route neighbour is ideal. If we cannot step directly
+            -- onto the patrol route, prefer the FIRST step toward a waypoint.
+            if options[1].rank < 1000 then return options[1].command end
+            local from = mapper.current_room()
+            if from and type(getPath) == "function" then
+                for step = 1, #p.route do
+                    local index = ((position + step - 1) % #p.route) + 1
+                    local hash = p.route[index]
+                    local dest = not is_blocked(hash) and getRoomIDbyHash(hash) or nil
+                    if dest and dest > 0 and dest ~= from and getPath(from, dest)
+                        and route_path_clear() then
+                        local path = type(speedWalkPath) == "table" and speedWalkPath or {}
+                        local next_hash = type(getRoomHashByID) == "function"
+                            and getRoomHashByID(path[1]) or nil
+                        for _, option in ipairs(options) do
+                            if option.id == next_hash then return option.command end
+                        end
+                    end
+                end
+            end
+            -- Even without a mapped route ahead, try a non-blocked exit.
+            return options[1].command
+        end
+        local function queue(delay)
+            if not started or paused or pending then return end
+            pending = ctx:timer(delay or 0, function()
+                pending = nil
+                if started and not paused then evaluate() end
+            end)
+        end
+        local function halt(reason)
+            expected_manual = nil
+            if pending then ctx:cancel(pending); pending = nil end
+            started, paused, dry = false, false, false
+            phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
+            post_combat_at = nil
+            last_reason = reason or "Zatrzymano"
+            if stop_ours == false and state.owns_walk then
+                stop_ours = true
+                walker.stop("AutoExp: stop")
+                stop_ours = false
+            end
+            state.owns_walk = false
+            note("AutoExp: " .. last_reason)
+        end
+        local function pause(reason)
+            if not started or paused then return end
+            expected_manual = nil
+            paused = true
+            phase = "PAUSED"
+            last_reason = reason
+            if pending then ctx:cancel(pending); pending = nil end
+            if state.owns_walk then
+                stop_ours = true
+                walker.stop("AutoExp: pauza")
+                stop_ours = false
+            end
+            state.owns_walk = false
+            move, pending_attack, escape, emergency = nil, nil, nil, nil
+            note("AutoExp WSTRZYMANY: " .. reason, "warn")
+        end
+        local function move_to(id, purpose)
+            local current = mapper.current_room()
+            local destination = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(id) or nil
+            if not current or not destination or destination <= 0 then
+                pause("Brak lokacji na mapie: " .. tostring(id))
+                return false
+            end
+            if current == destination then return true end
+            if state.owns_walk then return false end
+            move = { id = id, map = destination, purpose = purpose }
+            state.owns_walk = true -- BEFORE go: native walker emits synchronously
+            announce(purpose == "safe" and "RETREAT" or "MOVING")
+            local ok, reason = walker.go(destination)
+            if not ok then
+                move, state.owns_walk = nil, false
+                pause("Chodzik odmowil ruchu: " .. tostring(reason))
+                return false
+            end
+            if ok == "tutaj" then
+                move, state.owns_walk = nil, false
+                queue(0)
+            end
+            return true
+        end
+        local function escape_avoided(p, r, name)
+            local now = os.time()
+            if not escape or escape.origin ~= r.id then
+                escape = { origin = r.id, tried = {}, tries = 0 }
+                blocked_until[r.id] = now + math.max(
+                    tonumber(p.rules.avoidRoomCooldown) or DEFAULT.avoidRoomCooldown,
+                    tonumber(p.rules.minRoomRevisit) or DEFAULT.minRoomRevisit)
+                pending_attack, post_combat_at = nil, nil
+                note("AutoExp: omijany NPC (" .. name .. ") - opuszczam lokacje!", "warn")
+            end
+            if state.owns_walk then
+                stop_ours = true
+                walker.stop("AutoExp: wyjscie z lokacji z omijanym NPC")
+                stop_ours = false
+                state.owns_walk, move = false, nil
+            end
+            if escape.sent_at and now - escape.sent_at <
+                (tonumber(p.rules.escapeWait) or DEFAULT.escapeWait) then
+                announce("AVOID_ESCAPE")
+                return
+            end
+            if escape.tries >= (tonumber(p.rules.escapeMaxTries) or DEFAULT.escapeMaxTries) then
+                pause("Nie udalo sie opuscic lokacji z omijanym NPC: " .. name)
+                return
+            end
+            local command = escape_exit(p, r, escape.tried)
+            if not command then
+                pause("Brak dostepnego wyjscia z lokacji z omijanym NPC: " .. name)
+                return
+            end
+            if dry then
+                note("AutoExp TEST: omijam " .. name .. " -> " .. command)
+                pause("Zakonczono test - zadnej komendy nie wyslano")
+                return
+            end
+            escape.tries = escape.tries + 1
+            escape.tried[command] = true
+            escape.sent_at = now
+            announce("AVOID_ESCAPE")
+            local ok, err = send_owned_direction(command)
+            if not ok then pause("Blad wyslania kroku omijania NPC: " .. tostring(err)) end
+        end
+        -- Emergency retreat: the official walker deliberately stops on combat.
+        -- Issue ONE mapped direction at a time and await Room.Info confirmation.
+        -- This cannot overcome a server-side ban on fleeing from combat.
+        local function retreat_in_combat(p, r)
+            if not valid_id(p.safeRoom) then
+                pause("Niskie HP w walce, ale nie zapisano bezpiecznej lokacji (/exp bezpieczna)!")
+                return
+            end
+            if r.id == p.safeRoom then
+                emergency = nil
+                announce("RECOVERY")
+                return
+            end
+            if state.owns_walk then
+                stop_ours = true
+                walker.stop("AutoExp: awaryjny odwrot w walce")
+                stop_ours = false
+                state.owns_walk, move = false, nil
+            end
+            local now = os.time()
+            if not emergency then
+                emergency = { destination = p.safeRoom, tries = 0, steps = 0,
+                    fallback_steps = 0, visits = { [r.id] = 1 }, warned_fallback = false }
+                pending_attack, post_combat_at, escape = nil, nil, nil
+                note("AutoExp: ALARM HP! Awaryjny odwrot do bezpiecznej lokacji, krok po kroku.", "warn")
+            end
+            if emergency.step and emergency.step.origin == r.id then
+                if now - emergency.step.sent_at <
+                    (tonumber(p.rules.safeMoveWait) or DEFAULT.safeMoveWait) then
+                    announce("EMERGENCY_RETREAT")
+                    return
+                end
+                if emergency.tries >=
+                    (tonumber(p.rules.safeMoveTries) or DEFAULT.safeMoveTries) then
+                    pause("ALARM: serwer nie potwierdzil ruchu w walce! Przejmij sterowanie natychmiast.")
+                    return
+                end
+                -- Retry the same mapped exit; switching destinations while
+                -- the previous movement may be delayed is too risky.
+                emergency.tries = emergency.tries + 1
+                emergency.step.sent_at = now
+                note("AutoExp: ruch niepotwierdzony; powtarzam wyjscie do bezpiecznej lokacji ("
+                     .. emergency.tries .. "/" .. p.rules.safeMoveTries .. ").", "warn")
+                announce("EMERGENCY_RETREAT")
+                local ok, err = send_owned_direction(emergency.step.command)
+                if not ok then pause("Blad powtorzenia kroku awaryjnego: " .. tostring(err)) end
+                return
+            end
+            -- A new room is now confirmed. Plan just the next step, not a
+            -- multi-command speedwalk that might race against GMCP combat.
+            emergency.step, emergency.tries = nil, 0
+            local command, next_id, source = emergency_step(p, r)
+            if not command then
+                pause("ALARM: brak potwierdzonego, dostepnego wyjscia GMCP podczas odwrotu! Przejmij sterowanie!")
+                return
+            end
+            if source ~= "GMCP" and source ~= "mapper" then
+                if emergency.fallback_steps >= (tonumber(p.rules.emergencyFallbackSteps)
+                    or DEFAULT.emergencyFallbackSteps) then
+                    pause("ALARM: przekroczono limit szukania schronienia bez znanej trasy. Przejmij sterowanie!")
+                    return
+                end
+                emergency.fallback_steps = emergency.fallback_steps + 1
+                if not emergency.warned_fallback then
+                    emergency.warned_fallback = true
+                    note("AutoExp ALARM: brak drogi do schronienia; cofanie/wyjscie awaryjne (" .. source .. ").", "warn")
+                end
+            else
+                emergency.fallback_steps = 0 -- known route; do not cap long safe routes
+            end
+            if dry then
+                note("AutoExp TEST: awaryjny odwrot w walce -> " .. command)
+                pause("Zakonczono test - zadnej komendy nie wyslano")
+                return
+            end
+            emergency.step = { origin = r.id, destination = next_id,
+                command = command, sent_at = now }
+            emergency.tries = 1
+            emergency.steps = emergency.steps + 1
+            announce("EMERGENCY_RETREAT")
+            local ok, err = send_owned_direction(command)
+            if not ok then pause("Blad wyslania kroku awaryjnego: " .. tostring(err)) end
+        end
+        local function select_next(p, current)
+            local route, now = p.route, os.time()
+            local position = 0
+            for i, id in ipairs(route) do
+                if id == current then position = i; break end
+            end
+            -- Cykl stabilny: nie przeliczamy 200 tras przy kazdym GMCP.
+            local minimum_wait = nil
+            for step = 1, #route do
+                local idx = ((position + step - 1) % #route) + 1
+                local id = route[idx]
+                local revisit = last_seen[id] and (last_seen[id] + p.rules.minRoomRevisit) or 0
+                local eligible_at = math.max(revisit, blocked_until[id] or 0)
+                if now >= eligible_at then
+                    if id ~= current then
+                        local dest = getRoomIDbyHash(id)
+                        local from = mapper.current_room()
+                        if from and dest and dest > 0 and getPath(from, dest)
+                            and route_path_clear() then
+                            return id
+                        end
+                    else
+                        -- A one-room or otherwise exhausted route should
+                        -- wait for respawn instead of stopping permanently.
+                        minimum_wait = minimum_wait or p.rules.minRoomRevisit
+                    end
+                else
+                    local remaining = math.max(1, eligible_at - now)
+                    if not minimum_wait or remaining < minimum_wait then minimum_wait = remaining end
+                end
+            end
+            return nil, minimum_wait
+        end
+        local function maybe_record(room_info)
+            if not mapping or not room_info or not valid_id(room_info.id) then return end
+            if not mapping.seen[room_info.id] then
+                mapping.seen[room_info.id] = true
+                mapping.route[#mapping.route + 1] = room_info.id
+            end
+        end
+        evaluate = function()
+            local p = profile()
+            local r = room()
+            if not p or not r or not valid_id(r.id) then
+                pause("Brak profilu lub lokacji GMCP")
+                return
+            end
+            -- Guard against triggering on stale room/Entities after a fast move.
+            if observed_room ~= r.id then
+                observed_room, entities_ready = r.id, false
+                attacked_in_room = {}
+                last_visited = os.time()
+            end
+            local hp, weakest, group_ids = health()
+            if not hp then
+                announce("WAIT_HP"); return
+            end
+            local danger = hp <= p.rules.retreatHP or
+                (weakest and weakest.hp <= p.rules.retreatHP)
+            local active, foreign = combat_status(group_ids)
+            -- When low HP forces retreat while in combat, safety takes
+            -- precedence over ordinary avoided-NPC routing and attacking.
+            if emergency or (danger and active) then
+                retreat_in_combat(p, r)
+                return
+            end
+            -- Apply avoid even if already attacked; the game may have started
+            -- combat before Room.Entities arrived. Never call zabij here.
+            local forbidden = avoided_npc(p, group_ids)
+            if forbidden then
+                escape_avoided(p, r, forbidden)
+                return
+            end
+            if escape and escape.origin == r.id and escape.sent_at
+                and os.time() - escape.sent_at <
+                    (tonumber(p.rules.escapeWait) or DEFAULT.escapeWait) then
+                -- Movement was sent; await room change before resuming patrol.
+                announce("AVOID_ESCAPE")
+                return
+            end
+            if escape and escape.origin == r.id then escape = nil end
+            if active == nil then announce("WAIT_COMBAT"); return end
+            if danger then
+                if active then
+                    retreat_in_combat(p, r)
+                    return
+                end
+                if r.id ~= p.safeRoom then
+                    if dry then
+                        note("AutoExp TEST: odwrot -> " .. tostring(p.safeRoom))
+                        pause("Zakonczono test - zadnej komendy nie wyslano")
+                        return
+                    end
+                    -- A running retreat is already heading to safety.
+                    -- Do not stop/restart it on every vitals/timer callback.
+                    if state.owns_walk and move and move.purpose == "safe" then
+                        announce("RETREAT")
+                        return
+                    end
+                    if state.owns_walk then
+                        stop_ours = true
+                        walker.stop("AutoExp: odwrot")
+                        stop_ours = false
+                        state.owns_walk = false
+                        move = nil
+                    end
+                    move_to(p.safeRoom, "safe")
+                    return
+                end
+                announce("RECOVERY"); return
+            end
+            if active then
+                pending_attack = nil
+                post_combat_at = nil
+                announce("COMBAT")
+                return
+            end
+            if phase == "COMBAT" then
+                post_combat_at = os.time()
+                announce("POST_COMBAT")
+            end
+            if post_combat_at then
+                -- The official collect module sends several commands on kill;
+                -- allow a grace period before moving away from the corpse.
+                if os.time() - post_combat_at < (tonumber(p.rules.lootGrace) or DEFAULT.lootGrace) then return end
+                post_combat_at = nil
+            end
+            if state.owns_walk then return end
+            if phase == "ENGAGING" and pending_attack then
+                if os.time() - pending_attack.since < p.rules.attackWait then return end
+                if r.id == pending_attack.room then
+                    attacked_in_room[pending_attack.id] = true
+                end
+                pending_attack = nil
+                announce("READY")
+            end
+            if r.id == p.safeRoom and hp < p.rules.returnHP then
+                announce("RECOVERY"); return
+            end
+            if weakest and weakest.hp < p.rules.returnHP and r.id == p.safeRoom then
+                announce("RECOVERY"); return
+            end
+            if not ready_entities() then
+                announce("WAIT_ENTITIES")
+                if observed_room and last_visited
+                    and os.time() - last_visited > p.rules.syncWait then
+                    pause("Brak aktualnego Chimera.Room.Entities dla tej lokacji")
+                end
+                return
+            end
+            if foreign and os.time() >= (blocked_until[r.id] or 0) then
+                blocked_until[r.id] = os.time() + p.rules.minRoomRevisit
+                note("AutoExp: obcy gracz walczy z NPC; omijam lokacje.")
+            end
+            local target, npc_count = target_info(p, group_ids)
+            if npc_count > p.rules.maxEnemies then
+                if os.time() >= (blocked_until[r.id] or 0) then
+                    blocked_until[r.id] = os.time() + p.rules.minRoomRevisit
+                    note("AutoExp: zbyt wiele NPC (" .. npc_count .. "); pomijam lokacje.")
+                end
+                target = nil
+            end
+            if not foreign and target and os.time() >= (blocked_until[r.id] or 0) then
+                if dry then
+                    note("AutoExp TEST: atak -> " .. target.name .. " [" .. target.id .. "]")
+                    pause("Zakonczono test - zadnej komendy nie wyslano")
+                    return
+                end
+                announce("ENGAGING")
+                pending_attack = { id = target.id, room = r.id, since = os.time() }
+                attacked_in_room[target.id] = true -- never retry the same ID in this room
+                -- State is armed BEFORE send() - GMCP may return synchronously.
+                ctx:send("zabij " .. target.id, true)
+                queue(0)
+                return
+            end
+            if os.time() >= (blocked_until[r.id] or 0) then last_seen[r.id] = os.time() end
+            local next_id, wait_time = select_next(p, r.id)
+            if not next_id then
+                if dry then
+                    note("AutoExp TEST: brak gotowego pokoju / trasy")
+                    pause("Zakonczono test")
+                    return
+                end
+                announce("COOLDOWN")
+                if not wait_time then pause("Nie ma dostepnej trasy patrolu") end
+                return
+            end
+            if dry then
+                note("AutoExp TEST: patrol -> " .. next_id)
+                pause("Zakonczono test - zadnej komendy nie wyslano")
+                return
+            end
+            move_to(next_id, "patrol")
+        end
+        local function start(test_mode)
+            if started then
+                if paused then
+                    note("AutoExp jest WSTRZYMANY. Uzyj /exp wznow lub /exp stop, aby zaczac od nowa.", "warn")
+                else
+                    note("AutoExp juz dziala (uzyj /exp stop).", "warn")
+                end
+                return
+            end
+            local p = profile()
+            if not p then note("Wybierz profil: /exp wybierz NAZWA", "warn"); return end
+            if #p.route == 0 or #p.targets == 0 or not p.safeRoom then
+                note("Profil wymaga trasy, celow i bezpiecznej lokacji.", "warn")
+                return
+            end
+            if not gmcp_api.connected() or not room() or not mapper.current_room() then
+                note("Brak polaczenia GMCP albo pozycji na mapie.", "warn"); return
+            end
+            local hp = health()
+            if not hp then note("Brak kondycji w GMCP.", "warn"); return end
+            if not gmcp_api.combat() or not gmcp_api.group() then
+                note("Czekam na GMCP walki i druzyny.", "warn"); return
+            end
+            if state.owns_walk or external_walk then
+                note("Chodzik jest juz uruchomiony - zatrzymaj go przed AutoExp.", "warn")
+                return
+            end
+            local current = room_id()
+            observed_room, entities_ready = current, false
+            local entities = gmcp_api.entities()
+            if type(entities) == "table" and entities.room == current then entities_ready = true end
+            if not entities_ready then
+                note("Nie ma swiezych danych Entities. Zrob krok / odswiez lokacje.", "warn")
+                return
+            end
+            record_room(room())
+            started, paused, dry = true, false, test_mode == true
+            pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
+            attacked_in_room, last_seen, blocked_until = {}, {}, {}
+            last_visited = os.time()
+            last_group = {}
+            for _, member in ipairs((gmcp_api.group() or {}).members or {}) do
+                if member.id and not bool(member.self) then last_group[tostring(member.id)] = true end
+            end
+            announce(dry and "TEST" or "READY")
+            queue(0)
+        end
+        -- Bus handlers: the new official Chimera API guarantees that gmcp_api
+        -- state has been updated before these callbacks are emitted.
+        ctx:on("chimera.room.info", function(r)
+            record_room(r)
+            maybe_record(r)
+        end)
+        ctx:on("chimera.room.changed", function(r)
+            expected_manual = nil -- room has changed; step ownership expired
+            record_room(r)
+            -- The changed event has only {id,how,...}; complete exits live in
+            -- gmcp.room() and were updated before official Chimera emitted it.
+            local latest = room()
+            if r and latest and latest.id == r.id then record_room(latest) end
+            if emergency and r and valid_id(r.id) then
+                emergency.visits[r.id] = (emergency.visits[r.id] or 0) + 1
+            end
+            local was_escaping = escape and r and r.id ~= escape.origin
+            local was_emergency = emergency and emergency.step and r
+                and r.id ~= emergency.step.origin
+            if was_emergency and r.id ~= emergency.step.destination then
+                -- A server teleport or stale mapper link is NOT grounds to
+                -- abandon a lifesaving retreat. Use actual confirmed GMCP.
+                note("AutoExp ALARM: trafilem do innego pokoju niz planowano; przeliczam odwrot z GMCP!", "warn")
+            end
+            if was_escaping then
+                escape = nil -- direct step from an avoided room succeeded
+                pending_attack, post_combat_at = nil, nil
+            end
+            if was_emergency then
+                emergency.step = nil -- confirmed direct step; continue via GMCP
+                pending_attack, post_combat_at = nil, nil
+            end
+            if r and r.id ~= observed_room then
+                observed_room, entities_ready = r.id, false
+                attacked_in_room = {}
+                last_visited = os.time()
+            end
+            maybe_record(room())
+            if started and not paused and not state.owns_walk then
+                -- Manual navigation while running is not treated as a patrol step.
+                if r and r.how == "reczny" and not was_escaping and not was_emergency then
+                    pause("Wykryto ruch reczny gracza")
+                else
+                    queue(0)
+                end
+            end
+        end)
+        ctx:on("chimera.room.entities", function(packet)
+            if packet and room_id() and packet.room == room_id() then
+                entities_ready = true
+                if started and not paused then queue(0) end
+            end
+        end)
+        ctx:on("chimera.char.vitals", function() queue(0) end)
+        ctx:on("chimera.combat.state", function() queue(0) end)
+        ctx:on("chimera.group.state", function(packet)
+            local ids = {}
+            for _, member in ipairs(packet and packet.members or {}) do
+                if member.id and not bool(member.self) then ids[tostring(member.id)] = true end
+            end
+            if started and not paused and last_group then
+                for id in pairs(last_group) do
+                    if not ids[id] then
+                        pause("Czlonek druzyny zniknal z GMCP (" .. id .. ")")
+                        break
+                    end
+                end
+            end
+            last_group = ids
+            queue(0)
+        end)
+        ctx:on("chimera.walk.started", function()
+            if not state.owns_walk then
+                external_walk = true
+                if started and not paused then pause("Obcy chodzik przejal ruch") end
+            end
+        end)
+        ctx:on("chimera.walk.arrived", function(event)
+            external_walk = false
+            if not state.owns_walk or not move then return end
+            if event.map_room ~= move.map or event.target ~= move.id then
+                pause("Chodzik dotarl do innego pokoju")
+                return
+            end
+            state.owns_walk = false
+            move = nil
+            announce("WAIT_ENTITIES")
+            last_visited = os.time()
+            queue(0)
+        end)
+        ctx:on("chimera.walk.stopped", function(event)
+            external_walk = false
+            if not state.owns_walk or stop_ours then return end
+            state.owns_walk = false
+            move = nil
+            if started and not paused then
+                if event and event.reason == "atak" then
+                    -- Official walker stops whenever combat starts. Inspect
+                    -- current entities before deciding: avoided => escape,
+                    -- regular fight => COMBAT. Do not pause prematurely.
+                    queue(0)
+                else
+                    pause("Chodzik przerwany: " .. tostring(event and event.reason or "brak powodu"))
+                end
+            end
+        end)
+        ctx:on("chimera.session.end", function() halt("Rozlaczono - automat zatrzymany") end)
+        ctx:on("chimera.step.manual", function(manual)
+            if not started or paused then return end
+            local direction = type(manual) == "table" and manual.direction or nil
+            direction = direction and (EXIT_COMMANDS[direction] or direction)
+            -- Consume at most ONE event belonging to a step just sent by XP.
+            -- Some Mudlet callbacks occur after ctx:send() has already returned.
+            local expected = expected_manual
+            if expected and not expected.consumed and direction
+                and direction == expected.direction and room_id() == expected.room
+                and os.time() - expected.time <= 2 then
+                expected.consumed = true
+                return
+            end
+            -- All other directions (and another matching manual event) are
+            -- genuine user input: retain the manual-takeover safety rule.
+            expected_manual = nil
+            pause("Gracz przejal sterowanie")
+        end)
+        ctx:timer(1, function()
+            if started and not paused then queue(0) end
+        end, true)
+        ctx:cleanup(function()
+            if state.owns_walk then walker.stop("AutoExp: przeladowanie") end
+            state.owns_walk = false
+        end)
+        -- Commands intentionally share the old /exp interface only after the
+        -- OLD XML package has been disabled. New /exp endpoints are explicit.
+        local function command(name, args, fn, help)
+            ctx:command{ "exp " .. name, args = args, help = help or "AutoExp 5", fn = fn }
+        end
+        local function print_status()
+            local p = profile()
+            ctx:report("AutoExp 5", {
+                {"Wersja", "0.5.0-beta.6"},
+                {"Stan", phase .. (dry and " [TEST]" or "")},
+                {"Profil", p and p.name or "brak"},
+                {"Lokacje", p and tostring(#p.route) or "0"},
+                {"Cele", p and table.concat(p.targets, ", ") or "brak"},
+                {"Omijane", p and table.concat(p.avoid, ", ") or "brak"},
+                {"Bezpieczna", p and tostring(p.safeRoom or "brak") or "brak"},
+                {"Ostatnia uwaga", last_reason ~= "" and last_reason or "brak"},
+                {"Wskazowka", "/exp pomoc"},
+            })
+        end
+        ctx:command{ "exp", help = "AutoExp 5 - stan", fn = print_status }
+        command("status", nil, print_status)
+        command("pomoc", nil, function()
+            ctx.log.info("/exp obszary | wybierz NAZWA | mapuj NAZWA | mapuj! NAZWA | mapuj-")
+            ctx.log.info("/exp cel TEKST | cel- TEKST | unikaj TEKST | unikaj- TEKST")
+            ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | odwrot-test | pauza | wznow | stop")
+            ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
+        end)
+        command("start", nil, function() start(false) end)
+        command("test", nil, function() start(true) end)
+        command("odwrot-test", nil, function()
+            local p, r = profile(), room()
+            if not p or not r or not valid_id(r.id) or not valid_id(p.safeRoom) then
+                note("AutoExp TEST ODWROTU: wybierz profil i zapisz /exp bezpieczna.", "warn")
+                return
+            end
+            record_room(r)
+            if r.id == p.safeRoom then
+                note("AutoExp TEST ODWROTU: juz jestes w bezpiecznej lokacji.")
+                return
+            end
+            local command, next_id, source = emergency_step(p, r)
+            if command then
+                note("AutoExp TEST ODWROTU: " .. command .. " -> " .. next_id ..
+                    " (" .. source .. "); nie wyslano ruchu" ..
+                    ((source == "mapper" or source == "GMCP") and "" or
+                    ". UWAGA: to tylko awaryjne wyjscie, nie potwierdzona trasa do schronienia!"),
+                    "warn")
+            else
+                note("AutoExp TEST ODWROTU: ALARM, brak znanego dostepnego wyjscia GMCP!", "warn")
+            end
+        end)
+        command("stop", nil, function() halt("Zatrzymano recznie") end)
+        command("pauza", nil, function() pause("Pauza uzytkownika") end)
+        command("wznow", nil, function()
+            if started and paused then
+                paused, phase = false, "READY"
+                observed_room, entities_ready = room_id(), false
+                local packet = gmcp_api.entities()
+                entities_ready = packet and packet.room == room_id() or false
+                last_visited = os.time()
+                last_group = {}
+                for _, member in ipairs((gmcp_api.group() or {}).members or {}) do
+                    if member.id and not bool(member.self) then last_group[tostring(member.id)] = true end
+                end
+                queue(0)
+                note("AutoExp: wznowiono")
+            else note("Brak pauzy do wznowienia.", "warn") end
+        end)
+        command("obszary", nil, function()
+            local names = {}
+            for _, p in pairs(areas) do names[#names + 1] = p.name .. " (" .. #p.route .. ")" end
+            table.sort(names)
+            note(#names == 0 and "Brak profili." or table.concat(names, " | "))
+        end)
+        command("wybierz", "<nazwa>", function(name)
+            if not allowed_config() then return end
+            local key = normalized(name)
+            if not areas[key] then note("Nie ma expowiska: " .. name, "warn"); return end
+            selected = key
+            remember()
+            note("Wybrane: " .. areas[key].name)
+        end)
+        local function toggle_map(name, replace)
+            if not allowed_config() then return end
+            if mapping then
+                if normalized(name) ~= mapping.key then
+                    note("Mapujesz inne expowisko. Powtorz jego nazwe lub /exp mapuj-", "warn")
+                    return
+                end
+                if #mapping.route == 0 then note("Mapa jest pusta.", "warn"); return end
+                local old = areas[mapping.key]
+                local p = normalize_profile(old, mapping.name)
+                if not mapping.replace then
+                    local merged = {}
+                    for _, id in ipairs(p.route) do merged[#merged + 1] = id end
+                    for _, id in ipairs(mapping.route) do merged[#merged + 1] = id end
+                    p.route = rooms_from(merged)
+                else
+                    p.route = mapping.route
+                end
+                areas[mapping.key], selected = p, mapping.key
+                mapping = nil
+                remember()
+                note("Zapisano " .. #p.route .. " lokacji: " .. p.name)
+                return
+            end
+            name = trim(name)
+            if name == "" then note("Podaj nazwe expowiska.", "warn"); return end
+            local key = normalized(name)
+            mapping = { name = name, key = key, replace = replace, route = {}, seen = {} }
+            maybe_record(room())
+            note("Mapowanie " .. name .. " (" .. (replace and "ZASTAP" or "SCAL") .. "). Powtorz komendę, aby zapisac.")
+        end
+        command("mapuj", "<nazwa>", function(s) toggle_map(s, false) end)
+        command("mapuj!", "<nazwa>", function(s) toggle_map(s, true) end)
+        command("mapuj-", nil, function() mapping = nil; note("Mapowanie anulowane") end)
+        command("cel", "<tekst>", function(value)
+            if not allowed_config() then return end
+            local p = profile(); if not p then note("Wybierz expowisko.", "warn"); return end
+            p.targets[#p.targets + 1] = value
+            p.targets = unique_names(p.targets)
+            remember(); note("Cele: " .. table.concat(p.targets, ", "))
+        end)
+        command("unikaj", "<tekst>", function(value)
+            if not allowed_config() then return end
+            local p = profile(); if not p then note("Wybierz expowisko.", "warn"); return end
+            p.avoid[#p.avoid + 1] = value
+            p.avoid = unique_names(p.avoid)
+            remember(); note("Omijane: " .. table.concat(p.avoid, ", "))
+        end)
+        local function remove_list(key, value)
+            if not allowed_config() then return end
+            local p = profile()
+            if not p then note("Wybierz expowisko.", "warn"); return end
+            local list = p[key]
+            for i, item in ipairs(list) do
+                if normalized(item) == normalized(value) then
+                    table.remove(list, i)
+                    remember()
+                    note("Usunieto: " .. item)
+                    return
+                end
+            end
+            note("Nie ma na liscie: " .. tostring(value), "warn")
+        end
+        command("cel-", "<tekst>", function(value) remove_list("targets", value) end)
+        command("unikaj-", "<tekst>", function(value) remove_list("avoid", value) end)
+        command("bezpieczna", nil, function()
+            if not allowed_config() then return end
+            local p = profile(); local id = room_id()
+            if not p or not valid_id(id) then note("Wybierz profil i stan na lokacji.", "warn"); return end
+            p.safeRoom = id; remember(); note("Bezpieczna lokacja: " .. id)
+        end)
+        command("hp", "<odwrot powrot>", function(s)
+            if not allowed_config() then return end
+            local a, b = s:match("^(%d+)%s+(%d+)$")
+            a, b = tonumber(a), tonumber(b)
+            local p = profile()
+            if not p or not a or not b or a < 1 or a >= b or b > 100 then
+                note("Uzycie: /exp hp 35 85", "warn"); return
+            end
+            p.rules.retreatHP, p.rules.returnHP = a, b
+            remember(); note("HP: " .. a .. "% / " .. b .. "%")
+        end)
+        command("limit", "<liczba>", function(s)
+            if not allowed_config() then return end
+            local p, n = profile(), tonumber(s)
+            if not p or not n or n < 1 or n > 20 or n % 1 ~= 0 then
+                note("Uzycie: /exp limit 3 (1..20)", "warn"); return
+            end
+            p.rules.maxEnemies = n
+            remember(); note("Limit NPC: " .. n)
+        end)
+        command("odnowa", "<sekundy>", function(s)
+            if not allowed_config() then return end
+            local p, n = profile(), tonumber(s)
+            if not p or not n or n < 5 or n > 3600 then
+                note("Uzycie: /exp odnowa 60 (5..3600)", "warn"); return
+            end
+            p.rules.minRoomRevisit = n
+            remember(); note("Odnowa lokacji: " .. n .. " s")
+        end)
+        command("import", nil, function()
+            if not allowed_config() then return end
+            if next(areas) then note("Import tylko do pustej nowej bazy; niczego nie nadpisuje.", "warn"); return end
+            if type(table.load) ~= "function" then note("Brak table.load w Mudlecie.", "warn"); return end
+            local root = getMudletHomeDir()
+            local paths = { root .. "/ChimeraVIP-data/autoexp.lua", root .. "/autoexp_areas.lua" }
+            for _, path in ipairs(paths) do
+                local f = io.open(path, "r")
+                if f then
+                    f:close()
+                    local loaded = {}
+                    local ok, result = pcall(table.load, path, loaded)
+                    if not ok or result == false then
+                        note("Blad odczytu: " .. path, "warn"); return
+                    end
+                    local imported = import_old_profiles(loaded)
+                    if not next(imported) then note("Stara baza nie zawiera expowisk.", "warn"); return end
+                    areas = imported
+                    if loaded.selectedArea and areas[loaded.selectedArea] then
+                        selected = loaded.selectedArea
+                    end
+                    remember()
+                    note("Zaimportowano " .. tostring((function()
+                        local n = 0; for _ in pairs(areas) do n = n + 1 end; return n
+                    end)()) .. " profili. Stara baza pozostala nietknieta.")
+                    return
+                end
+            end
+            note("Nie znaleziono starej bazy AutoExp.", "warn")
+        end)
+        -- Helpful test-only API, no shared globals or monkeypatches.
+        return { status = function() return { phase = phase, started = started, paused = paused,
+            selected = selected, moving = move and move.id, mapping = mapping and mapping.name,
+            escaping = escape and escape.origin, emergency = emergency and emergency.destination } end,
+            import_old_profiles = import_old_profiles }
+    end,
+}
+]==]
+
+local function message(text, color)
+    cecho("\n<" .. (color or "aquamarine") .. ">[ChimeraXP]<reset> " .. tostring(text) .. "\n")
+end
+
+local function read_file(path)
+    local file = io.open(path, "rb")
+    if not file then return nil end
+    local data = file:read("*a")
+    file:close()
+    return data
+end
+
+local function ensure_directory(path)
+    local loaded, lfs = pcall(require, "lfs")
+    if not loaded or type(lfs.mkdir) ~= "function" then
+        return false, "Brak LuaFileSystem (lfs) w Mudlecie."
+    end
+    local sep = package.config:sub(1, 1)
+    local current, prefix = "", ""
+    if path:match("^%a:[/\\]") then
+        prefix = path:sub(1, 2) .. sep
+        path = path:sub(4)
+    elseif path:sub(1, 1) == sep then
+        prefix = sep
+        path = path:sub(2)
+    end
+    current = prefix
+    for part in path:gmatch("[^/\\]+") do
+        if current ~= "" and current:sub(-1) ~= sep then
+            current = current .. sep
+        end
+        current = current .. part
+        if lfs.attributes(current, "mode") ~= "directory" then
+            local ok, err = lfs.mkdir(current)
+            if not ok then return false, tostring(err) end
+        end
+    end
+    return true
+end
+
+-- X.Y.Z oraz beta.N. Nie zamieniamy nowszej wersji na starsza
+-- podczas kazdego uruchamiania profilu.
+local function version_parts(v)
+    local a, b, c, extra = tostring(v or ""):match("^(%d+)%.(%d+)%.(%d+)(.*)$")
+    if not a then return nil end
+    if extra == "" then return {tonumber(a),tonumber(b),tonumber(c), 1, 0} end
+    local num = extra:match("^%-beta%.(%d+)$")
+    if num then return {tonumber(a),tonumber(b),tonumber(c),0,tonumber(num)} end
+    return nil
+end
+
+local function compare_versions(old, new)
+    local x, y = version_parts(old), version_parts(new)
+    if not x or not y then return nil end
+    for i = 1, #x do
+        if x[i] < y[i] then return -1 end
+        if x[i] > y[i] then return 1 end
+    end
+    return 0
+end
+
+local function existing_version(code)
+    return code and code:match('version%s*=%s*"([^"\r\n]+)"') or nil
+end
+
+function I:install()
+    local home = getMudletHomeDir()
+    local plugin_dir = home .. "/chimera_wtyczki/chimera_autoexp"
+    local state_dir = home .. "/ChimeraXP"
+    local target = plugin_dir .. "/init.lua"
+    local marker = "-- Chimera AutoExp 5 / standalone plugin"
+    local current = read_file(target)
+
+    if current and current:sub(1, #marker) ~= marker then
+        message("W tej sciezce jest obcy plik. Niczego nie nadpisuje: " .. target, "tomato")
+        return false
+    end
+    if current == payload then
+        -- Skrypt Mudleta startuje na nowo po zalogowaniu: brak zbednego spamu.
+        return true
+    end
+    if current then
+        local installed_version = existing_version(current)
+        local cmp = compare_versions(installed_version, self.package_version)
+        if cmp == nil then
+            message("Nie potrafie ocenic wersji istniejacej wtyczki (" .. tostring(installed_version) .. "). Niczego nie nadpisuje.", "orange")
+            return false
+        elseif cmp >= 0 then
+            -- Identyczna lub nowsza wersja; przy roznicy tresci informujemy.
+            if cmp == 0 then
+                message("Wersja " .. self.package_version .. " jest juz zainstalowana; nie nadpisuje zmodyfikowanego pliku.", "orange")
+            end
+            return true
+        end
+    end
+
+    local ok, err = ensure_directory(plugin_dir)
+    if not ok then message("Nie mozna utworzyc katalogu wtyczki: " .. tostring(err), "tomato"); return false end
+    ok, err = ensure_directory(state_dir)
+    if not ok then message("Nie mozna utworzyc katalogu ChimeraXP: " .. tostring(err), "tomato"); return false end
+
+    local tmp = target .. ".cxp-new"
+    if read_file(tmp) then
+        message("Istnieje plik tymczasowy; przerwano zeby go nie nadpisac: " .. tmp, "tomato")
+        return false
+    end
+    local file, write_err = io.open(tmp, "wb")
+    if not file then message("Nie mozna zapisac: " .. tostring(write_err), "tomato"); return false end
+    local wrote, value = pcall(function() return file:write(payload) end)
+    local closed = file:close()
+    if not wrote or not value or not closed or read_file(tmp) ~= payload then
+        pcall(os.remove, tmp)
+        message("Blad zapisu/weryfikacji pliku tymczasowego.", "tomato")
+        return false
+    end
+
+    local backup = nil
+    if current then
+        local backup_dir = state_dir .. "/backups"
+        ok, err = ensure_directory(backup_dir)
+        if not ok then
+            pcall(os.remove, tmp)
+            message("Nie mozna utworzyc katalogu kopii: " .. tostring(err), "tomato")
+            return false
+        end
+        -- Unikamy kolizji nazw nawet przy kilku instalacjach w sekunde.
+        local n = 1
+        repeat
+            backup = backup_dir .. "/init-" .. os.date("%Y%m%d-%H%M%S") .. "-" .. n .. ".lua"
+            n = n + 1
+        until not read_file(backup)
+        local moved, move_err = os.rename(target, backup)
+        if not moved then
+            pcall(os.remove, tmp)
+            message("Nie moge zabezpieczyc starej wtyczki: " .. tostring(move_err), "tomato")
+            return false
+        end
+    end
+    local moved, move_err = os.rename(tmp, target)
+    if not moved then
+        if backup then pcall(os.rename, backup, target) end
+        pcall(os.remove, tmp)
+        message("Instalacja przerwana, proba przywrocenia kopii: " .. tostring(move_err), "tomato")
+        return false
+    end
+    message("Zainstalowano AutoExp " .. self.package_version .. " w " .. plugin_dir)
+    message("Wylacz stary pakiet EXP, potem wykonaj /przeladuj oraz /exp test.", "light_slate_blue")
+    return true
+end
+
+-- Uzytkownik moze tez wywolac: lua chimera_xp_installer:install()
+-- tempTimer pozwala Mudletowi dokonczyc import pakietu przed zapisem.
+if type(tempTimer) == "function" then
+    tempTimer(0, function() I:install() end)
+else
+    I:install()
+end
+
+        ]]></script>
+        <eventHandlerList />
+      </Script>
+    </ScriptGroup>
+  </ScriptPackage>
+</MudletPackage>

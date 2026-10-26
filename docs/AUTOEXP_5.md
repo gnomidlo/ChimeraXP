@@ -48,7 +48,7 @@ Wersja prywatna **nie udostępnia anonimowego endpointu raw.githubusercontent.co
 
 Wersja beta **nie była jeszcze przetestowana w rzeczywistej sesji na serwerze**. Testy jednostkowe i symulacyjne nie zastępują testów w Mudlecie.
 
-### Poprawki 0.5.0-beta.6
+### Poprawki 0.5.0-beta.7
 
 - Zachowanie `/exp unikaj ...` od beta.3: po wykryciu omijanego NPC wychodzi przez dostepne wyjscie GMCP, rowniez podczas walki, bez wysylania `zabij`.
 - Po walce odczekuje minimum 7 sekund przed kolejnym krokiem; komendy lootowania wysyla wylacznie oficjalna Chimera, nie ChimeraXP.
@@ -80,3 +80,13 @@ Gdy Chimera emituje `chimera.step.manual` po wyslaniu komendy przez AutoExp (np.
 Komenda `/exp` pokazuje teraz numer wersji; jesli `/exp start` wykonano podczas pauzy, wyjasnia jak uzyc `/exp wznow` lub `/exp stop`.
 
 Nowy test `tests/autoexp_manual_event.lua` weryfikuje wywolania synchroniczne i opoznione oraz rzeczywiste przejecie sterowania. Testy sa symulacyjne, nie z realnego Mudleta.
+
+## Awaryjny odwrot: fallback GMCP (beta.7)
+
+Gdy przy niskim HP w walce `getPath()` nie znajduje drogi lub lokalizacja jeszcze nie istnieje na mapie, AutoExp najpierw szuka trasy w historii potwierdzonych przejsc i `Room.Info.exits`, potem cofa sie po faktycznej trasie gracza, a na koncu probuje dostepnego wyjscia z pomieszczenia. Ruch jest pojedynczy, z potwierdzeniem pokoju i kontrola ponownych prob.
+
+Nieoczekiwana zmiana pokoju nie przerwie odwrotu: bieżąca lokacja z GMCP staje się nowym punktem startu. Brak drogi do schronienia wyzwala alarm, ale nie natychmiastowa pauze, jesli istnieje niezablokowane wyjscie.
+
+Komenda `/exp odwrot-test` sprawdza pierwszy krok bez wysylania ruchu. Zrodlo `GMCP` lub `mapper` oznacza wykryta droge do zapisanej bezpiecznej lokacji; `cofanie` lub `wyjscie GMCP` to jedynie proba opuszczenia niebezpiecznego miejsca. To nie gwarantuje przezycia ani odleglej trasy do bezpiecznego pokoju.
+
+Jesli serwer odrzuca ruch w walce, po dwoch probach i braku zmiany `Room.Info` automat alarmuje i oddaje sterowanie. `emergencyFallbackSteps` (domyslnie 40) ogranicza tylko kroki bez potwierdzonej drogi do schronienia; dlugie trasy `mapper`/`GMCP` nie sa przez to ucinane.

@@ -2,7 +2,15 @@
 
 **Osobny, prywatny projekt AutoExp dla oficjalnej Chimery 5.x w Mudlecie.** Nie jest modułem ChimeraVIP i nie jest częścią oficjalnych skryptów. Korzysta wyłącznie z publicznego API wtyczek Chimery (`gmcp`, `mapper`, `walker`, zdarzenia `chimera.*`).
 
-**Wydanie:** `0.5.0-beta.6` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
+**Wydanie:** `0.5.0-beta.7` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
+
+## Awaryjny odwrot bez trasy mappera (beta.7)
+
+Nowy tryb awaryjny nie zatrzymuje sie tylko dlatego, ze `getPath()` nie znajduje drogi do zapisanej bezpiecznej lokacji. Probujemy kolejno: trase z potwierdzonych polaczen GMCP odwiedzonych pomieszczen; droge Mudleta (`getPath`); cofanie po faktycznie odwiedzonych lokacjach; a w ostatecznosci dostepne, nieblokowane wyjscie z `Room.Info.exits`. Kazdy krok wysylany jest osobno i wymaga potwierdzenia przez GMCP. Przy nieoczekiwanej zmianie pokoju aktualizujemy pozycje i planujemy dalszy odwrot, zamiast pauzowac bez proby kontynuacji.
+
+**Przed uruchomieniem patrolu sprawdz `/exp odwrot-test`**. Polecenie nie rusza postacia; pokazuje nastepny kierunek i zrodlo planu. Jesli zglasza `cofanie` lub `wyjscie GMCP`, nie ma jeszcze potwierdzonej drogi do schronienia. Powinienes naprawic mape lub wyznaczyc blizsze schronienie przed niebezpieczna walka.
+
+**Ograniczenia:** nie mozemy zagwarantowac ucieczki, gdy serwer nie pozwala chodzic w walce, a brak mapy moze oznaczac opuszczenie walki bez osiagniecia schronienia. Nie wysylamy nieznanych wyjsc ani nie wchodzimy celowo do pokoi ostatnio oznaczonych jako `unikaj`. Niepewna eksploracja awaryjna ma limit krokow i alarm.
 
 ## Instalacja bezposrednio w Mudlecie (XML)
 

@@ -52,7 +52,7 @@ end
 local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
     minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7,
     avoidRoomCooldown = 600, escapeWait = 4, escapeMaxTries = 3,
-    safeMoveWait = 3, safeMoveTries = 2 }
+    safeMoveWait = 3, safeMoveTries = 2, emergencyFallbackSteps = 40 }
 local function normalize_profile(src, name)
     local old = type(src) == "table" and src or {}
     local rules = type(old.rules) == "table" and old.rules or {}
@@ -80,7 +80,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.6",
+    version = "0.5.0-beta.7",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -101,6 +101,29 @@ return {
         local attacked_in_room = {}
         local last_seen = {} -- room ID -> time at which room was checked and empty
         local blocked_until = {} -- room ID -> time until we may try again
+        -- Remember real, GMCP-confirmed routes even when Mudlet's mapped
+        -- getPath() is unavailable or returns a path through an avoided room.
+        -- This is session state only; the history is NOT guessed from exits.
+        local known_exits = state.emergency_known_exits or {}
+        local trail = state.emergency_trail or {}
+        state.emergency_known_exits, state.emergency_trail = known_exits, trail
+        local function record_room(r)
+            if type(r) ~= "table" or not valid_id(r.id) then return end
+            if type(r.exits) == "table" then
+                local links = {}
+                for direction, id in pairs(r.exits) do
+                    if valid_id(direction) and valid_id(id) then links[direction] = id end
+                end
+                known_exits[r.id] = links
+            end
+            if trail[#trail] == r.id then return end
+            if #trail >= 2 and trail[#trail - 1] == r.id then
+                table.remove(trail)  -- confirmed backtrack, do not bounce back
+            else
+                trail[#trail + 1] = r.id
+                if #trail > 160 then table.remove(trail, 1) end
+            end
+        end
         local escape = nil -- { origin, sent_at, tries, tried = { cmd = true } }
         local emergency = nil -- { step = {origin, destination, command, sent_at}, tries, destination }
         local last_visited = nil
@@ -284,6 +307,100 @@ return {
             end
             return true
         end
+        local function known_step_toward(r, target, allow_blocked)
+            -- BFS through exits observed in previously visited rooms. Unlike
+            -- the Mudlet map, this needs no saved mapper rooms/coordinates.
+            if not valid_id(target) or r.id == target then return nil end
+            local queue_ids = { r.id }
+            local head, seen = 1, { [r.id] = true }
+            local first = {}
+            while head <= #queue_ids and head <= 600 do
+                local id = queue_ids[head]
+                head = head + 1
+                local links = (id == r.id and r.exits) or known_exits[id]
+                if type(links) == "table" then
+                    local options = {}
+                    for direction, dest in pairs(links) do
+                        local command = EXIT_COMMANDS[direction]
+                        if command and valid_id(dest) and not seen[dest]
+                            and (allow_blocked or not is_blocked(dest)) then
+                            options[#options + 1] = { command = command, id = dest }
+                        end
+                    end
+                    table.sort(options, function(a, b)
+                        if a.id == b.id then return a.command < b.command end
+                        return a.id < b.id
+                    end)
+                    for _, link in ipairs(options) do
+                        seen[link.id] = true
+                        first[link.id] = id == r.id and link or first[id]
+                        if link.id == target then
+                            local result = first[link.id]
+                            return result.command, result.id
+                        end
+                        queue_ids[#queue_ids + 1] = link.id
+                    end
+                end
+            end
+            return nil
+        end
+        local function emergency_step(p, r)
+            -- Priority 1: direct GMCP way to the saved safe room. No map needed.
+            local direct, dest = known_step_toward(r, p.safeRoom, false)
+            if direct then return direct, dest, "GMCP" end
+
+            -- Priority 2: Mudlet getPath. Some clients have only a partial
+            -- mapper graph, or mapper.current_room() updates after Room.Info.
+            local from = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(r.id)
+                or mapper.current_room()
+            if type(from) ~= "number" or from <= 0 then from = mapper.current_room() end
+            local safe = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(p.safeRoom) or nil
+            if from and safe and safe > 0 and type(getPath) == "function" then
+                local ok, found = pcall(getPath, from, safe)
+                if ok and found and route_path_clear() then
+                    local path = type(speedWalkPath) == "table" and speedWalkPath or {}
+                    local next_id = type(getRoomHashByID) == "function"
+                        and getRoomHashByID(path[1]) or nil
+                    if valid_id(next_id) and not is_blocked(next_id) then
+                        for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
+                            local command = EXIT_COMMANDS[direction]
+                            if command and hash == next_id then return command, hash, "mapper" end
+                        end
+                    end
+                end
+            end
+
+            -- Priority 3: retrace confirmed rooms, not a guessed route.
+            -- Two last trail rooms: [..., previous, current].
+            if trail[#trail] == r.id and #trail >= 2 then
+                local previous = trail[#trail - 1]
+                if not is_blocked(previous) then
+                    for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
+                        local command = EXIT_COMMANDS[direction]
+                        if command and hash == previous then return command, hash, "cofanie" end
+                    end
+                end
+            end
+
+            -- Priority 4: when neither safe route nor breadcrumb exists, an
+            -- actual GMCP exit is safer than standing still in lethal combat.
+            -- Avoid known dangerous rooms and loops; never invent an exit.
+            local options = {}
+            for direction, id in pairs(type(r.exits) == "table" and r.exits or {}) do
+                local command = EXIT_COMMANDS[direction]
+                if command and valid_id(id) and not is_blocked(id) then
+                    local n = emergency and emergency.visits[id] or 0
+                    options[#options + 1] = {command=command, id=id, visits=n or 0}
+                end
+            end
+            table.sort(options, function(a,b)
+                if a.visits ~= b.visits then return a.visits < b.visits end
+                if a.id ~= b.id then return a.id < b.id end
+                return a.command < b.command
+            end)
+            if #options > 0 then return options[1].command, options[1].id, "wyjscie GMCP" end
+            return nil
+        end
         local function escape_exit(p, r, tried)
             local exits = type(r.exits) == "table" and r.exits or {}
             local options = {}
@@ -462,7 +579,8 @@ return {
             end
             local now = os.time()
             if not emergency then
-                emergency = { destination = p.safeRoom, tries = 0 }
+                emergency = { destination = p.safeRoom, tries = 0, steps = 0,
+                    fallback_steps = 0, visits = { [r.id] = 1 }, warned_fallback = false }
                 pending_attack, post_combat_at, escape = nil, nil, nil
                 note("AutoExp: ALARM HP! Awaryjny odwrot do bezpiecznej lokacji, krok po kroku.", "warn")
             end
@@ -491,30 +609,24 @@ return {
             -- A new room is now confirmed. Plan just the next step, not a
             -- multi-command speedwalk that might race against GMCP combat.
             emergency.step, emergency.tries = nil, 0
-            local from = mapper.current_room()
-            local dest = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(p.safeRoom) or nil
-            if not from or not dest or dest <= 0 or type(getPath) ~= "function"
-                or not getPath(from, dest) or not route_path_clear() then
-                pause("ALARM: brak bezpiecznej, znanej trasy do miejsca odwrotu. Przejmij sterowanie!")
-                return
-            end
-            local path = type(speedWalkPath) == "table" and speedWalkPath or {}
-            local next_id = type(getRoomHashByID) == "function"
-                and getRoomHashByID(path[1]) or nil
-            if not valid_id(next_id) or is_blocked(next_id) then
-                pause("ALARM: nastepna lokacja trasy awaryjnej jest niedostepna lub zablokowana!")
-                return
-            end
-            local options = {}
-            for exit, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
-                local command = EXIT_COMMANDS[exit] or exit
-                if hash == next_id and valid_id(command) then options[#options+1] = command end
-            end
-            table.sort(options)
-            local command = options[1]
+            local command, next_id, source = emergency_step(p, r)
             if not command then
-                pause("ALARM: nie ma wyjscia GMCP w kierunku bezpiecznej lokacji!")
+                pause("ALARM: brak potwierdzonego, dostepnego wyjscia GMCP podczas odwrotu! Przejmij sterowanie!")
                 return
+            end
+            if source ~= "GMCP" and source ~= "mapper" then
+                if emergency.fallback_steps >= (tonumber(p.rules.emergencyFallbackSteps)
+                    or DEFAULT.emergencyFallbackSteps) then
+                    pause("ALARM: przekroczono limit szukania schronienia bez znanej trasy. Przejmij sterowanie!")
+                    return
+                end
+                emergency.fallback_steps = emergency.fallback_steps + 1
+                if not emergency.warned_fallback then
+                    emergency.warned_fallback = true
+                    note("AutoExp ALARM: brak drogi do schronienia; cofanie/wyjscie awaryjne (" .. source .. ").", "warn")
+                end
+            else
+                emergency.fallback_steps = 0 -- known route; do not cap long safe routes
             end
             if dry then
                 note("AutoExp TEST: awaryjny odwrot w walce -> " .. command)
@@ -524,6 +636,7 @@ return {
             emergency.step = { origin = r.id, destination = next_id,
                 command = command, sent_at = now }
             emergency.tries = 1
+            emergency.steps = emergency.steps + 1
             announce("EMERGENCY_RETREAT")
             local ok, err = send_owned_direction(command)
             if not ok then pause("Blad wyslania kroku awaryjnego: " .. tostring(err)) end
@@ -758,6 +871,7 @@ return {
                 note("Nie ma swiezych danych Entities. Zrob krok / odswiez lokacje.", "warn")
                 return
             end
+            record_room(room())
             started, paused, dry = true, false, test_mode == true
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
             attacked_in_room, last_seen, blocked_until = {}, {}, {}
@@ -772,16 +886,26 @@ return {
         -- Bus handlers: the new official Chimera API guarantees that gmcp_api
         -- state has been updated before these callbacks are emitted.
         ctx:on("chimera.room.info", function(r)
+            record_room(r)
             maybe_record(r)
         end)
         ctx:on("chimera.room.changed", function(r)
             expected_manual = nil -- room has changed; step ownership expired
+            record_room(r)
+            -- The changed event has only {id,how,...}; complete exits live in
+            -- gmcp.room() and were updated before official Chimera emitted it.
+            local latest = room()
+            if r and latest and latest.id == r.id then record_room(latest) end
+            if emergency and r and valid_id(r.id) then
+                emergency.visits[r.id] = (emergency.visits[r.id] or 0) + 1
+            end
             local was_escaping = escape and r and r.id ~= escape.origin
             local was_emergency = emergency and emergency.step and r
                 and r.id ~= emergency.step.origin
             if was_emergency and r.id ~= emergency.step.destination then
-                pause("ALARM: odwrot trafil do nieoczekiwanej lokacji. Przejmij sterowanie!")
-                return
+                -- A server teleport or stale mapper link is NOT grounds to
+                -- abandon a lifesaving retreat. Use actual confirmed GMCP.
+                note("AutoExp ALARM: trafilem do innego pokoju niz planowano; przeliczam odwrot z GMCP!", "warn")
             end
             if was_escaping then
                 escape = nil -- direct step from an avoided room succeeded
@@ -915,11 +1039,33 @@ return {
         command("pomoc", nil, function()
             ctx.log.info("/exp obszary | wybierz NAZWA | mapuj NAZWA | mapuj! NAZWA | mapuj-")
             ctx.log.info("/exp cel TEKST | cel- TEKST | unikaj TEKST | unikaj- TEKST")
-            ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | pauza | wznow | stop")
+            ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | odwrot-test | pauza | wznow | stop")
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
         end)
         command("start", nil, function() start(false) end)
         command("test", nil, function() start(true) end)
+        command("odwrot-test", nil, function()
+            local p, r = profile(), room()
+            if not p or not r or not valid_id(r.id) or not valid_id(p.safeRoom) then
+                note("AutoExp TEST ODWROTU: wybierz profil i zapisz /exp bezpieczna.", "warn")
+                return
+            end
+            record_room(r)
+            if r.id == p.safeRoom then
+                note("AutoExp TEST ODWROTU: juz jestes w bezpiecznej lokacji.")
+                return
+            end
+            local command, next_id, source = emergency_step(p, r)
+            if command then
+                note("AutoExp TEST ODWROTU: " .. command .. " -> " .. next_id ..
+                    " (" .. source .. "); nie wyslano ruchu" ..
+                    ((source == "mapper" or source == "GMCP") and "" or
+                    ". UWAGA: to tylko awaryjne wyjscie, nie potwierdzona trasa do schronienia!"),
+                    "warn")
+            else
+                note("AutoExp TEST ODWROTU: ALARM, brak znanego dostepnego wyjscia GMCP!", "warn")
+            end
+        end)
         command("stop", nil, function() halt("Zatrzymano recznie") end)
         command("pauza", nil, function() pause("Pauza uzytkownika") end)
         command("wznow", nil, function()
