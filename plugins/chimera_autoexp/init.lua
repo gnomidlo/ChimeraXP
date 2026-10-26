@@ -1039,11 +1039,33 @@ return {
         command("pomoc", nil, function()
             ctx.log.info("/exp obszary | wybierz NAZWA | mapuj NAZWA | mapuj! NAZWA | mapuj-")
             ctx.log.info("/exp cel TEKST | cel- TEKST | unikaj TEKST | unikaj- TEKST")
-            ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | pauza | wznow | stop")
+            ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | odwrot-test | pauza | wznow | stop")
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
         end)
         command("start", nil, function() start(false) end)
         command("test", nil, function() start(true) end)
+        command("odwrot-test", nil, function()
+            local p, r = profile(), room()
+            if not p or not r or not valid_id(r.id) or not valid_id(p.safeRoom) then
+                note("AutoExp TEST ODWROTU: wybierz profil i zapisz /exp bezpieczna.", "warn")
+                return
+            end
+            record_room(r)
+            if r.id == p.safeRoom then
+                note("AutoExp TEST ODWROTU: juz jestes w bezpiecznej lokacji.")
+                return
+            end
+            local command, next_id, source = emergency_step(p, r)
+            if command then
+                note("AutoExp TEST ODWROTU: " .. command .. " -> " .. next_id ..
+                    " (" .. source .. "); nie wyslano ruchu" ..
+                    ((source == "mapper" or source == "GMCP") and "" or
+                    ". UWAGA: to tylko awaryjne wyjscie, nie potwierdzona trasa do schronienia!"),
+                    "warn")
+            else
+                note("AutoExp TEST ODWROTU: ALARM, brak znanego dostepnego wyjscia GMCP!", "warn")
+            end
+        end)
         command("stop", nil, function() halt("Zatrzymano recznie") end)
         command("pauza", nil, function() pause("Pauza uzytkownika") end)
         command("wznow", nil, function()
