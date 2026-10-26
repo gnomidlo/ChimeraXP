@@ -51,7 +51,7 @@ local function rooms_from(raw)
 end
 local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
     minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7,
-    avoidRoomCooldown = 600, escapeWait = 4, escapeMaxTries = 3,
+    escapeWait = 4, escapeMaxTries = 3,
     safeMoveWait = 3, safeMoveTries = 2, emergencyFallbackSteps = 40 }
 local function normalize_profile(src, name)
     local old = type(src) == "table" and src or {}
@@ -80,7 +80,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.8",
+    version = "0.5.0-beta.9",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -100,7 +100,10 @@ return {
         local pending_attack = nil -- { id, room, since }
         local attacked_in_room = {}
         local last_seen = {} -- room ID -> time at which room was checked and empty
-        local blocked_until = {} -- room ID -> time until we may try again
+        -- NPCs move. We never put a room on a time-based navigation blacklist.
+        -- Count directions taken from unsuitable rooms in this patrol only,
+        -- to avoid choosing the same dead-end exit again when alternatives exist.
+        local skip_exit_history = {} -- room ID -> { command = count }
         -- Remember real, GMCP-confirmed routes even when Mudlet's mapped
         -- getPath() is unavailable or returns a path through an avoided room.
         -- This is session state only; the history is NOT guessed from exits.
@@ -295,19 +298,7 @@ return {
             if not ok then expected_manual = nil end
             return ok, err
         end
-        local function is_blocked(id)
-            return id and os.time() < (blocked_until[id] or 0)
-        end
-        local function route_path_clear()
-            -- Mudlet getPath() fills speedWalkPath. Never knowingly route
-            -- through a room we just escaped from.
-            for _, map_id in ipairs(type(speedWalkPath) == "table" and speedWalkPath or {}) do
-                local hash = type(getRoomHashByID) == "function" and getRoomHashByID(map_id) or nil
-                if is_blocked(hash) then return false end
-            end
-            return true
-        end
-        local function known_step_toward(r, target, allow_blocked)
+        local function known_step_toward(r, target)
             -- BFS through exits observed in previously visited rooms. Unlike
             -- the Mudlet map, this needs no saved mapper rooms/coordinates.
             if not valid_id(target) or r.id == target then return nil end
@@ -322,8 +313,7 @@ return {
                     local options = {}
                     for direction, dest in pairs(links) do
                         local command = EXIT_COMMANDS[direction]
-                        if command and valid_id(dest) and not seen[dest]
-                            and (allow_blocked or not is_blocked(dest)) then
+                        if command and valid_id(dest) and not seen[dest] then
                             options[#options + 1] = { command = command, id = dest }
                         end
                     end
@@ -346,7 +336,7 @@ return {
         end
         local function emergency_step(p, r)
             -- Priority 1: direct GMCP way to the saved safe room. No map needed.
-            local direct, dest = known_step_toward(r, p.safeRoom, false)
+            local direct, dest = known_step_toward(r, p.safeRoom)
             if direct then return direct, dest, "GMCP" end
 
             -- Priority 2: Mudlet getPath. Some clients have only a partial
@@ -357,11 +347,11 @@ return {
             local safe = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(p.safeRoom) or nil
             if from and safe and safe > 0 and type(getPath) == "function" then
                 local ok, found = pcall(getPath, from, safe)
-                if ok and found and route_path_clear() then
+                if ok and found then
                     local path = type(speedWalkPath) == "table" and speedWalkPath or {}
                     local next_id = type(getRoomHashByID) == "function"
                         and getRoomHashByID(path[1]) or nil
-                    if valid_id(next_id) and not is_blocked(next_id) then
+                    if valid_id(next_id) then
                         for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
                             local command = EXIT_COMMANDS[direction]
                             if command and hash == next_id then return command, hash, "mapper" end
@@ -374,11 +364,9 @@ return {
             -- Two last trail rooms: [..., previous, current].
             if trail[#trail] == r.id and #trail >= 2 then
                 local previous = trail[#trail - 1]
-                if not is_blocked(previous) then
-                    for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
-                        local command = EXIT_COMMANDS[direction]
-                        if command and hash == previous then return command, hash, "cofanie" end
-                    end
+                for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
+                    local command = EXIT_COMMANDS[direction]
+                    if command and hash == previous then return command, hash, "cofanie" end
                 end
             end
 
@@ -388,7 +376,7 @@ return {
             local options = {}
             for direction, id in pairs(type(r.exits) == "table" and r.exits or {}) do
                 local command = EXIT_COMMANDS[direction]
-                if command and valid_id(id) and not is_blocked(id) then
+                if command and valid_id(id) then
                     local n = emergency and emergency.visits[id] or 0
                     options[#options + 1] = {command=command, id=id, visits=n or 0}
                 end
@@ -403,12 +391,14 @@ return {
         end
         local function escape_exit(p, r, tried)
             local exits = type(r.exits) == "table" and r.exits or {}
-            local options = {}
+            local options, attempts = {}, skip_exit_history[r.id] or {}
             local position = 0
             for i, hash in ipairs(p.route) do
                 if hash == r.id then position = i; break end
             end
-            -- Prefer an adjacent room further along the mapped patrol.
+            -- An avoided/crowded room is a transit-only room, not a blocked
+            -- room. Prefer an exit we have not yet tried from this particular
+            -- unsuitable room, then a direction further along patrol.
             local priority = {}
             for step = 1, #p.route do
                 local index = ((position + step - 1) % #p.route) + 1
@@ -417,41 +407,46 @@ return {
             end
             for exit, hash in pairs(exits) do
                 local command = EXIT_COMMANDS[exit] or exit
-                if valid_id(hash) and valid_id(command) and not is_blocked(hash)
-                    and not tried[command] then
+                if valid_id(hash) and valid_id(command) and not tried[command] then
                     options[#options + 1] = {
                         command = command, id = hash,
                         rank = priority[hash] or 1000,
+                        visits = attempts[command] or 0,
                     }
                 end
             end
             table.sort(options, function(a, b)
+                if a.visits ~= b.visits then return a.visits < b.visits end
                 if a.rank ~= b.rank then return a.rank < b.rank end
                 return a.command < b.command
             end)
             if #options == 0 then return nil end
-
-            -- A direct route neighbour is ideal. If we cannot step directly
-            -- onto the patrol route, prefer the FIRST step toward a waypoint.
-            if options[1].rank < 1000 then return options[1].command end
+            if options[1].rank < 1000 or options[1].visits > 0 then
+                return options[1].command
+            end
+            -- Prefer a mapped route ahead if it also has the least number of
+            -- unsuccessful traversals. No room is excluded because of NPCs.
             local from = mapper.current_room()
             if from and type(getPath) == "function" then
                 for step = 1, #p.route do
                     local index = ((position + step - 1) % #p.route) + 1
                     local hash = p.route[index]
-                    local dest = not is_blocked(hash) and getRoomIDbyHash(hash) or nil
-                    if dest and dest > 0 and dest ~= from and getPath(from, dest)
-                        and route_path_clear() then
-                        local path = type(speedWalkPath) == "table" and speedWalkPath or {}
-                        local next_hash = type(getRoomHashByID) == "function"
-                            and getRoomHashByID(path[1]) or nil
-                        for _, option in ipairs(options) do
-                            if option.id == next_hash then return option.command end
+                    local dest = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(hash) or nil
+                    if dest and dest > 0 and dest ~= from then
+                        local ok, found = pcall(getPath, from, dest)
+                        if ok and found then
+                            local path = type(speedWalkPath) == "table" and speedWalkPath or {}
+                            local next_hash = type(getRoomHashByID) == "function"
+                                and getRoomHashByID(path[1]) or nil
+                            for _, option in ipairs(options) do
+                                if option.id == next_hash and option.visits == options[1].visits then
+                                    return option.command
+                                end
+                            end
                         end
                     end
                 end
             end
-            -- Even without a mapped route ahead, try a non-blocked exit.
             return options[1].command
         end
         local function queue(delay)
@@ -520,9 +515,6 @@ return {
             local now = os.time()
             if not escape or escape.origin ~= r.id then
                 escape = { origin = r.id, tried = {}, tries = 0 }
-                blocked_until[r.id] = now + math.max(
-                    tonumber(p.rules.avoidRoomCooldown) or DEFAULT.avoidRoomCooldown,
-                    tonumber(p.rules.minRoomRevisit) or DEFAULT.minRoomRevisit)
                 pending_attack, post_combat_at = nil, nil
                 note("AutoExp: omijany NPC (" .. name .. ") - opuszczam lokacje!", "warn")
             end
@@ -552,6 +544,12 @@ return {
                 return
             end
             escape.tries = escape.tries + 1
+            local history = skip_exit_history[r.id] or {}
+            history[command] = (history[command] or 0) + 1
+            skip_exit_history[r.id] = history
+            if history[command] > 2 and (history[command] % 3) == 0 then
+                note("AutoExp: ponowny przejazd przez nieodpowiednia lokacje; sprawdz trase patrolu.", "warn")
+            end
             escape.tried[command] = true
             escape.sent_at = now
             announce("AVOID_ESCAPE")
@@ -653,13 +651,12 @@ return {
                 local idx = ((position + step - 1) % #route) + 1
                 local id = route[idx]
                 local revisit = last_seen[id] and (last_seen[id] + p.rules.minRoomRevisit) or 0
-                local eligible_at = math.max(revisit, blocked_until[id] or 0)
+                local eligible_at = revisit
                 if now >= eligible_at then
                     if id ~= current then
                         local dest = getRoomIDbyHash(id)
                         local from = mapper.current_room()
-                        if from and dest and dest > 0 and getPath(from, dest)
-                            and route_path_clear() then
+                        if from and dest and dest > 0 and getPath(from, dest) then
                             return id
                         end
                     else
@@ -752,6 +749,28 @@ return {
                 end
                 announce("RECOVERY"); return
             end
+            if not ready_entities() then
+                announce("WAIT_ENTITIES")
+                if observed_room and last_visited
+                    and os.time() - last_visited > p.rules.syncWait then
+                    pause("Brak aktualnego Chimera.Room.Entities dla tej lokacji")
+                end
+                return
+            end
+            local target, npc_count = target_info(p, group_ids)
+            local skip_reason = nil
+            if npc_count > p.rules.maxEnemies then
+                skip_reason = "zbyt wiele NPC (" .. npc_count .. "/" .. p.rules.maxEnemies .. ")"
+            elseif foreign then
+                skip_reason = "obcy gracz walczy z NPC"
+            end
+            if skip_reason then
+                escape_avoided(p, r, skip_reason)
+                return
+            end
+            -- A fresh GMCP observation of acceptable room contents clears
+            -- the local direction history immediately (no time-based lock).
+            skip_exit_history[r.id] = nil
             if active then
                 pending_attack = nil
                 post_combat_at = nil
@@ -783,27 +802,7 @@ return {
             if weakest and weakest.hp < p.rules.returnHP and r.id == p.safeRoom then
                 announce("RECOVERY"); return
             end
-            if not ready_entities() then
-                announce("WAIT_ENTITIES")
-                if observed_room and last_visited
-                    and os.time() - last_visited > p.rules.syncWait then
-                    pause("Brak aktualnego Chimera.Room.Entities dla tej lokacji")
-                end
-                return
-            end
-            if foreign and os.time() >= (blocked_until[r.id] or 0) then
-                blocked_until[r.id] = os.time() + p.rules.minRoomRevisit
-                note("AutoExp: obcy gracz walczy z NPC; omijam lokacje.")
-            end
-            local target, npc_count = target_info(p, group_ids)
-            if npc_count > p.rules.maxEnemies then
-                if os.time() >= (blocked_until[r.id] or 0) then
-                    blocked_until[r.id] = os.time() + p.rules.minRoomRevisit
-                    note("AutoExp: zbyt wiele NPC (" .. npc_count .. "); pomijam lokacje.")
-                end
-                target = nil
-            end
-            if not foreign and target and os.time() >= (blocked_until[r.id] or 0) then
+            if target then
                 if dry then
                     note("AutoExp TEST: atak -> " .. target.name .. " [" .. target.id .. "]")
                     pause("Zakonczono test - zadnej komendy nie wyslano")
@@ -811,13 +810,12 @@ return {
                 end
                 announce("ENGAGING")
                 pending_attack = { id = target.id, room = r.id, since = os.time() }
-                attacked_in_room[target.id] = true -- never retry the same ID in this room
-                -- State is armed BEFORE send() - GMCP may return synchronously.
+                attacked_in_room[target.id] = true
                 ctx:send("zabij " .. target.id, true)
                 queue(0)
                 return
             end
-            if os.time() >= (blocked_until[r.id] or 0) then last_seen[r.id] = os.time() end
+            last_seen[r.id] = os.time()
             local next_id, wait_time = select_next(p, r.id)
             if not next_id then
                 if dry then
@@ -874,7 +872,7 @@ return {
             record_room(room())
             started, paused, dry = true, false, test_mode == true
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
-            attacked_in_room, last_seen, blocked_until = {}, {}, {}
+            attacked_in_room, last_seen, skip_exit_history = {}, {}, {}
             last_visited = os.time()
             last_group = {}
             for _, member in ipairs((gmcp_api.group() or {}).members or {}) do
@@ -1023,7 +1021,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.8"},
+                {"Wersja", "0.5.0-beta.9"},
                 {"Stan", phase .. (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
