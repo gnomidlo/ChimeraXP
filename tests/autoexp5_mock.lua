@@ -153,7 +153,7 @@ emit("chimera.room.entities",world.entities)
 emit("chimera.combat.state",world.combat)
 tick()
 assert(not api.status().paused, "successful escape must not be confused with manual movement")
-assert(#moves==moves_before, "patrol must not immediately return to blocked spider room")
+assert(#moves==moves_before+1 and moves[#moves]==2, "transit through previously avoided spider room must remain possible")
 cmd("exp stop")
 -- Even if attacked BEFORE starting patrol, escape without attacking spider.
 world.room={id="r2",exits={polnoc="r1",poludnie="r3"}};world.current=2
