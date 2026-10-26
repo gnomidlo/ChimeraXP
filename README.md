@@ -4,6 +4,18 @@
 
 **Wydanie:** `0.5.0-beta.1` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
 
+## Instalacja bezposrednio w Mudlecie (XML)
+
+Udostepniamy teraz **`packages/ChimeraXP.xml`**, samodzielny pakiet zawierajacy pelny kod wtyczki. W Mudlecie otworz profil, wylacz stary `EXP` i przeciagnij pobrany `ChimeraXP.xml` na okno albo wykonaj:
+
+```lua
+lua installPackage([[C:\sciezka\do\ChimeraXP.xml]])
+```
+
+Pakiet tworzy `chimera_wtyczki/chimera_autoexp/init.lua`, nie modyfikuje oficjalnej Chimery ani ChimeraVIP; potem wykonaj `/przeladuj` i `/exp test`. Pakiet jest idempotentny i **nie nadpisuje nowszej wtyczki** podczas kolejnych startow Mudleta. Aktualizacje nadal mozna wykonywac przez `update.cmd` po zalogowaniu `gh auth login`.
+
+**WAZNE: prywatne repozytorium.** Samo polecenie `lua installPackage("https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/packages/ChimeraXP.xml")` **nie zadziala** z prywatnym repo — Mudlet nie dolacza do zwyklego pobrania uwierzytelnienia GitHuba. Aby instalowac jednym poleceniem URL, trzeba publicznie udostepnic pakiet XML (co ujawni osadzony w nim kod) albo opublikowac maly publiczny loader korzystajacy z odrebnej autoryzacji. **Nie udostepniaj prywatnych tokenow w URL.**
+
 ## Instalacja Windows — z prywatnego repozytorium, bez tokenów
 
 1. Uruchom oficjalną **Chimerę 5.x** w Mudlecie. Zrób kopię profilu i starej bazy AutoExp.
@@ -51,6 +63,8 @@ Prywatne repozytorium można udostępnić przez **Settings → Collaborators →
 Nie udostępniaj nikomu własnego PAT, tokenów GitHub CLI ani prywatnych kluczy. Wtyczka nie ma wpisanych danych logowania, a instalator nie zapisuje sekretów.
 
 ## Rozwój i testy
+
+- `packages/ChimeraXP.xml` — samodzielny pakiet Mudlet z osadzonym kodem wtyczki, do importu z pliku.
 
 - `plugins/chimera_autoexp/init.lua` — jedyny plik uruchamiany przez oficjalny loader Chimery 5.
 - `manifest.json` — jawna lista plików instalacyjnych i suma SHA-256.
