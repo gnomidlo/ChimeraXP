@@ -2,7 +2,7 @@
 
 **Osobny, prywatny projekt AutoExp dla oficjalnej Chimery 5.x w Mudlecie.** Nie jest modułem ChimeraVIP i nie jest częścią oficjalnych skryptów. Korzysta wyłącznie z publicznego API wtyczek Chimery (`gmcp`, `mapper`, `walker`, zdarzenia `chimera.*`).
 
-**Wydanie:** `0.5.0-beta.3` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
+**Wydanie:** `0.5.0-beta.5` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
 
 ## Instalacja bezposrednio w Mudlecie (XML)
 
@@ -96,3 +96,12 @@ komend modulu `collect` oficjalnej Chimery. Podczas testowania warto wykonac
 `/zbieranie nie` (Chimera 5) i sprawdzic stary pakiet EXP oraz pozostale aliasy lootowania.
 
 Niski poziom HP podczas rozpoczetego odwrotu nie uruchamia ponownie chodzika.
+
+
+### Awaryjny odwrot (beta.4)
+
+Przy niskim HP w walce AutoExp probuje wyjsc do ustawionej /exp bezpieczna, krok po kroku przez GMCP. Wysyla pojedyncze kierunki i czeka na potwierdzenie zmiany lokacji. Jesli MUD blokuje ruch, po ograniczonej liczbie prob wstrzymuje automat i alarmuje. **Nie gwarantuje to ucieczki**; testowac tylko pod nadzorem i ustawic konserwatywny prog HP.
+
+## Poprawka beta.5 — własny krok nie oznacza przejęcia sterowania
+
+Oficjalny numpad emituje `chimera.step.manual` także po komendzie kierunkowej wysłanej przez inny skrypt. AutoExp rozpoznaje teraz dokładnie własny, synchroniczny krok podczas `AVOID_ESCAPE` i `EMERGENCY_RETREAT`, dzięki czemu nie zatrzymuje się fałszywym komunikatem „Gracz przejal sterowanie”. Rzeczywisty ręczny krok gracza wciąż wstrzymuje automat. Sprawdzone symulacją zdarzeń; działanie na żywym serwerze nadal wymaga weryfikacji.

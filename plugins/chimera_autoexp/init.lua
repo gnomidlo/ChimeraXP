@@ -51,7 +51,8 @@ local function rooms_from(raw)
 end
 local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
     minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7,
-    avoidRoomCooldown = 600, escapeWait = 4, escapeMaxTries = 3 }
+    avoidRoomCooldown = 600, escapeWait = 4, escapeMaxTries = 3,
+    safeMoveWait = 3, safeMoveTries = 2 }
 local function normalize_profile(src, name)
     local old = type(src) == "table" and src or {}
     local rules = type(old.rules) == "table" and old.rules or {}
@@ -79,7 +80,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.3",
+    version = "0.5.0-beta.5",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -101,6 +102,7 @@ return {
         local last_seen = {} -- room ID -> time at which room was checked and empty
         local blocked_until = {} -- room ID -> time until we may try again
         local escape = nil -- { origin, sent_at, tries, tried = { cmd = true } }
+        local emergency = nil -- { step = {origin, destination, command, sent_at}, tries, destination }
         local last_visited = nil
         local entities_ready = false
         local observed_room = nil
@@ -251,6 +253,16 @@ return {
             ["poludniowy-wschod"] = "se", ["poludniowy-zachod"] = "sw",
             gora = "u", dol = "d", up = "u", down = "d",
         }
+        -- Numpad emits chimera.step.manual for any directional send,
+        -- including our ctx:send; ownership lasts only during that call.
+        local owned_direction = nil
+        local function send_owned_direction(command)
+            local previous = owned_direction
+            owned_direction = EXIT_COMMANDS[command] or command
+            local ok, err = pcall(ctx.send, ctx, command)
+            owned_direction = previous
+            return ok, err
+        end
         local function is_blocked(id)
             return id and os.time() < (blocked_until[id] or 0)
         end
@@ -326,7 +338,7 @@ return {
         local function halt(reason)
             if pending then ctx:cancel(pending); pending = nil end
             started, paused, dry = false, false, false
-            phase, pending_attack, move, escape = "OFF", nil, nil, nil
+            phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
             post_combat_at = nil
             last_reason = reason or "Zatrzymano"
             if stop_ours == false and state.owns_walk then
@@ -349,7 +361,7 @@ return {
                 stop_ours = false
             end
             state.owns_walk = false
-            move, pending_attack, escape = nil, nil, nil
+            move, pending_attack, escape, emergency = nil, nil, nil, nil
             note("AutoExp WSTRZYMANY: " .. reason, "warn")
         end
         local function move_to(id, purpose)
@@ -415,7 +427,95 @@ return {
             escape.tried[command] = true
             escape.sent_at = now
             announce("AVOID_ESCAPE")
-            ctx:send(command)
+            local ok, err = send_owned_direction(command)
+            if not ok then pause("Blad wyslania kroku omijania NPC: " .. tostring(err)) end
+        end
+        -- Emergency retreat: the official walker deliberately stops on combat.
+        -- Issue ONE mapped direction at a time and await Room.Info confirmation.
+        -- This cannot overcome a server-side ban on fleeing from combat.
+        local function retreat_in_combat(p, r)
+            if not valid_id(p.safeRoom) then
+                pause("Niskie HP w walce, ale nie zapisano bezpiecznej lokacji (/exp bezpieczna)!")
+                return
+            end
+            if r.id == p.safeRoom then
+                emergency = nil
+                announce("RECOVERY")
+                return
+            end
+            if state.owns_walk then
+                stop_ours = true
+                walker.stop("AutoExp: awaryjny odwrot w walce")
+                stop_ours = false
+                state.owns_walk, move = false, nil
+            end
+            local now = os.time()
+            if not emergency then
+                emergency = { destination = p.safeRoom, tries = 0 }
+                pending_attack, post_combat_at, escape = nil, nil, nil
+                note("AutoExp: ALARM HP! Awaryjny odwrot do bezpiecznej lokacji, krok po kroku.", "warn")
+            end
+            if emergency.step and emergency.step.origin == r.id then
+                if now - emergency.step.sent_at <
+                    (tonumber(p.rules.safeMoveWait) or DEFAULT.safeMoveWait) then
+                    announce("EMERGENCY_RETREAT")
+                    return
+                end
+                if emergency.tries >=
+                    (tonumber(p.rules.safeMoveTries) or DEFAULT.safeMoveTries) then
+                    pause("ALARM: serwer nie potwierdzil ruchu w walce! Przejmij sterowanie natychmiast.")
+                    return
+                end
+                -- Retry the same mapped exit; switching destinations while
+                -- the previous movement may be delayed is too risky.
+                emergency.tries = emergency.tries + 1
+                emergency.step.sent_at = now
+                note("AutoExp: ruch niepotwierdzony; powtarzam wyjscie do bezpiecznej lokacji ("
+                     .. emergency.tries .. "/" .. p.rules.safeMoveTries .. ").", "warn")
+                announce("EMERGENCY_RETREAT")
+                local ok, err = send_owned_direction(emergency.step.command)
+                if not ok then pause("Blad powtorzenia kroku awaryjnego: " .. tostring(err)) end
+                return
+            end
+            -- A new room is now confirmed. Plan just the next step, not a
+            -- multi-command speedwalk that might race against GMCP combat.
+            emergency.step, emergency.tries = nil, 0
+            local from = mapper.current_room()
+            local dest = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(p.safeRoom) or nil
+            if not from or not dest or dest <= 0 or type(getPath) ~= "function"
+                or not getPath(from, dest) or not route_path_clear() then
+                pause("ALARM: brak bezpiecznej, znanej trasy do miejsca odwrotu. Przejmij sterowanie!")
+                return
+            end
+            local path = type(speedWalkPath) == "table" and speedWalkPath or {}
+            local next_id = type(getRoomHashByID) == "function"
+                and getRoomHashByID(path[1]) or nil
+            if not valid_id(next_id) or is_blocked(next_id) then
+                pause("ALARM: nastepna lokacja trasy awaryjnej jest niedostepna lub zablokowana!")
+                return
+            end
+            local options = {}
+            for exit, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
+                local command = EXIT_COMMANDS[exit] or exit
+                if hash == next_id and valid_id(command) then options[#options+1] = command end
+            end
+            table.sort(options)
+            local command = options[1]
+            if not command then
+                pause("ALARM: nie ma wyjscia GMCP w kierunku bezpiecznej lokacji!")
+                return
+            end
+            if dry then
+                note("AutoExp TEST: awaryjny odwrot w walce -> " .. command)
+                pause("Zakonczono test - zadnej komendy nie wyslano")
+                return
+            end
+            emergency.step = { origin = r.id, destination = next_id,
+                command = command, sent_at = now }
+            emergency.tries = 1
+            announce("EMERGENCY_RETREAT")
+            local ok, err = send_owned_direction(command)
+            if not ok then pause("Blad wyslania kroku awaryjnego: " .. tostring(err)) end
         end
         local function select_next(p, current)
             local route, now = p.route, os.time()
@@ -477,6 +577,12 @@ return {
             local danger = hp <= p.rules.retreatHP or
                 (weakest and weakest.hp <= p.rules.retreatHP)
             local active, foreign = combat_status(group_ids)
+            -- When low HP forces retreat while in combat, safety takes
+            -- precedence over ordinary avoided-NPC routing and attacking.
+            if emergency or (danger and active) then
+                retreat_in_combat(p, r)
+                return
+            end
             -- Apply avoid even if already attacked; the game may have started
             -- combat before Room.Entities arrived. Never call zabij here.
             local forbidden = avoided_npc(p, group_ids)
@@ -495,7 +601,7 @@ return {
             if active == nil then announce("WAIT_COMBAT"); return end
             if danger then
                 if active then
-                    pause(string.format("Niskie HP (%.0f%%); walka trwa. Konieczna interwencja.", hp))
+                    retreat_in_combat(p, r)
                     return
                 end
                 if r.id ~= p.safeRoom then
@@ -635,7 +741,7 @@ return {
                 return
             end
             started, paused, dry = true, false, test_mode == true
-            pending_attack, move, post_combat_at, escape = nil, nil, nil, nil
+            pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
             attacked_in_room, last_seen, blocked_until = {}, {}, {}
             last_visited = os.time()
             last_group = {}
@@ -652,8 +758,18 @@ return {
         end)
         ctx:on("chimera.room.changed", function(r)
             local was_escaping = escape and r and r.id ~= escape.origin
+            local was_emergency = emergency and emergency.step and r
+                and r.id ~= emergency.step.origin
+            if was_emergency and r.id ~= emergency.step.destination then
+                pause("ALARM: odwrot trafil do nieoczekiwanej lokacji. Przejmij sterowanie!")
+                return
+            end
             if was_escaping then
                 escape = nil -- direct step from an avoided room succeeded
+                pending_attack, post_combat_at = nil, nil
+            end
+            if was_emergency then
+                emergency.step = nil -- confirmed direct step; continue via GMCP
                 pending_attack, post_combat_at = nil, nil
             end
             if r and r.id ~= observed_room then
@@ -664,7 +780,7 @@ return {
             maybe_record(room())
             if started and not paused and not state.owns_walk then
                 -- Manual navigation while running is not treated as a patrol step.
-                if r and r.how == "reczny" and not was_escaping then
+                if r and r.how == "reczny" and not was_escaping and not was_emergency then
                     pause("Wykryto ruch reczny gracza")
                 else
                     queue(0)
@@ -731,8 +847,16 @@ return {
             end
         end)
         ctx:on("chimera.session.end", function() halt("Rozlaczono - automat zatrzymany") end)
-        ctx:on("chimera.step.manual", function()
-            if started and not paused then pause("Gracz przejal sterowanie") end
+        ctx:on("chimera.step.manual", function(manual)
+            if not started or paused then return end
+            local direction = type(manual) == "table" and manual.direction or nil
+            -- Ignore only our matching direction INSIDE ctx:send().
+            -- Actual user input even a moment later must still pause.
+            if owned_direction and direction
+                and (EXIT_COMMANDS[direction] or direction) == owned_direction then
+                return
+            end
+            pause("Gracz przejal sterowanie")
         end)
         ctx:timer(1, function()
             if started and not paused then queue(0) end
@@ -933,7 +1057,7 @@ return {
         -- Helpful test-only API, no shared globals or monkeypatches.
         return { status = function() return { phase = phase, started = started, paused = paused,
             selected = selected, moving = move and move.id, mapping = mapping and mapping.name,
-            escaping = escape and escape.origin } end,
+            escaping = escape and escape.origin, emergency = emergency and emergency.destination } end,
             import_old_profiles = import_old_profiles }
     end,
 }

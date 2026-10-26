@@ -52,7 +52,13 @@ local ctx = {
     end,
     cancel=function(_,id) if timers[id] then timers[id].active=false end end,
     cleanup=function() end,
-    send=function(_,s) sent[#sent+1]=s end,
+    send=function(_,s)
+      -- Official numpad fires this even for directions sent by AutoExp.
+      if ({n=true,s=true,e=true,w=true,ne=true,nw=true,se=true,sw=true,u=true,d=true})[s] then
+        emit("chimera.step.manual", {direction=s,before={}})
+      end
+      sent[#sent+1]=s
+    end,
     report=function() end,
 }
 local api=P.setup(ctx)
@@ -99,7 +105,7 @@ emit("chimera.room.entities",world.entities)
 emit("chimera.char.vitals",world.vitals)
 tick()
 assert(#sent==1, "only one attack pending")
--- Fight begins; low hp means fail-closed pause (native walker won't retreat midfight).
+-- When an emergency route is not available, fail closed with an alarm.
 world.combat={self_active=1,relations={{attacker="me",defender="mob-a"}}}
 emit("chimera.combat.state",world.combat)
 tick()
@@ -204,5 +210,91 @@ assert(#moves==moves_prev+1 and api.status().phase=="RETREAT", "retreat starts")
 emit("chimera.char.vitals",world.vitals)
 tick()
 assert(#moves==moves_prev+1 and api.status().phase=="RETREAT", "retreat is not restarted")
+cmd("exp stop")
+-- Beta.4: low HP in COMBAT -> direct, confirmed-step retreat toward saved safe room.
+-- The native walker would stop on combat, but a direct exit may still work.
+getRoomHashByID=function(id) return ({[1]="r1",[2]="r2",[3]="r3",[5]="safe"})[id] end
+getPath=function(from,to)
+  speedWalkPath={}
+  if from==1 and to==2 then speedWalkPath={2}; return true end
+  if from==2 and to==5 then speedWalkPath={5}; return true end
+  return false
+end
+world.room={id="r1",exits={poludnie="r2"}};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"},
+  {id="danger",name="rozzloszczony goblin",kind="npc"}}}
+world.combat={self_active=1,relations={{attacker="danger",defender="me"}}}
+world.vitals.hp=22
+local before_moves,before_sent=#moves,#sent
+cmd("exp start")
+tick()
+assert(api.status().phase=="EMERGENCY_RETREAT" and not api.status().paused,
+  "battle low hp must trigger emergency retreat")
+assert(#sent==before_sent+1 and sent[#sent]=="s", "only mapped next step is sent")
+assert(#moves==before_moves, "do not use walker.go while in battle")
+emit("chimera.char.vitals",world.vitals);emit("chimera.combat.state",world.combat);tick()
+assert(#sent==before_sent+1, "no double movement before GMCP confirmation")
+world.room={id="r2",exits={polnoc="r1"}};world.current=2
+world.entities={room="r2",entities={{id="me",kind="player",relation="self"}}}
+emit("chimera.room.changed",{id="r2",how="reczny"})
+emit("chimera.room.entities",world.entities)
+tick()
+assert(not api.status().paused and api.status().phase=="RECOVERY",
+  "reaching configured safe room must end emergency even if fight flag lags")
+assert(#sent==before_sent+1, "safe room should not cause another step")
+cmd("exp stop")
+-- If server ignores the step, there is one bounded retry and an explicit alarm.
+world.room={id="r1",exits={poludnie="r2"}};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"},
+  {id="danger",name="rozzloszczony goblin",kind="npc"}}}
+world.combat={self_active=1,relations={{attacker="danger",defender="me"}}}
+world.vitals.hp=21
+before_sent=#sent
+cmd("exp start");tick()
+assert(#sent==before_sent+1,"rescue first command")
+time=time+4;emit("chimera.combat.state",world.combat);tick()
+assert(#sent==before_sent+2,"one retry after timeout")
+time=time+4;emit("chimera.combat.state",world.combat);tick()
+assert(api.status().paused,"abort after bounded failure")
+assert(#sent==before_sent+2,"no movement command spam")
+cmd("exp stop")
+-- Continue a multi-room emergency route even if combat remains active.
+storage.profiles.test.safeRoom="safe"
+getPath=function(from,to)
+  speedWalkPath={}
+  if from==1 and to==5 then speedWalkPath={2,5}; return true end
+  if from==2 and to==5 then speedWalkPath={5}; return true end
+  return false
+end
+world.room={id="r1",exits={poludnie="r2"}};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"},
+  {id="danger",name="rozzloszczony goblin",kind="npc"}}}
+world.combat={self_active=1,relations={{attacker="danger",defender="me"}}}
+world.vitals.hp=22
+before_sent=#sent
+cmd("exp start");tick()
+assert(sent[#sent]=="s" and #sent==before_sent+1,"first emergency step")
+world.room={id="r2",exits={wschod="safe",polnoc="r1"}};world.current=2
+world.entities={room="r2",entities={{id="me",kind="player",relation="self"}}}
+emit("chimera.room.changed",{id="r2",how="reczny"});tick()
+assert(#sent==before_sent+2 and sent[#sent]=="e" and not api.status().paused,
+  "second emergency step even with active combat")
+world.room={id="safe",exits={zachod="r2"}};world.current=5
+world.entities={room="safe",entities={{id="me",kind="player",relation="self"}}}
+emit("chimera.room.changed",{id="safe",how="reczny"});tick()
+assert(api.status().phase=="RECOVERY" and not api.status().paused,
+  "two-step retreat should arrive at designated safe room")
+cmd("exp stop")
+-- The synchronous OWN send is not manual; a truly manual key still pauses.
+world.room={id="r1",exits={poludnie="r2"}};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"},
+  {id="danger",name="rozzloszczony goblin",kind="npc"}}}
+world.combat={self_active=1,relations={{attacker="danger",defender="me"}}}
+world.vitals.hp=22
+cmd("exp start");tick()
+assert(not api.status().paused and api.status().phase=="EMERGENCY_RETREAT",
+  "our own movement must not fire the manual takeover safeguard")
+emit("chimera.step.manual",{direction="n",before={}})
+assert(api.status().paused, "a real manual input must still stop AutoExp")
 cmd("exp stop")
 print("AutoExp 5: integration mock tests PASS; commands",#sent,"moves",#moves)
