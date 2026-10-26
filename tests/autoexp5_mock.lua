@@ -52,7 +52,13 @@ local ctx = {
     end,
     cancel=function(_,id) if timers[id] then timers[id].active=false end end,
     cleanup=function() end,
-    send=function(_,s) sent[#sent+1]=s end,
+    send=function(_,s)
+      -- Official numpad fires this even for directions sent by AutoExp.
+      if ({n=true,s=true,e=true,w=true,ne=true,nw=true,se=true,sw=true,u=true,d=true})[s] then
+        emit("chimera.step.manual", {direction=s,before={}})
+      end
+      sent[#sent+1]=s
+    end,
     report=function() end,
 }
 local api=P.setup(ctx)
@@ -278,5 +284,17 @@ world.entities={room="safe",entities={{id="me",kind="player",relation="self"}}}
 emit("chimera.room.changed",{id="safe",how="reczny"});tick()
 assert(api.status().phase=="RECOVERY" and not api.status().paused,
   "two-step retreat should arrive at designated safe room")
+cmd("exp stop")
+-- The synchronous OWN send is not manual; a truly manual key still pauses.
+world.room={id="r1",exits={poludnie="r2"}};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"},
+  {id="danger",name="rozzloszczony goblin",kind="npc"}}}
+world.combat={self_active=1,relations={{attacker="danger",defender="me"}}}
+world.vitals.hp=22
+cmd("exp start");tick()
+assert(not api.status().paused and api.status().phase=="EMERGENCY_RETREAT",
+  "our own movement must not fire the manual takeover safeguard")
+emit("chimera.step.manual",{direction="n",before={}})
+assert(api.status().paused, "a real manual input must still stop AutoExp")
 cmd("exp stop")
 print("AutoExp 5: integration mock tests PASS; commands",#sent,"moves",#moves)
