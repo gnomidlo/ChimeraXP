@@ -1,0 +1,12 @@
+# Dane Mudleta i autoryzacja nigdy nie trafiaja do repozytorium
+.env
+*.token
+*.key
+*.pem
+*.secret
+Database_*.db
+ChimeraXP-data/
+.backup/
+.staging/
+__pycache__/
+*.pyc
