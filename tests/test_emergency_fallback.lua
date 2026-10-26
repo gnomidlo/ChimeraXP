@@ -62,6 +62,9 @@ local function trial(which)
   elseif which=='no_exits' then
     world.room={id='entry',exits={}}
   end
+  assert(commands['exp odwrot-test'],'dry-run command not registered')
+  commands['exp odwrot-test']()
+  assert(#sent==0,'dry-run retreat must never send a direction')
   commands['exp start']();tick()
   local status=api.status()
   if which=='known_graph' or which=='unmapped_safe' then
