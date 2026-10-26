@@ -48,14 +48,14 @@ Wersja prywatna **nie udostępnia anonimowego endpointu raw.githubusercontent.co
 
 Wersja beta **nie była jeszcze przetestowana w rzeczywistej sesji na serwerze**. Testy jednostkowe i symulacyjne nie zastępują testów w Mudlecie.
 
-### Poprawki 0.5.0-beta.5
+### Poprawki 0.5.0-beta.6
 
 - Zachowanie `/exp unikaj ...` od beta.3: po wykryciu omijanego NPC wychodzi przez dostepne wyjscie GMCP, rowniez podczas walki, bez wysylania `zabij`.
 - Po walce odczekuje minimum 7 sekund przed kolejnym krokiem; komendy lootowania wysyla wylacznie oficjalna Chimera, nie ChimeraXP.
 - Odwrot rozpoczetym chodzikiem nie jest w kolko restartowany przez kolejne pakiety HP.
 - Nie naprawia bledow zbierania oficjalnej Chimery. W testach mozna tymczasowo uzyc `/zbieranie nie`.
 
-### Ucieczka z lokacji z omijanym NPC (0.5.0-beta.5)
+### Ucieczka z lokacji z omijanym NPC (0.5.0-beta.6)
 
 - W pierwszej kolejnosci wyjscie do kolejnego pokoju z zapisanej trasy, dalej kierunek do dostepnej lokacji; sprawdzane sa wyjscia z aktualnego `Room.Info`.
 - W trakcie walki oficjalny `walker.go` nie daje gwarancji ruchu, wiec ucieczka wysyla bezposrednio jedna komende kierunku i czeka na GMCP `Room.Info`.
@@ -72,3 +72,11 @@ Przy niskim HP w walce AutoExp probuje wyjsc do ustawionej /exp bezpieczna, krok
 ## Poprawka beta.5 — własny krok nie oznacza przejęcia sterowania
 
 Oficjalny numpad emituje `chimera.step.manual` także po komendzie kierunkowej wysłanej przez inny skrypt. AutoExp rozpoznaje teraz dokładnie własny, synchroniczny krok podczas `AVOID_ESCAPE` i `EMERGENCY_RETREAT`, dzięki czemu nie zatrzymuje się fałszywym komunikatem „Gracz przejal sterowanie”. Rzeczywisty ręczny krok gracza wciąż wstrzymuje automat. Sprawdzone symulacją zdarzeń; działanie na żywym serwerze nadal wymaga weryfikacji.
+
+## Beta.6 - opoznione zdarzenie manualnego kroku
+
+Gdy Chimera emituje `chimera.step.manual` po wyslaniu komendy przez AutoExp (np. `w` podczas `AVOID_ESCAPE`), AutoExp rozpoznaje pierwszy zgodny sygnal jako wlasny krok rowniez przez maksymalnie 2 sekundy przed potwierdzeniem nowego pokoju przez GMCP. Kolejne zdarzenie, inny kierunek lub zdarzenie poza tym oknem nadal wstrzymuje skrypt. Zachowujemy zabezpieczenie recznego sterowania, ale identyczne polecenie wpisane przez gracza jako **pierwsze** w krotkim oknie mogloby zostac pomylone z echem AutoExp - podczas testowania nie steruj recznie jednoczesnie z awaryjnym odwrotem.
+
+Komenda `/exp` pokazuje teraz numer wersji; jesli `/exp start` wykonano podczas pauzy, wyjasnia jak uzyc `/exp wznow` lub `/exp stop`.
+
+Nowy test `tests/autoexp_manual_event.lua` weryfikuje wywolania synchroniczne i opoznione oraz rzeczywiste przejecie sterowania. Testy sa symulacyjne, nie z realnego Mudleta.

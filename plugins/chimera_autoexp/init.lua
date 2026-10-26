@@ -80,7 +80,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.5",
+    version = "0.5.0-beta.6",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -256,11 +256,20 @@ return {
         -- Numpad emits chimera.step.manual for any directional send,
         -- including our ctx:send; ownership lasts only during that call.
         local owned_direction = nil
+        local expected_manual = nil -- one pending numpad echo of our own step
         local function send_owned_direction(command)
+            local direction = EXIT_COMMANDS[command] or command
+            -- A "chimera.step.manual" callback may follow ctx:send() instead
+            -- of happening inside it. Keep ONE matching expected event while
+            -- still in the source room (max two seconds).
+            expected_manual = {
+                direction = direction, room = room_id(), time = os.time(), consumed = false,
+            }
             local previous = owned_direction
-            owned_direction = EXIT_COMMANDS[command] or command
+            owned_direction = direction
             local ok, err = pcall(ctx.send, ctx, command)
             owned_direction = previous
+            if not ok then expected_manual = nil end
             return ok, err
         end
         local function is_blocked(id)
@@ -336,6 +345,7 @@ return {
             end)
         end
         local function halt(reason)
+            expected_manual = nil
             if pending then ctx:cancel(pending); pending = nil end
             started, paused, dry = false, false, false
             phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
@@ -351,6 +361,7 @@ return {
         end
         local function pause(reason)
             if not started or paused then return end
+            expected_manual = nil
             paused = true
             phase = "PAUSED"
             last_reason = reason
@@ -713,7 +724,14 @@ return {
             move_to(next_id, "patrol")
         end
         local function start(test_mode)
-            if started then note("AutoExp juz dziala (uzyj /exp stop).", "warn"); return end
+            if started then
+                if paused then
+                    note("AutoExp jest WSTRZYMANY. Uzyj /exp wznow lub /exp stop, aby zaczac od nowa.", "warn")
+                else
+                    note("AutoExp juz dziala (uzyj /exp stop).", "warn")
+                end
+                return
+            end
             local p = profile()
             if not p then note("Wybierz profil: /exp wybierz NAZWA", "warn"); return end
             if #p.route == 0 or #p.targets == 0 or not p.safeRoom then
@@ -757,6 +775,7 @@ return {
             maybe_record(r)
         end)
         ctx:on("chimera.room.changed", function(r)
+            expected_manual = nil -- room has changed; step ownership expired
             local was_escaping = escape and r and r.id ~= escape.origin
             local was_emergency = emergency and emergency.step and r
                 and r.id ~= emergency.step.origin
@@ -850,12 +869,19 @@ return {
         ctx:on("chimera.step.manual", function(manual)
             if not started or paused then return end
             local direction = type(manual) == "table" and manual.direction or nil
-            -- Ignore only our matching direction INSIDE ctx:send().
-            -- Actual user input even a moment later must still pause.
-            if owned_direction and direction
-                and (EXIT_COMMANDS[direction] or direction) == owned_direction then
+            direction = direction and (EXIT_COMMANDS[direction] or direction)
+            -- Consume at most ONE event belonging to a step just sent by XP.
+            -- Some Mudlet callbacks occur after ctx:send() has already returned.
+            local expected = expected_manual
+            if expected and not expected.consumed and direction
+                and direction == expected.direction and room_id() == expected.room
+                and os.time() - expected.time <= 2 then
+                expected.consumed = true
                 return
             end
+            -- All other directions (and another matching manual event) are
+            -- genuine user input: retain the manual-takeover safety rule.
+            expected_manual = nil
             pause("Gracz przejal sterowanie")
         end)
         ctx:timer(1, function()
@@ -873,6 +899,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
+                {"Wersja", "0.5.0-beta.6"},
                 {"Stan", phase .. (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},

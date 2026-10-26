@@ -2,7 +2,7 @@
 
 **Osobny, prywatny projekt AutoExp dla oficjalnej Chimery 5.x w Mudlecie.** Nie jest modułem ChimeraVIP i nie jest częścią oficjalnych skryptów. Korzysta wyłącznie z publicznego API wtyczek Chimery (`gmcp`, `mapper`, `walker`, zdarzenia `chimera.*`).
 
-**Wydanie:** `0.5.0-beta.5` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
+**Wydanie:** `0.5.0-beta.6` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
 
 ## Instalacja bezposrednio w Mudlecie (XML)
 
@@ -105,3 +105,11 @@ Przy niskim HP w walce AutoExp probuje wyjsc do ustawionej /exp bezpieczna, krok
 ## Poprawka beta.5 — własny krok nie oznacza przejęcia sterowania
 
 Oficjalny numpad emituje `chimera.step.manual` także po komendzie kierunkowej wysłanej przez inny skrypt. AutoExp rozpoznaje teraz dokładnie własny, synchroniczny krok podczas `AVOID_ESCAPE` i `EMERGENCY_RETREAT`, dzięki czemu nie zatrzymuje się fałszywym komunikatem „Gracz przejal sterowanie”. Rzeczywisty ręczny krok gracza wciąż wstrzymuje automat. Sprawdzone symulacją zdarzeń; działanie na żywym serwerze nadal wymaga weryfikacji.
+
+## Beta.6 - opoznione zdarzenie manualnego kroku
+
+Gdy Chimera emituje `chimera.step.manual` po wyslaniu komendy przez AutoExp (np. `w` podczas `AVOID_ESCAPE`), AutoExp rozpoznaje pierwszy zgodny sygnal jako wlasny krok rowniez przez maksymalnie 2 sekundy przed potwierdzeniem nowego pokoju przez GMCP. Kolejne zdarzenie, inny kierunek lub zdarzenie poza tym oknem nadal wstrzymuje skrypt. Zachowujemy zabezpieczenie recznego sterowania, ale identyczne polecenie wpisane przez gracza jako **pierwsze** w krotkim oknie mogloby zostac pomylone z echem AutoExp - podczas testowania nie steruj recznie jednoczesnie z awaryjnym odwrotem.
+
+Komenda `/exp` pokazuje teraz numer wersji; jesli `/exp start` wykonano podczas pauzy, wyjasnia jak uzyc `/exp wznow` lub `/exp stop`.
+
+Nowy test `tests/autoexp_manual_event.lua` weryfikuje wywolania synchroniczne i opoznione oraz rzeczywiste przejecie sterowania. Testy sa symulacyjne, nie z realnego Mudleta.
