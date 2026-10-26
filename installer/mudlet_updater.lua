@@ -1,0 +1,226 @@
+-- ChimeraXP online installer/update manager for Mudlet 5.x.
+-- Public source only; never needs a GitHub account or access token.
+-- Keep this bootstrap independent of the Chimera plugin API.
+chimera_xp_updater = chimera_xp_updater or {}
+local U = chimera_xp_updater
+U.base = "https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/"
+U.root = getMudletHomeDir() .. "/ChimeraXP"
+U.plugin_dir = getMudletHomeDir() .. "/chimera_wtyczki/chimera_autoexp"
+U.target = U.plugin_dir .. "/init.lua"
+U.version = "1.0"
+
+local function say(s, color)
+    if type(cecho) == "function" then
+        cecho("\n<" .. (color or "aquamarine") .. ">[ChimeraXP]<reset> " .. tostring(s) .. "\n")
+    end
+end
+
+local function read(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local d = f:read("*a")
+    f:close()
+    return d
+end
+
+local function mkdirs(path)
+    local ok, lfs = pcall(require, "lfs")
+    if not ok or not lfs or type(lfs.mkdir) ~= "function" then
+        return false, "Brak LuaFileSystem (lfs)."
+    end
+    local sep = package.config:sub(1, 1)
+    local current, prefix = "", ""
+    if path:match("^%a:[/\\]") then
+        prefix, path = path:sub(1, 2) .. sep, path:sub(4)
+    elseif path:sub(1, 1) == sep then
+        prefix, path = sep, path:sub(2)
+    end
+    current = prefix
+    for part in path:gmatch("[^/\\]+") do
+        if current ~= "" and current:sub(-1) ~= sep then current = current .. sep end
+        current = current .. part
+        if lfs.attributes(current, "mode") ~= "directory" then
+            local done, err = lfs.mkdir(current)
+            if not done then return false, tostring(err) end
+        end
+    end
+    return true
+end
+
+local function version(v)
+    local a, b, c, beta = tostring(v or ""):match("^(%d+)%.(%d+)%.(%d+)%-beta%.(%d+)$")
+    if beta then return {tonumber(a), tonumber(b), tonumber(c), 0, tonumber(beta)} end
+    a, b, c = tostring(v or ""):match("^(%d+)%.(%d+)%.(%d+)$")
+    if a then return {tonumber(a), tonumber(b), tonumber(c), 1, 0} end
+    return nil
+end
+
+local function compare(a, b)
+    local x, y = version(a), version(b)
+    if not y then return nil end
+    if not x then return -1 end
+    for i = 1, 5 do
+        if x[i] < y[i] then return -1 end
+        if x[i] > y[i] then return 1 end
+    end
+    return 0
+end
+
+local marker = "-- Chimera AutoExp 5 / standalone plugin"
+local function plugin_version(data)
+    if not data or data:sub(1, #marker) ~= marker then return nil end
+    return data:match('version%s*=%s*"([%d%.%-beta]+)"')
+end
+
+local function parse_manifest(data)
+    if not data or not data:find('"name"%s*:%s*"ChimeraXP"') or
+        not data:find('"schema"%s*:%s*1') then return nil end
+    local v = data:match('"version"%s*:%s*"([^"%s]+)"')
+    local file = data:match('"path"%s*:%s*"([^"%s]+)"')
+    local sha = data:match('"sha256"%s*:%s*"([0-9a-f]+)"')
+    if not version(v) or file ~= "plugins/chimera_autoexp/init.lua" or not sha or #sha ~= 64 then
+        return nil
+    end
+    return {version = v, sha256 = sha}
+end
+
+function U:_cleanup()
+    if self.handlers then
+        for _, handle in ipairs(self.handlers) do
+            pcall(killAnonymousEventHandler, handle)
+        end
+    end
+    self.handlers = nil
+    self.waiting = nil
+end
+
+function U:_fail(message)
+    local filename = self.waiting
+    self:_cleanup()
+    self.busy, self.release = false, nil
+    if filename then pcall(os.remove, filename) end
+    say(message .. " Dotychczasowa instalacja pozostaje bez zmian.", "orange")
+end
+
+function U:_fetch(stage, url)
+    local destination = self.root .. "/.online-" .. stage .. ".tmp"
+    self:_cleanup()
+    self.waiting, self.stage = destination, stage
+    pcall(os.remove, destination)
+    self.handlers = {
+        registerAnonymousEventHandler("sysDownloadDone", function(_, filename)
+            if filename ~= self.waiting then return end
+            self:_downloaded(stage, filename)
+        end),
+        registerAnonymousEventHandler("sysDownloadError", function(_, err, filename)
+            if filename ~= self.waiting then return end
+            self:_fail("Nie udalo sie pobrac pliku z GitHuba: " .. tostring(err))
+        end)
+    }
+    local ok, result, err = pcall(downloadFile, destination, url)
+    if not ok or result == false then
+        self:_fail("Nie mozna uruchomic pobierania: " .. tostring(err or result))
+    end
+end
+
+function U:_install(downloaded, remote_version)
+    if not downloaded or downloaded:sub(1, #marker) ~= marker or
+        plugin_version(downloaded) ~= remote_version or #downloaded < 10000 or
+        #downloaded > 500000 then
+        return self:_fail("Pobrany plik nie jest prawidlowa wtyczka ChimeraXP.")
+    end
+    local compile = loadstring or load
+    if not compile or not compile(downloaded, "@chimera_autoexp/init.lua") then
+        return self:_fail("Pobrany plik zawiera blad skladni Lua.")
+    end
+    local existing = read(self.target)
+    if existing and existing:sub(1, #marker) ~= marker then
+        return self:_fail("W katalogu wtyczki jest nierozpoznany plik: " .. self.target)
+    end
+    local installed = plugin_version(existing)
+    if existing and not installed then
+        return self:_fail("Nie rozpoznano wersji poprzedniej wtyczki.")
+    end
+    if existing and compare(installed, remote_version) >= 0 then
+        self:_cleanup(); self.busy, self.release = false, nil
+        if self.verbose then say("Masz juz wersje " .. installed .. ".") end
+        return
+    end
+    local ok, err = mkdirs(self.plugin_dir)
+    if not ok then return self:_fail("Nie udalo sie utworzyc katalogu: " .. tostring(err)) end
+    local backup
+    if existing then
+        local backups = self.root .. "/backups"
+        ok, err = mkdirs(backups)
+        if not ok then return self:_fail("Nie mozna utworzyc kopii: " .. tostring(err)) end
+        for n = 1, 1000 do
+            local candidate = backups .. "/init-" .. os.date("%Y%m%d-%H%M%S") .. "-" .. n .. ".lua"
+            if not read(candidate) then backup = candidate; break end
+        end
+        if not backup then return self:_fail("Nie mozna wybrac nazwy kopii zapasowej.") end
+        local moved, why = os.rename(self.target, backup)
+        if not moved then return self:_fail("Nie mozna zabezpieczyc starej wersji: " .. tostring(why)) end
+    end
+    local moved, why = os.rename(self.waiting, self.target)
+    if not moved then
+        if backup then pcall(os.rename, backup, self.target) end
+        return self:_fail("Blad zapisu wtyczki: " .. tostring(why))
+    end
+    self:_cleanup(); self.busy, self.release = false, nil
+    say("Zainstalowano AutoExp " .. remote_version .. (backup and " (kopia poprzedniej wersji zachowana)." or "."))
+    say("Wylacz stary pakiet EXP, a nastepnie wykonaj /przeladuj. Profile expowisk zostaly zachowane.", "light_slate_blue")
+end
+
+function U:_downloaded(stage, filename)
+    local body = read(filename)
+    if not body then return self:_fail("Nie mozna odczytac pobranego pliku.") end
+    if stage == "manifest" then
+        local release = parse_manifest(body)
+        pcall(os.remove, filename)
+        if not release then return self:_fail("GitHub zwrocil nieprawidlowy manifest.") end
+        self.release = release
+        local installed = plugin_version(read(self.target))
+        local existing = read(self.target)
+        if existing and not installed then
+            return self:_fail("Obca lub uszkodzona wtyczka. Nie nadpisuje jej.")
+        end
+        local cmp = compare(installed, release.version)
+        if not cmp then return self:_fail("Niepoprawny numer wersji na GitHubie.") end
+        if cmp >= 0 then
+            self:_cleanup(); self.busy, self.release = false, nil
+            if self.verbose then say("ChimeraXP jest aktualna (" .. (installed or "brak") .. ").") end
+            return
+        end
+        self:_fetch("plugin", self.base .. "plugins/chimera_autoexp/init.lua?v=" .. release.version)
+    elseif stage == "plugin" then
+        if not self.release then return self:_fail("Utracono dane wersji.") end
+        self:_install(body, self.release.version)
+    end
+end
+
+-- Called from /exp aktualizuj (verbose=true) or on every profile startup.
+function U:check(verbose)
+    if self.busy then
+        if verbose then say("Pobieranie aktualizacji juz trwa.") end
+        return false
+    end
+    local ok, err = mkdirs(self.root)
+    if not ok then say("Brak dostepu do katalogu ChimeraXP: " .. tostring(err), "tomato"); return false end
+    if type(downloadFile) ~= "function" then
+        say("Twoja wersja Mudleta nie obsluguje downloadFile().", "tomato")
+        return false
+    end
+    self.busy, self.verbose = true, verbose == true
+    self:_fetch("manifest", self.base .. "manifest.json")
+    return true
+end
+
+-- Each profile has its own package script/global and its own plugin directory.
+-- Do not reload an active patrol automatically when an update arrives.
+U:_cleanup()
+U.busy, U.release = false, nil
+if type(tempTimer) == "function" then
+    tempTimer(0, function() U:check(false) end)
+else
+    U:check(false)
+end
