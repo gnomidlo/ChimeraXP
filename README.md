@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.8** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.9** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -51,7 +51,7 @@ To źródło jest publiczne: nie trzeba się logować, używać `gh auth login` 
 
 **Przed rozpoczęciem expa sprawdź `/exp odwrot-test`**. Jeżeli pokazuje jedynie `cofanie` lub `wyjscie GMCP`, automat nie ma potwierdzonej trasy do bezpiecznej lokacji. Uzupełnij mapę lub wybierz bliższy punkt odwrotu. Podczas walki niskie HP postaci lub obecnego w GMCP członka drużyny (także pachołka) inicjuje próbę awaryjnego odwrotu.
 
-`/exp unikaj pajak` oznacza: nie zaczynaj walki z pająkiem i spróbuj opuścić pomieszczenie również wtedy, kiedy już zaatakował. Zawartość sąsiednich lokacji nie jest z góry znana. Gra może samodzielnie wymuszać/utrzymywać walkę i blokować ruch — **automat nie może zagwarantować przeżycia**.
+`/exp unikaj pajak` oznacza: nie zaczynaj walki z pająkiem i spróbuj opuścić pomieszczenie również wtedy, kiedy już zaatakował. Pokój pozostaje przechodni: nie tworzymy 10-minutowej ani żadnej innej czasowej blokady wejścia. Przy każdej wizycie sprawdzamy nowe dane GMCP. Identycznie traktujemy przekroczenie `/exp limit NPC` i walkę obcej osoby: omijamy bieżące starcie, nie usuwamy pokoju z mapy. Powracając do nadal niebezpiecznego pokoju, próbujemy innego wyjścia, aby nie zapętlać ślepego zaułka. Zawartość sąsiednich lokacji nie jest z góry znana. Gra może samodzielnie wymuszać/utrzymywać walkę i blokować ruch — **automat nie może zagwarantować przeżycia**.
 
 W wersji beta nie ma automatycznego handlu, banku, łupów ani panelu Geyser. Zbieranie łupów pozostaje w oficjalnej Chimerze. Więcej informacji: [docs/AUTOEXP_5.md](docs/AUTOEXP_5.md).
 
@@ -64,3 +64,5 @@ W wersji beta nie ma automatycznego handlu, banku, łupów ani panelu Geyser. Zb
 - `tests/` — testy integracyjne symulujące GMCP i test instalatora (offline).
 
 Instalator nie zapisuje haseł ani tokenów, nie usuwa danych expowisk i nie ingeruje w ChimeraVIP. Przy każdej aktualizacji kodu należy podnieść wersję w źródle i w manifeście oraz zachować zgodność XML z `installer/mudlet_updater.lua`.
+
+`/exp odnowa` nadal określa jedynie, kiedy ponownie farmić **sprawdzony pusty** pokój; nie zakazuje przechodzenia przez niego. Beta.9 nie blokuje tras z powodu ruchomych NPC.
