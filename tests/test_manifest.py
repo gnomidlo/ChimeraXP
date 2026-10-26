@@ -1,6 +1,8 @@
 """Local integrity checks: python tests/test_manifest.py"""
 import hashlib
 import json
+import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 import unittest
 
@@ -22,6 +24,18 @@ class ReleaseIntegrity(unittest.TestCase):
         self.assertTrue(file.read_text(encoding="utf-8").startswith(
             "-- Chimera AutoExp 5 / standalone plugin"))
         self.assertIn(f'version = "{manifest["version"]}"', file.read_text(encoding="utf-8"))
+
+    def test_self_contained_xml_installer_matches_source(self):
+        src = (ROOT / "plugins/chimera_autoexp/init.lua").read_text(encoding="utf-8")
+        xml = (ROOT / "packages/ChimeraXP.xml").read_text(encoding="utf-8")
+        root = ET.fromstring(xml)
+        self.assertEqual(root.tag, "MudletPackage")
+        self.assertEqual(len(root.findall(".//Script")), 1)
+        payload = re.search(r"local payload = \[==\[\n(.*?)\n\]==\]", xml, re.S)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload.group(1), src.rstrip("\n"))
+        version = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))["version"]
+        self.assertIn(f'I.package_version = "{version}"', xml)
 
     def test_windows_installer_uses_auth_not_shared_tokens(self):
         installer = (ROOT / "installer" / "ChimeraXP.ps1").read_text(encoding="utf-8")
