@@ -47,3 +47,10 @@ Wersja prywatna **nie udostępnia anonimowego endpointu raw.githubusercontent.co
 - `python tests/test_manifest.py` — sprawdzenie integralności pliku względem manifestu.
 
 Wersja beta **nie była jeszcze przetestowana w rzeczywistej sesji na serwerze**. Testy jednostkowe i symulacyjne nie zastępują testów w Mudlecie.
+
+### Poprawki 0.5.0-beta.2
+
+- Przy wykryciu NPC z listy `/exp unikaj ...` automat pauzuje z ostrzezeniem (rowniez podczas walki). Nie gwarantuje unikania wejscia do lokacji, bo sasiednie NPC nie sa znane.
+- Po walce odczekuje minimum 7 sekund przed kolejnym krokiem; komendy lootowania wysyla wylacznie oficjalna Chimera, nie ChimeraXP.
+- Odwrot rozpoczetym chodzikiem nie jest w kolko restartowany przez kolejne pakiety HP.
+- Nie naprawia bledow zbierania oficjalnej Chimery. W testach mozna tymczasowo uzyc `/zbieranie nie`.
