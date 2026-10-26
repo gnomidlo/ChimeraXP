@@ -124,4 +124,37 @@ cmd("exp stop")
 cmd("exp start")
 emit("chimera.session.end")
 assert(api.status().started==false)
+-- Aggressive, explicitly avoided NPC beside a target must fail closed.
+world.room={id="r2"};world.current=2
+world.vitals.hp=100
+world.combat={self_active=0,relations={}}
+world.entities={room="r2",entities={{id="me",kind="player",relation="self"},
+  {id="mob-ork",name="wsciekly ork",kind="npc"},
+  {id="mob-spider",name="gigantyczny pajak",kind="npc"}}}
+cmd("exp unikaj","pajak")
+local sent_before,moves_before=#sent,#moves
+cmd("exp start")
+tick()
+assert(api.status().paused and api.status().phase=="PAUSED", "avoided NPC must pause")
+assert(#sent==sent_before and #moves==moves_before, "never attack or walk with avoided NPC")
+cmd("exp stop")
+-- Even when an avoided spider already aggroed, never ignore /exp unikaj.
+world.combat={self_active=1,relations={{attacker="mob-spider",defender="me"}}}
+cmd("exp start")
+tick()
+assert(api.status().paused, "avoid rule applies during combat")
+cmd("exp stop")
+-- A retreat in progress must not restart whenever fresh vitals arrive.
+world.room={id="r1"};world.current=1
+world.entities={room="r1",entities={{id="me",kind="player",relation="self"}}}
+world.combat={self_active=0,relations={}}
+world.vitals.hp=20
+local moves_prev=#moves
+cmd("exp start")
+tick()
+assert(#moves==moves_prev+1 and api.status().phase=="RETREAT", "retreat starts")
+emit("chimera.char.vitals",world.vitals)
+tick()
+assert(#moves==moves_prev+1 and api.status().phase=="RETREAT", "retreat is not restarted")
+cmd("exp stop")
 print("AutoExp 5: integration mock tests PASS; commands",#sent,"moves",#moves)
