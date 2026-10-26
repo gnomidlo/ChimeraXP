@@ -90,3 +90,9 @@ Nieoczekiwana zmiana pokoju nie przerwie odwrotu: bieżąca lokacja z GMCP staje
 Komenda `/exp odwrot-test` sprawdza pierwszy krok bez wysylania ruchu. Zrodlo `GMCP` lub `mapper` oznacza wykryta droge do zapisanej bezpiecznej lokacji; `cofanie` lub `wyjscie GMCP` to jedynie proba opuszczenia niebezpiecznego miejsca. To nie gwarantuje przezycia ani odleglej trasy do bezpiecznego pokoju.
 
 Jesli serwer odrzuca ruch w walce, po dwoch probach i braku zmiany `Room.Info` automat alarmuje i oddaje sterowanie. `emergencyFallbackSteps` (domyslnie 40) ogranicza tylko kroki bez potwierdzonej drogi do schronienia; dlugie trasy `mapper`/`GMCP` nie sa przez to ucinane.
+
+## Ruchome NPC — beta.9
+
+`/exp unikaj TEKST`, przekroczenie `/exp limit X` i walki innych graczy powodują pominięcie bieżącej walki, ale **nie zakładają blokady czasowej pokoju**. GMCP `Room.Entities` sprawdzamy za każdym ponownym wejściem. Każdy pokój nadal może służyć jako tranzyt do dalszych punktów patrolu albo awaryjnej ucieczki. Podczas jednego patrolu zapamiętujemy kierunki, którymi wychodziliśmy z nadal niebezpiecznego pokoju, i przy kolejnym przejściu preferujemy inną drogę. Pamięć znika natychmiast po potwierdzeniu bezpiecznej zawartości pokoju lub ponownym uruchomieniu patrolu. Ograniczone ponowne próby nieudanego kroku pozostają dla bezpieczeństwa.
+
+`minRoomRevisit` nadal dotyczy jedynie okresu odnowy pokojów już sprawdzonych jako puste; nie blokuje trasy przez te pokoje. Gdy serwer sam włącza walkę albo zabrania ruchu, nie możemy zapewnić ucieczki samym skryptem.
