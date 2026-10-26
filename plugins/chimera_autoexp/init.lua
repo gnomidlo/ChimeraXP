@@ -50,7 +50,7 @@ local function rooms_from(raw)
     return out
 end
 local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
-    minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3 }
+    minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7 }
 local function normalize_profile(src, name)
     local old = type(src) == "table" and src or {}
     local rules = type(old.rules) == "table" and old.rules or {}
@@ -78,7 +78,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.1",
+    version = "0.5.0-beta.2",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -223,6 +223,22 @@ return {
             end
             return found, count
         end
+        -- The destination room's NPCs are unknown until GMCP updates.
+        -- Fail closed if any avoided NPC is discovered; aggro may be immediate.
+        local function avoided_npc(p, group_ids)
+            if not ready_entities() then return nil end
+            for _, e in ipairs(gmcp_api.entities().entities) do
+                local id = e.id and tostring(e.id) or nil
+                local friendly = bool(e.self) or e.relation == "self"
+                    or e.relation == "group" or e.relation == "ally"
+                    or (id and group_ids and group_ids[id])
+                if e.kind == "npc" and not friendly and not bool(e.dead)
+                    and contains(e.name, p.avoid) then
+                    return tostring(e.name or e.id or "NPC")
+                end
+            end
+            return nil
+        end
         local function queue(delay)
             if not started or paused or pending then return end
             pending = ctx:timer(delay or 0, function()
@@ -343,6 +359,13 @@ return {
                 (weakest and weakest.hp <= p.rules.retreatHP)
             local active, foreign = combat_status(group_ids)
             if active == nil then announce("WAIT_COMBAT"); return end
+            -- Check avoid rules before combat/retreat handling.
+            local forbidden = avoided_npc(p, group_ids)
+            if forbidden then
+                pause("Wykryto omijanego NPC: " .. forbidden
+                    .. ". Nie da sie przewidziec agresji NPC przed wejsciem na lokacje.")
+                return
+            end
             if danger then
                 if active then
                     pause(string.format("Niskie HP (%.0f%%); walka trwa. Konieczna interwencja.", hp))
@@ -352,6 +375,11 @@ return {
                     if dry then
                         note("AutoExp TEST: odwrot -> " .. tostring(p.safeRoom))
                         pause("Zakonczono test - zadnej komendy nie wyslano")
+                        return
+                    end
+                    -- Do not restart an ongoing retreat on new vitals.
+                    if state.owns_walk and move and move.purpose == "safe" then
+                        announce("RETREAT")
                         return
                     end
                     if state.owns_walk then
@@ -377,7 +405,8 @@ return {
                 announce("POST_COMBAT")
             end
             if post_combat_at then
-                if os.time() - post_combat_at < 2 then return end
+                -- Give the official Chimera loot collector time to finish.
+                if os.time() - post_combat_at < (tonumber(p.rules.lootGrace) or DEFAULT.lootGrace) then return end
                 post_combat_at = nil
             end
             if state.owns_walk then return end
