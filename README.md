@@ -2,7 +2,7 @@
 
 **Osobny, prywatny projekt AutoExp dla oficjalnej Chimery 5.x w Mudlecie.** Nie jest modułem ChimeraVIP i nie jest częścią oficjalnych skryptów. Korzysta wyłącznie z publicznego API wtyczek Chimery (`gmcp`, `mapper`, `walker`, zdarzenia `chimera.*`).
 
-**Wydanie:** `0.5.0-beta.1` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
+**Wydanie:** `0.5.0-beta.2` — testowe. Nie uruchamiaj patrolu bez nadzoru. Instalacja nie włącza automatu; to wymaga `/exp start`.
 
 ## Instalacja bezposrednio w Mudlecie (XML)
 
@@ -73,3 +73,17 @@ Nie udostępniaj nikomu własnego PAT, tokenów GitHub CLI ani prywatnych kluczy
 - `tests/test_manifest.py` — kontrola poprawności manifestu i integralności paczki (`python tests/test_manifest.py`).
 
 **Zakres beta:** patrol, GMCP ID, mapa, progi bezpieczeństwa, sesyjny stan, import. **Nie obejmuje** handlu/banku/łupów ani panelu Geyser. Pierwsze testy wykonuj na łatwym expowisku pod nadzorem.
+
+## Bezpieczenstwo (beta.2)
+
+`/exp unikaj pajak` nie umozliwia przewidzenia, ze w sasiedniej lokacji pojawi sie agresywny pajak.
+Po otrzymaniu GMCP `Room.Entities`, AutoExp **wstrzymuje** automat, jesli na lokacji widzi
+omijanego NPC, rowniez w trakcie walki. Nie probuje automatycznie uciekac z walki.
+Jesli pajak juz zaatakowal, konieczne jest reczne opanowanie sytuacji.
+
+Automat czeka co najmniej 7 sekund po wykryciu zakonczenia walki zanim przejdzie dalej,
+aby dac oficjalnemu zbieraniu czas na wykonanie komend. Nie naprawia to blednych
+komend modulu `collect` oficjalnej Chimery. Podczas testowania warto wykonac
+`/zbieranie nie` (Chimera 5) i sprawdzic stary pakiet EXP oraz pozostale aliasy lootowania.
+
+Niski poziom HP podczas rozpoczetego odwrotu nie uruchamia ponownie chodzika.
