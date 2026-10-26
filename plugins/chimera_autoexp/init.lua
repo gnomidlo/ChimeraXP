@@ -80,7 +80,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.4",
+    version = "0.5.0-beta.5",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -253,6 +253,16 @@ return {
             ["poludniowy-wschod"] = "se", ["poludniowy-zachod"] = "sw",
             gora = "u", dol = "d", up = "u", down = "d",
         }
+        -- Numpad emits chimera.step.manual for any directional send,
+        -- including our ctx:send; ownership lasts only during that call.
+        local owned_direction = nil
+        local function send_owned_direction(command)
+            local previous = owned_direction
+            owned_direction = EXIT_COMMANDS[command] or command
+            local ok, err = pcall(ctx.send, ctx, command)
+            owned_direction = previous
+            return ok, err
+        end
         local function is_blocked(id)
             return id and os.time() < (blocked_until[id] or 0)
         end
@@ -417,7 +427,8 @@ return {
             escape.tried[command] = true
             escape.sent_at = now
             announce("AVOID_ESCAPE")
-            ctx:send(command)
+            local ok, err = send_owned_direction(command)
+            if not ok then pause("Blad wyslania kroku omijania NPC: " .. tostring(err)) end
         end
         -- Emergency retreat: the official walker deliberately stops on combat.
         -- Issue ONE mapped direction at a time and await Room.Info confirmation.
@@ -462,7 +473,8 @@ return {
                 note("AutoExp: ruch niepotwierdzony; powtarzam wyjscie do bezpiecznej lokacji ("
                      .. emergency.tries .. "/" .. p.rules.safeMoveTries .. ").", "warn")
                 announce("EMERGENCY_RETREAT")
-                ctx:send(emergency.step.command)
+                local ok, err = send_owned_direction(emergency.step.command)
+                if not ok then pause("Blad powtorzenia kroku awaryjnego: " .. tostring(err)) end
                 return
             end
             -- A new room is now confirmed. Plan just the next step, not a
@@ -502,7 +514,8 @@ return {
                 command = command, sent_at = now }
             emergency.tries = 1
             announce("EMERGENCY_RETREAT")
-            ctx:send(command)
+            local ok, err = send_owned_direction(command)
+            if not ok then pause("Blad wyslania kroku awaryjnego: " .. tostring(err)) end
         end
         local function select_next(p, current)
             local route, now = p.route, os.time()
@@ -834,8 +847,16 @@ return {
             end
         end)
         ctx:on("chimera.session.end", function() halt("Rozlaczono - automat zatrzymany") end)
-        ctx:on("chimera.step.manual", function()
-            if started and not paused then pause("Gracz przejal sterowanie") end
+        ctx:on("chimera.step.manual", function(manual)
+            if not started or paused then return end
+            local direction = type(manual) == "table" and manual.direction or nil
+            -- Ignore only our matching direction INSIDE ctx:send().
+            -- Actual user input even a moment later must still pause.
+            if owned_direction and direction
+                and (EXIT_COMMANDS[direction] or direction) == owned_direction then
+                return
+            end
+            pause("Gracz przejal sterowanie")
         end)
         ctx:timer(1, function()
             if started and not paused then queue(0) end
