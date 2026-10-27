@@ -113,3 +113,7 @@ Wprowadzono **tylko konfigurację** per profil expowiska: `/exp lup dodaj TEKST`
 `/exp zarobek trasa` — tylko odczyt tagów `locations.targets("sklep")` i `locations.targets("bank")`. Kandydat musi mieć poprawny GMCP hash i identyfikator na mapie. Algorytm sprawdza koszt `walker.cost`, wybiera najbliższy osiągalny sklep i bank osiągalny od tego sklepu, pokazuje koszty oraz przykładowy powrót na expowisko. **Nie wykonuje żadnych ruchów, poleceń handlowych ani bankowych.** Działa wyłącznie przy zgodności GMCP z mapperem. Brak tagów lub trasy jest zgłaszany jako ostrzeżenie.
 
 Diagnostyka wyświetla surowe `gmcp.Char.Vitals.encumbrance`, **bez przypisywania skali procentowej** przed potwierdzeniem w grze.
+
+## Poprawka /room: deklaracja locations (beta.13)
+
+Moduł AutoExp do wywołania `ctx:use("locations")` wymaga jawnego `locations` na liście `deps`. Zgodnie z implementacją Kuriera, beta.13 deklaruje go jako czwartą zależność. Zapobiega to fałszywemu komunikatowi o niedostępności serwisu przy działających `/room sklep` i `/room bank`. Brak samego modułu w oficjalnej Chimerze jest rzeczywistym błędem zależności, który należy sprawdzić przez `/chimera bledy`.
