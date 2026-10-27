@@ -392,6 +392,21 @@ return {
             if #options > 0 then return options[1].command, options[1].id, "wyjscie GMCP" end
             return nil
         end
+        local function has_new_way_after_backtrack(destination, origin)
+            -- Returning to an observed hostile room is only worthwhile if
+            -- it has an exit besides our current room that was never tried.
+            local links = known_exits[destination]
+            if type(links) ~= "table" then return false end
+            local used = skip_exit_history[destination] or {}
+            for direction, id in pairs(links) do
+                local command = EXIT_COMMANDS[direction] or direction
+                if valid_id(id) and valid_id(command) and id ~= origin
+                    and (used[command] or 0) == 0 then
+                    return true
+                end
+            end
+            return false
+        end
         local function escape_exit(p, r, tried)
             local exits = type(r.exits) == "table" and r.exits or {}
             local options, attempts = {}, skip_exit_history[r.id] or {}
@@ -411,20 +426,31 @@ return {
             for exit, hash in pairs(exits) do
                 local command = EXIT_COMMANDS[exit] or exit
                 if valid_id(hash) and valid_id(command) and not tried[command] then
-                    options[#options + 1] = {
-                        command = command, id = hash,
-                        rank = priority[hash] or 1000,
-                        visits = attempts[command] or 0,
-                    }
+                    local previous_hazard = hazard_chain and hazard_chain.hazards[hash] or 0
+                    -- Do not bounce into a hazardous room unless we know
+                    -- an untried onward route out of that room.
+                    if previous_hazard == 0 or
+                        has_new_way_after_backtrack(hash, r.id) then
+                        options[#options + 1] = {
+                            command = command, id = hash,
+                            rank = priority[hash] or 1000,
+                            visits = attempts[command] or 0,
+                            hazard_visits = previous_hazard,
+                        }
+                    end
                 end
             end
             table.sort(options, function(a, b)
+                if a.hazard_visits ~= b.hazard_visits then
+                    return a.hazard_visits < b.hazard_visits
+                end
                 if a.visits ~= b.visits then return a.visits < b.visits end
                 if a.rank ~= b.rank then return a.rank < b.rank end
                 return a.command < b.command
             end)
             if #options == 0 then return nil end
-            if options[1].rank < 1000 or options[1].visits > 0 then
+            if options[1].rank < 1000 or options[1].visits > 0
+                or options[1].hazard_visits > 0 then
                 return options[1].command
             end
             -- Prefer a mapped route ahead if it also has the least number of
@@ -442,7 +468,9 @@ return {
                             local next_hash = type(getRoomHashByID) == "function"
                                 and getRoomHashByID(path[1]) or nil
                             for _, option in ipairs(options) do
-                                if option.id == next_hash and option.visits == options[1].visits then
+                                if option.id == next_hash
+                                    and option.visits == options[1].visits
+                                    and option.hazard_visits == options[1].hazard_visits then
                                     return option.command
                                 end
                             end
