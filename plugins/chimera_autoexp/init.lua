@@ -80,7 +80,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.9",
+    version = "0.5.0-beta.10",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -104,6 +104,9 @@ return {
         -- Count directions taken from unsuitable rooms in this patrol only,
         -- to avoid choosing the same dead-end exit again when alternatives exist.
         local skip_exit_history = {} -- room ID -> { command = count }
+        -- Session-only hazardous escape episode: do not blacklist rooms.
+        local hazard_chain = nil -- hazards, steps, safe_rooms, safe_count
+        local engaged_here = false -- our party has already engaged this room
         -- Remember real, GMCP-confirmed routes even when Mudlet's mapped
         -- getPath() is unavailable or returns a path through an avoided room.
         -- This is session state only; the history is NOT guessed from exits.
@@ -460,6 +463,7 @@ return {
             expected_manual = nil
             if pending then ctx:cancel(pending); pending = nil end
             started, paused, dry = false, false, false
+            hazard_chain, engaged_here = nil, false
             phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
             post_combat_at = nil
             last_reason = reason or "Zatrzymano"
@@ -698,6 +702,7 @@ return {
             local danger = hp <= p.rules.retreatHP or
                 (weakest and weakest.hp <= p.rules.retreatHP)
             local active, foreign = combat_status(group_ids)
+            if active then engaged_here = true end
             -- When low HP forces retreat while in combat, safety takes
             -- precedence over ordinary avoided-NPC routing and attacking.
             if emergency or (danger and active) then
@@ -761,7 +766,10 @@ return {
             local skip_reason = nil
             if npc_count > p.rules.maxEnemies then
                 skip_reason = "zbyt wiele NPC (" .. npc_count .. "/" .. p.rules.maxEnemies .. ")"
-            elseif foreign then
+            elseif foreign and not active and not engaged_here
+                and not (pending_attack and pending_attack.room == r.id) then
+                -- Leave only foreign fights met on arrival. A later outsider
+                -- joining our ongoing combat must never trigger an escape.
                 skip_reason = "obcy gracz walczy z NPC"
             end
             if skip_reason then
@@ -771,6 +779,13 @@ return {
             -- A fresh GMCP observation of acceptable room contents clears
             -- the local direction history immediately (no time-based lock).
             skip_exit_history[r.id] = nil
+            if hazard_chain and not hazard_chain.safe_rooms[r.id] then
+                hazard_chain.safe_rooms[r.id] = true
+                hazard_chain.safe_count = hazard_chain.safe_count + 1
+                if hazard_chain.safe_count >= 2 then
+                    hazard_chain, skip_exit_history = nil, {}
+                end
+            end
             if active then
                 pending_attack = nil
                 post_combat_at = nil
@@ -809,6 +824,8 @@ return {
                     return
                 end
                 announce("ENGAGING")
+                engaged_here = true
+                hazard_chain, skip_exit_history = nil, {}
                 pending_attack = { id = target.id, room = r.id, since = os.time() }
                 attacked_in_room[target.id] = true
                 ctx:send("zabij " .. target.id, true)
@@ -873,6 +890,7 @@ return {
             started, paused, dry = true, false, test_mode == true
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
             attacked_in_room, last_seen, skip_exit_history = {}, {}, {}
+            hazard_chain, engaged_here = nil, false
             last_visited = os.time()
             last_group = {}
             for _, member in ipairs((gmcp_api.group() or {}).members or {}) do
@@ -914,6 +932,7 @@ return {
                 pending_attack, post_combat_at = nil, nil
             end
             if r and r.id ~= observed_room then
+                engaged_here = false
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
                 last_visited = os.time()
@@ -1021,7 +1040,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.9"},
+                {"Wersja", "0.5.0-beta.10"},
                 {"Stan", phase .. (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
