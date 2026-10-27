@@ -1083,7 +1083,7 @@ return {
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
                 {"Cele", p and table.concat(p.targets, ", ") or "brak"},
-                {"Planowane lupy", p and (#p.loot>0 and table.concat(p.loot, ", ") or "brak") or "brak"},
+                {"Planowane lupy", p and (type(p.loot) == "table" and #p.loot>0 and table.concat(p.loot, ", ") or "brak") or "brak"},
                 {"Omijane", p and table.concat(p.avoid, ", ") or "brak"},
                 {"Bezpieczna", p and tostring(p.safeRoom or "brak") or "brak"},
                 {"Ostatnia uwaga", last_reason ~= "" and last_reason or "brak"},
