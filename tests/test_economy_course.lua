@@ -1,6 +1,6 @@
 -- Real shop/bank economy state machine: mock GMCP + walker, no live game.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function scenario(confirm)
+local function scenario(confirm, automatic)
   local clock=100
   local oldtime=os.time
   os.time=function() return clock end
@@ -92,36 +92,67 @@ local function scenario(confirm)
     emit("chimera.walk.arrived",{map_room=map[where],target=where})
     advance(0)
   end
-  commands["exp zarobek kurs"]()
-  advance(0)
-  assert(moves[#moves]==2 and #sent==0,"manual trade starts with shop walk")
+  local base=0
+  if automatic then
+    profile.economy={enabled=true}
+    data.vitals.encumbrance=60
+    table.insert(data.entities.entities,{id="goblin",kind="npc",name="zielony goblin"})
+    commands["exp start"]()
+    advance(0)
+    assert(sent[1]=="zabij goblin","normal patrol fights before loot")
+    data.combat={self_active=1,relations={{attacker="me",defender="goblin"}}}
+    emit("chimera.combat.state",data.combat);advance(0)
+    assert(api.status().phase=="COMBAT","own fight")
+    data.combat={self_active=0,relations={}}
+    data.entities.entities={{id="me",kind="player",relation="self"}}
+    emit("chimera.combat.state",data.combat);advance(0)
+    clock=clock+7
+    emit("chimera.char.vitals",data.vitals);advance(0)
+    assert(sent[2]=="wez bronie z ciala","collect configured loot after combat")
+    advance(2)
+    data.vitals.encumbrance=80
+    emit("chimera.char.vitals",data.vitals);advance(0)
+    assert(moves[#moves]==2,"overload triggers shop trip")
+    base=2
+  else
+    commands["exp zarobek kurs"]()
+    advance(0)
+    assert(moves[#moves]==2 and #sent==0,"manual trade starts with shop walk")
+  end
   travel("shop")
-  assert(sent[1]=="sprzedaj bronie","weapons first")
+  assert(sent[base+1]=="sprzedaj bronie","weapons first")
   advance(3)
-  assert(sent[2]=="sprzedaj zbroje","armors second")
+  assert(sent[base+2]=="sprzedaj zbroje","armors second")
   advance(3)
   assert(moves[#moves]==3,"must travel to bank after shop")
   travel("bank")
-  assert(sent[3]=="ALIAS:wem","deposit alias")
+  assert(sent[base+3]=="ALIAS:wem","deposit alias")
   advance(3)
-  assert(sent[4]=="zdenominuj","denomination after wem")
-  assert(#sent==4,"must wait for bank confirmation before wlm")
+  assert(sent[base+4]=="zdenominuj","denomination after wem")
+  assert(#sent==base+4,"must wait for bank confirmation before wlm")
   if confirm then
     for _,t in ipairs(triggers) do
       if t.pattern:find("zostaly zdenominowane",1,true) then t.fn() end
     end
-    assert(sent[5]=="ALIAS:wlm","withdraw alias must wait for confirmation")
+    assert(sent[base+5]=="ALIAS:wlm","withdraw alias must wait for confirmation")
     advance(3)
     assert(moves[#moves]==1,"return to original GMCP room")
+    if automatic then data.vitals.encumbrance=20 end
     travel("home")
-    assert(api.status().phase=="OFF","manual test must stop after return")
+    if automatic then
+      assert(not api.status().paused and api.status().phase~="OFF",
+          "auto mode resumes patrol after successful shop/bank")
+    else
+      assert(api.status().phase=="OFF","manual test must stop after return")
+    end
   else
     advance(21)
     assert(api.status().paused,"no denomination ack -> fail closed")
-    assert(#sent==4,"never withdraw after unconfirmed denomination")
+    assert(#sent==base+4,"never withdraw after unconfirmed denomination")
   end
   os.time=oldtime
-  print("PASS economy live course",confirm and "complete" or "timeout")
+  print("PASS economy live course",automatic and "automatic" or "manual",confirm and "complete" or "timeout")
 end
 scenario(true)
 scenario(false)
+scenario(true,true)
