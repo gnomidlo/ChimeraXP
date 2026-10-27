@@ -1283,6 +1283,200 @@ return {
             end
             return best, cost
         end
+        -- A consciously enabled, one-shot, sequential merchant/bank trip.
+        -- Shop and bank confirmations are not documented yet. Those stages
+        -- proceed after a grace period and are logged as UNCONFIRMED. Denomination
+        -- has a known server response and MUST be confirmed to proceed.
+        local function economy_delay(run, stage, seconds, callback)
+            if economy_timer then ctx:cancel(economy_timer); economy_timer=nil end
+            economy_timer=ctx:timer(seconds, function()
+                economy_timer=nil
+                if economy_run == run and started and not paused and run.stage == stage then
+                    callback()
+                end
+            end)
+        end
+        local function economy_do_send(run, text, as_alias)
+            note("AutoExp HANDEL [" .. run.stage .. "]: " .. text)
+            local ok,err
+            if as_alias then
+                if type(expandAlias)~="function" then
+                    pause("Brak funkcji expandAlias dla " .. text)
+                    return false
+                end
+                ok,err=pcall(expandAlias, text, false)
+            else
+                ok,err=pcall(ctx.send, ctx, text)
+            end
+            if not ok then
+                pause("Nie udalo sie wykonac " .. text .. ": " .. tostring(err))
+                return false
+            end
+            return true
+        end
+        local function economy_travel(run, stage, target)
+            if economy_run ~= run or paused then return end
+            run.stage=stage
+            if room_id() == target then
+                queue(0)
+            else
+                if not move_to(target, "economy") then return end
+            end
+        end
+        process_economy=function(r)
+            local run=economy_run
+            if not run or state.owns_walk then return end
+            if run.stage=="TO_SHOP" then
+                if r.id~=run.shop.hash then
+                    pause("Kurs: brak potwierdzenia przybycia do sklepu")
+                    return
+                end
+                run.stage="SALE_WEAPONS"
+                if not economy_do_send(run, "sprzedaj bronie") then return end
+                economy_delay(run,"SALE_WEAPONS",3,function()
+                    if room_id() ~= run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
+                    run.stage="SALE_ARMOR"
+                    if not economy_do_send(run,"sprzedaj zbroje") then return end
+                    economy_delay(run,"SALE_ARMOR",3,function()
+                        if room_id() ~= run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
+                        note("AutoExp: wyslano obie sprzedaze (brak niezawodnych potwierdzen serwera).", "warn")
+                        economy_travel(run,"TO_BANK",run.bank.hash)
+                    end)
+                end)
+            elseif run.stage=="TO_BANK" then
+                if r.id~=run.bank.hash then
+                    pause("Kurs: brak potwierdzenia przybycia do banku")
+                    return
+                end
+                run.stage="BANK_WEM"
+                if not economy_do_send(run,"wem",true) then return end
+                economy_delay(run,"BANK_WEM",3,function()
+                    if room_id()~=run.bank.hash then pause("Opuszczono bank przed denominacja");return end
+                    run.stage="BANK_DENOMINATE"
+                    if not economy_do_send(run,"zdenominuj") then return end
+                    if economy_run~=run or run.stage~="BANK_DENOMINATE" then return end
+                    economy_delay(run,"BANK_DENOMINATE",20,function()
+                        pause("Brak potwierdzenia denominacji w 20 sekund; WLМ nie wyslano")
+                    end)
+                end)
+            elseif run.stage=="TO_RETURN" then
+                if r.id~=run.origin then
+                    pause("Kurs: brak potwierdzenia powrotu do miejsca expa")
+                    return
+                end
+                local single=run.test_only
+                economy_run=nil
+                if economy_timer then ctx:cancel(economy_timer);economy_timer=nil end
+                if single then
+                    halt("Zakonczono probny kurs sklep -> bank -> expowisko")
+                else
+                    local weight=tonumber((gmcp_api.vitals() or {}).encumbrance)
+                    local threshold=tonumber((profile().rules or {}).economyLoadThreshold) or 75
+                    if not weight or weight>threshold then
+                        pause("Kurs zakonczony, ale obciazenie nie spadlo ponizej progu (" ..
+                             tostring(weight) .. "/" .. tostring(threshold) .. "). Sprawdz sprzedaz!")
+                    else
+                        note("AutoExp: powrot z handlu, wznowienie patrolu ("..weight..").")
+                        observed_room, entities_ready=r.id,false
+                        local packet=gmcp_api.entities()
+                        entities_ready=packet and packet.room==r.id or false
+                        queue(0)
+                    end
+                end
+            end
+        end
+        begin_economy=function(test_only)
+            if not started or paused or dry or economy_run then return false end
+            if state.owns_walk or external_walk then
+                note("Zarobek: inny chodzik jest aktywny.", "warn")
+                return false
+            end
+            local r=room()
+            local current=mapper.current_room()
+            if not r or not valid_id(r.id) or type(current)~="number"
+                or type(getRoomIDbyHash)~="function" or getRoomIDbyHash(r.id)~=current then
+                pause("Zarobek: niespojna lokacja GMCP i mapper")
+                return false
+            end
+            local hp, weak, group=health()
+            local fighting=combat_status(group)
+            if not hp or hp<=profile().rules.retreatHP or
+                (weak and weak.hp<=profile().rules.retreatHP) or fighting then
+                pause("Zarobek: kurs odmowiony z powodu walki lub HP")
+                return false
+            end
+            local shops,err=economy_candidates("sklep")
+            if not shops then pause("Zarobek: "..err);return false end
+            local shop=economy_nearest(current,shops)
+            if not shop then pause("Zarobek: brak trasy do sklepu");return false end
+            local banks,err2=economy_candidates("bank")
+            if not banks then pause("Zarobek: "..err2);return false end
+            local bank=economy_nearest(shop.map,banks)
+            if not bank then pause("Zarobek: brak trasy sklep -> bank");return false end
+            if not economy_cost(bank.map,current) then
+                pause("Zarobek: nie ma potwierdzonej drogi bank -> miejsce expa")
+                return false
+            end
+            local run={origin=r.id,shop=shop,bank=bank,
+                       stage="TO_SHOP",test_only=test_only}
+            economy_run=run
+            pending_attack,post_combat_at,escape=nil,nil,nil
+            note("AutoExp: kurs do sklepu "..shop.map.." -> banku "..bank.map..
+                 " -> powrotu "..current.."; test="..tostring(test_only))
+            economy_travel(run,"TO_SHOP",shop.hash)
+            return true
+        end
+        -- One exact recognized server confirmation authorizes the final
+        -- withdrawal alias. Never emit wlm before denominations complete.
+        local function economy_denom_confirmed()
+            local run=economy_run
+            if not run or run.stage~="BANK_DENOMINATE"
+                or room_id()~=run.bank.hash or paused then return end
+            if economy_timer then ctx:cancel(economy_timer);economy_timer=nil end
+            run.stage="BANK_WLM"
+            if not economy_do_send(run,"wlm",true) then return end
+            economy_delay(run,"BANK_WLM",3,function()
+                if room_id()~=run.bank.hash then pause("Opuszczono bank przed powrotem");return end
+                economy_travel(run,"TO_RETURN",run.origin)
+            end)
+        end
+        ctx:trigger([[^Twoje pieniadze zostaly zdenominowane\.$]], economy_denom_confirmed)
+        ctx:trigger([[^Twoje pieniadze juz sa maksymalnie zdenominowane\.$]], economy_denom_confirmed)
+        command("zarobek wlacz",nil,function()
+            if not allowed_config() then return end
+            local p=profile()
+            if not p then note("Wybierz expowisko", "warn");return end
+            p.economy=p.economy or {}
+            p.economy.enabled=true
+            remember()
+            note("EXP+ZAROBEK WLACZONY. UWAGA: 'sprzedaj bronie/zbroje' moze sprzedac tez PRYWATNE przedmioty!", "warn")
+        end)
+        command("zarobek wylacz",nil,function()
+            if not allowed_config() then return end
+            local p=profile()
+            if not p then note("Wybierz expowisko", "warn");return end
+            p.economy=p.economy or {}
+            p.economy.enabled=false
+            remember()
+            note("EXP+ZAROBEK WYLACZONY.")
+        end)
+        -- Manual one-shot test drives real shop/bank commands, then STOPS.
+        -- It doesn't require auto economy enabled. Start only from idle.
+        command("zarobek kurs",nil,function()
+            if started or state.owns_walk or external_walk then
+                note("Najpierw /exp stop i zatrzymaj zewnetrzny chodzik.", "warn")
+                return
+            end
+            note("TEST REALNY: sprzedaje WSZYSTKIE niesione bronie i zbroje! /exp stop przerwie kurs.", "warn")
+            start(false)
+            if not started then
+                note("Nie udalo sie zainicjowac probnego kursu.", "warn")
+                return
+            end
+            if not begin_economy(true) then
+                halt("Probny kurs nie mogl wystartowac")
+            end
+        end)
         command("zarobek trasa", nil, function()
             note("EXP+ZAROBEK: test trasy, bez ruchu, sprzedazy i operacji bankowych.")
             local r, p = room(), profile()
