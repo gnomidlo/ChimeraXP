@@ -40,6 +40,7 @@ local function scenario(kind)
                 end,stop=function(msg)emit('chimera.walk.stopped',{reason=msg});return true end},
           })[key]
         end,
+        trigger=function() end,
         on=function(_,key,fn)handlers[key]=handlers[key] or {};handlers[key][#handlers[key]+1]=fn end,
         command=function(_,x)commands[x[1]]=x.fn end,
         timer=function(_,delay,fn,repeating)local id=#timers+1;timers[id]={fn=fn,active=true,repeating=repeating};return id end,
