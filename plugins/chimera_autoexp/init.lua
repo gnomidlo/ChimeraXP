@@ -1067,6 +1067,8 @@ return {
                     return
                 end
                 economy_run.direct_step = nil
+                economy_run.direct_steps_completed =
+                    (economy_run.direct_steps_completed or 0) + 1
             end
             if was_escaping then
                 escape = nil -- direct step from an avoided room succeeded
@@ -1454,11 +1456,20 @@ return {
             -- route request, even if Combat GMCP has already switched to idle.
             if run.direct_step then
                 economy_combat_step(run, r, target)
-            elseif active then
-                run.combat_transit = true
-                economy_combat_step(run, r, target)
+            elseif active or run.combat_transit then
+                if not active and (run.direct_steps_completed or 0) > 0 then
+                    -- At least one owned step succeeded, and GMCP now says
+                    -- combat ended: restart native walker from this real room.
+                    run.combat_transit = false
+                    move_to(target, "economy")
+                else
+                    -- Walker can stop before the combat GMCP update arrives.
+                    -- Do not start it again prematurely: make one confirmed
+                    -- direct step instead of a walker-stop retry loop.
+                    run.combat_transit = true
+                    economy_combat_step(run, r, target)
+                end
             else
-                run.combat_transit = false
                 move_to(target, "economy")
             end
             return false
@@ -1467,6 +1478,7 @@ return {
             if economy_run ~= run or paused then return end
             run.stage=stage
             run.direct_step, run.direct_visits, run.direct_moves = nil, {}, 0
+            run.direct_steps_completed = 0
             if room_id() == target then
                 queue(0)
             else
