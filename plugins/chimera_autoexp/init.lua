@@ -1118,7 +1118,7 @@ return {
             local p = profile()
             item = trim(item)
             if not p then note("Wybierz expowisko.", "warn"); return end
-            if item == "" or #item > 80 or item:find("[;\\r\\n]") then
+            if item == "" or #item > 80 or item:find("[;%c]") then
                 note("Podaj bezpieczny tekst odmiany przedmiotu, np. /exp lup dodaj miecz.", "warn")
                 return
             end
