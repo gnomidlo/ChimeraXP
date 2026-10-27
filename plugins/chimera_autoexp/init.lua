@@ -52,7 +52,8 @@ end
 local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
     minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7,
     escapeWait = 4, escapeMaxTries = 3,
-    safeMoveWait = 3, safeMoveTries = 2, emergencyFallbackSteps = 40 }
+    safeMoveWait = 3, safeMoveTries = 2, emergencyFallbackSteps = 40,
+    economyLoadThreshold = 75 }
 local function normalize_profile(src, name)
     local old = type(src) == "table" and src or {}
     local rules = type(old.rules) == "table" and old.rules or {}
@@ -60,6 +61,7 @@ local function normalize_profile(src, name)
         name = trim(name or old.name), route = rooms_from(old.route),
         targets = unique_names(old.targets), avoid = unique_names(old.avoid),
         loot = unique_names(old.loot),
+        economy = { enabled = type(old.economy) == "table" and bool(old.economy.enabled) },
         safeRoom = valid_id(old.safeRoom) and old.safeRoom or nil,
         rules = {},
     }
@@ -81,7 +83,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.13",
+    version = "0.5.0-beta.14",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -146,6 +148,13 @@ return {
         local last_group = nil
         local external_walk = false
         local evaluate
+        -- Economy mode is opt-in. Session callbacks are explicitly cancellable.
+        local economy_run, economy_timer, process_economy, begin_economy
+        local loot_run, loot_timer = nil, nil
+        local function cancel_economy_timers()
+            if economy_timer then ctx:cancel(economy_timer); economy_timer=nil end
+            if loot_timer then ctx:cancel(loot_timer); loot_timer=nil end
+        end
 
         local function note(message, level)
             local fn = level == "warn" and ctx.log.warn or ctx.log.info
@@ -494,6 +503,8 @@ return {
         local function halt(reason)
             expected_manual = nil
             if pending then ctx:cancel(pending); pending = nil end
+            cancel_economy_timers()
+            economy_run, loot_run = nil, nil
             started, paused, dry = false, false, false
             hazard_chain, engaged_here = nil, false
             phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
@@ -514,6 +525,8 @@ return {
             phase = "PAUSED"
             last_reason = reason
             if pending then ctx:cancel(pending); pending = nil end
+            cancel_economy_timers()
+            economy_run, loot_run = nil, nil
             if state.owns_walk then
                 stop_ours = true
                 walker.stop("AutoExp: pauza")
@@ -930,6 +943,8 @@ return {
             record_room(room())
             started, paused, dry = true, false, test_mode == true
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
+            cancel_economy_timers()
+            economy_run, loot_run = nil, nil
             attacked_in_room, last_seen, skip_exit_history = {}, {}, {}
             hazard_chain, engaged_here = nil, false
             last_visited = os.time()
@@ -1021,8 +1036,9 @@ return {
         ctx:on("chimera.walk.arrived", function(event)
             external_walk = false
             if not state.owns_walk or not move then return end
-            if event.map_room ~= move.map or event.target ~= move.id then
-                pause("Chodzik dotarl do innego pokoju")
+            if event.map_room ~= move.map or event.target ~= move.id
+                or room_id() ~= move.id then
+                pause("Chodzik: cel lub pozycja GMCP nie potwierdzily dotarcia")
                 return
             end
             state.owns_walk = false
@@ -1070,6 +1086,8 @@ return {
             if started and not paused then queue(0) end
         end, true)
         ctx:cleanup(function()
+            cancel_economy_timers()
+            economy_run, loot_run = nil, nil
             if state.owns_walk then walker.stop("AutoExp: przeladowanie") end
             state.owns_walk = false
         end)
@@ -1081,7 +1099,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.13"},
+                {"Wersja", "0.5.0-beta.14"},
                 {"Stan", phase .. (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
