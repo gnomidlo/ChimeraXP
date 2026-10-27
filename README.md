@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.9** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.10** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -66,3 +66,11 @@ W wersji beta nie ma automatycznego handlu, banku, łupów ani panelu Geyser. Zb
 Instalator nie zapisuje haseł ani tokenów, nie usuwa danych expowisk i nie ingeruje w ChimeraVIP. Przy każdej aktualizacji kodu należy podnieść wersję w źródle i w manifeście oraz zachować zgodność XML z `installer/mudlet_updater.lua`.
 
 `/exp odnowa` nadal określa jedynie, kiedy ponownie farmić **sprawdzony pusty** pokój; nie zakazuje przechodzenia przez niego. Beta.9 nie blokuje tras z powodu ruchomych NPC.
+
+## Ucieczka i walki innych graczy (beta.10)
+
+Gdy **inny gracz walczy już przy naszym wejściu** i nasza drużyna jeszcze nie walczy, AutoExp pomija starcie i próbuje opuścić pokój. Jeżeli obcy gracz **dołączy podczas naszej walki** (także tuż po wysłaniu `zabij ID`), nie wymuszamy ucieczki tylko z tego powodu. W przypadku niskiego HP nadrzędny pozostaje awaryjny odwrót.
+
+Ucieczka przed omijanymi NPC lub nadmierną liczbą mobów używa wspólnej pamięci bieżącej serii niebezpiecznych pokoi. Powrót do takiego pokoju jest dopuszczany tylko, gdy znamy stamtąd jeszcze niewykorzystane wyjście. Wykryta pętla kończy serię ruchem **STOP / PAUSED** z alarmem — nie próbujemy bez końca dwóch kierunków. Pokoi nadal nie blokujemy czasowo. Po opuszczeniu zagrożonego obszaru albo podjęciu poprawnej walki pamięć serii jest czyszczona.
+
+**Nie testowano na żywym serwerze**. Sprawdź najpierw na słabym expowisku pod nadzorem.

@@ -96,3 +96,10 @@ Jesli serwer odrzuca ruch w walce, po dwoch probach i braku zmiany `Room.Info` a
 `/exp unikaj TEKST`, przekroczenie `/exp limit X` i walki innych graczy powodują pominięcie bieżącej walki, ale **nie zakładają blokady czasowej pokoju**. GMCP `Room.Entities` sprawdzamy za każdym ponownym wejściem. Każdy pokój nadal może służyć jako tranzyt do dalszych punktów patrolu albo awaryjnej ucieczki. Podczas jednego patrolu zapamiętujemy kierunki, którymi wychodziliśmy z nadal niebezpiecznego pokoju, i przy kolejnym przejściu preferujemy inną drogę. Pamięć znika natychmiast po potwierdzeniu bezpiecznej zawartości pokoju lub ponownym uruchomieniu patrolu. Ograniczone ponowne próby nieudanego kroku pozostają dla bezpieczeństwa.
 
 `minRoomRevisit` nadal dotyczy jedynie okresu odnowy pokojów już sprawdzonych jako puste; nie blokuje trasy przez te pokoje. Gdy serwer sam włącza walkę albo zabrania ruchu, nie możemy zapewnić ucieczki samym skryptem.
+
+## Walki innych graczy i pętle ucieczki (beta.10)
+
+- Walka obcego gracza **zastana przy wejściu**, gdy nasza drużyna nie walczy: omijamy tę walkę i próbujemy przejść dalej.
+- Obcy gracz, który zaatakuje podczas naszej walki lub po wysłaniu przez AutoExp `zabij ID`: nie uruchamia wyjścia z lokacji tylko z powodu `foreign`. Własna walka i stan próby ataku mają pierwszeństwo.
+- Dwie niebezpieczne lokacje nie mogą nas w nieskończoność przeganiać: pamięć kolejnych pokojów sprawdza, czy powrót do znanego zagrożenia daje nową drogę. Gdy nie ma takiego wyjścia, pojawia się alarm i automat pauzuje. Dodatkowo istnieje twardy limit kroków w jednej serii ucieczki.
+- Brak czasowego blacklistowania pokojów; po rzeczywistym postępie bezpieczna historia jest czyszczona. Wcześniejsze zasady odwrotu HP mają nadrzędny priorytet.
