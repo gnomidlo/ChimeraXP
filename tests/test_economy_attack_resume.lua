@@ -138,10 +138,16 @@ local function trial(combat_remains, blocked_step)
     if blocked_step then
         -- Room.Info never changes: two retried steps and then fail-closed.
         advance(2)
+        emit("chimera.char.vitals",world.vitals) -- the real one-second timer queues evaluation
+        advance(0)
         assert(sent[2]=="e" and not api.status().paused,"first retry at 2s")
         advance(2)
+        emit("chimera.char.vitals",world.vitals)
+        advance(0)
         assert(sent[3]=="e" and not api.status().paused,"second retry at 4s")
         advance(2)
+        emit("chimera.char.vitals",world.vitals)
+        advance(0)
         assert(api.status().paused,"third failed step must stop commerce safely")
         assert(#sent==3,"no more movement or trade commands after failed steps")
         assert(table.concat(logs,";"):find("po 3 probach",1,true),
