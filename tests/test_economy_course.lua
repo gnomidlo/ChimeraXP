@@ -1,6 +1,6 @@
 -- Real shop/bank economy state machine: mock GMCP + walker, no live game.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function scenario(confirm, automatic)
+local function scenario(confirm, automatic, configured_delay, cancel_in_shop)
   local clock=100
   local oldtime=os.time
   os.time=function() return clock end
@@ -70,6 +70,12 @@ local function scenario(confirm, automatic)
     report=function()end,
   }
   local api=P.setup(ctx)
+  if configured_delay then
+    commands["exp zarobek tempo"](tostring(configured_delay))
+    assert(profile.rules.economyCommandDelay==configured_delay,
+        "economy tempo command persists the selected interval")
+  end
+  local delay=configured_delay or 0.7
   local function advance(seconds)
     clock=clock+seconds
     for rounds=1,100 do
@@ -106,12 +112,15 @@ local function scenario(confirm, automatic)
     data.combat={self_active=0,relations={}}
     data.entities.entities={{id="me",kind="player",relation="self"}}
     emit("chimera.combat.state",data.combat);advance(0)
-    clock=clock+7
+    clock=clock+2
     emit("chimera.char.vitals",data.vitals);advance(0)
     assert(sent[2]=="wez bronie z ciala","collect configured loot after combat")
-    advance(2)
+    advance(delay*0.5)
+    assert(#sent==2,"next loot step must not overlap")
+    advance(delay*0.5+0.001)
     data.vitals.encumbrance=80
-    emit("chimera.char.vitals",data.vitals);advance(2)
+    emit("chimera.char.vitals",data.vitals)
+    advance(0.71) -- GMCP weight synchronization grace (0.7s)
     assert(moves[#moves]==2,"overload triggers shop trip")
     base=2
   else
@@ -121,13 +130,26 @@ local function scenario(confirm, automatic)
   end
   travel("shop")
   assert(sent[base+1]=="sprzedaj bronie","weapons first")
-  advance(3)
+  if cancel_in_shop then
+    commands["exp stop"]()
+    advance(10)
+    assert(#sent==base+1 and #moves==1,
+        "stopping during shop sale cancels all future commands and travel")
+    os.time=oldtime
+    print("PASS economy fast cancellation")
+    return
+  end
+  advance(delay*0.5)
+  assert(#sent==base+1,"armor command must not overlap weapons command")
+  advance(delay*0.5+0.001)
   assert(sent[base+2]=="sprzedaj zbroje","armors second")
-  advance(3)
-  assert(moves[#moves]==3,"must travel to bank after shop")
+  advance(delay+0.001)
+  assert(moves[#moves]==3,"must travel to bank immediately after configured delay")
   travel("bank")
   assert(sent[base+3]=="ALIAS:wem","deposit alias")
-  advance(3)
+  advance(delay*0.5)
+  assert(#sent==base+3,"denomination must wait for deposit interval")
+  advance(delay*0.5+0.001)
   assert(sent[base+4]=="zdenominuj","denomination after wem")
   assert(#sent==base+4,"must wait for bank confirmation before wlm")
   if confirm then
@@ -135,7 +157,9 @@ local function scenario(confirm, automatic)
       if t.pattern:find("zostaly zdenominowane",1,true) then t.fn() end
     end
     assert(sent[base+5]=="ALIAS:wlm","withdraw alias must wait for confirmation")
-    advance(3)
+    advance(delay*0.5)
+    assert(moves[#moves]==3,"return must not start before withdrawal grace")
+    advance(delay*0.5+0.001)
     assert(moves[#moves]==1,"return to original GMCP room")
     if automatic then data.vitals.encumbrance=20 end
     travel("home")
@@ -156,3 +180,5 @@ end
 scenario(true)
 scenario(false)
 scenario(true,true)
+scenario(true,false,1.2)
+scenario(true,false,nil,true)

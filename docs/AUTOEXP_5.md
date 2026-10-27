@@ -136,3 +136,7 @@ Niezależne, **domyślnie WYŁĄCZONE** automatyczne kursy patrolowe włącza `/
 **Aktualne ograniczenia:** nie mamy jeszcze wiarygodnych tekstowych potwierdzeń podnoszenia z ciał, obu sprzedaży ani działania `wem`/`wlm`. Dla tych etapów beta.14 wysyła pojedynczą próbę, odczekuje i kontynuuje z widocznym ostrzeżeniem. **Potwierdzenie `zdenominuj` jest obowiązkowe** (`Twoje pieniadze zostaly zdenominowane.` albo `Twoje pieniadze juz sa maksymalnie zdenominowane.`). `encumbrance` jest traktowane jako wartość progowa 0–100 do testu; skala nadal wymaga sprawdzenia w prawdziwej grze. Jeśli po kursie pozostaje powyżej progu, patrol pauzuje, zamiast jechać ponownie do sklepu.
 
 Bez testu na żywym serwerze — sprawdź najpierw jednorazowe `/exp zarobek kurs` z bezpiecznego pokoju, pod nadzorem.
+
+## Przyspieszenie ekonomii (beta.15)
+
+W trybie EXP + zarobek rozpoczęcie próby zbierania następuje po 2 s od końca walki (`economyLootGrace`, domyślnie 2), kolejne próby `wez ... z ciala` są rozdzielone 0,7 s (`economyCommandDelay`), a sprawdzenie obciążenia jest kolejkowane po 0,7 s (`economyWeightWait`). Te dwie ostatnie wartości dotyczą planowanego odstępu; domyślną przerwę poleceń możesz zmienić komendą `/exp zarobek tempo 0.7` w zakresie 0,3–3,0 s. Przerwy między sprzedażami, po `wem` i po `wlm` używają tego samego parametru. Stan `BANK_DENOMINATE` nie przyspiesza przez timer: natychmiast reaguje na potwierdzenie serwera lub zatrzymuje się po 20 s bez odpowiedzi. Bez zmian w mechanizmie `walker` i w 7-sekundowej przerwie zwykłego AutoExp bez zarobku.
