@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.14** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.15** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -124,3 +124,18 @@ Niezależne, **domyślnie WYŁĄCZONE** automatyczne kursy patrolowe włącza `/
 **Aktualne ograniczenia:** nie mamy jeszcze wiarygodnych tekstowych potwierdzeń podnoszenia z ciał, obu sprzedaży ani działania `wem`/`wlm`. Dla tych etapów beta.14 wysyła pojedynczą próbę, odczekuje i kontynuuje z widocznym ostrzeżeniem. **Potwierdzenie `zdenominuj` jest obowiązkowe** (`Twoje pieniadze zostaly zdenominowane.` albo `Twoje pieniadze juz sa maksymalnie zdenominowane.`). `encumbrance` jest traktowane jako wartość progowa 0–100 do testu; skala nadal wymaga sprawdzenia w prawdziwej grze. Jeśli po kursie pozostaje powyżej progu, patrol pauzuje, zamiast jechać ponownie do sklepu.
 
 Bez testu na żywym serwerze — sprawdź najpierw jednorazowe `/exp zarobek kurs` z bezpiecznego pokoju, pod nadzorem.
+
+## Szybszy EXP + zarobek (beta.15)
+
+Zamiast 3-sekundowych przerw między sprzedażą, `wem`, `zdenominuj` i powrotem po `wlm`, używamy teraz domyślnie **0,7 s**, zachowując ścisłą kolejność. Zbieranie kolejnych przedmiotów z ciał: **0,7 s** zamiast 2 s. Po ostatniej próbie zebrania czekamy **0,7 s** zamiast 2 s na GMCP obciążenia. Przy włączonym zarobku start zbierania następuje po **2 s** od zakończenia walki zamiast po 7 s. Standardowy AutoExp bez zarobku zachowuje dotychczasowe 7 s na oficjalne zbieranie łupów.
+
+Możesz dostosować odstępy **dla wybranego profilu**:
+
+```text
+/exp zarobek tempo 0.7
+/exp zarobek tempo 1.2
+```
+
+Dopuszczalny zakres: 0,3–3,0 s. Zmiana konfiguracji wymaga zatrzymania lub wstrzymania patrolu. Nie skracamy limitu 20 s **oczekiwania na potwierdzenie** `zdenominuj`: `wlm` nadal rusza dopiero po jego odpowiedzi. Po `wlm` pozostała tylko krótka przerwa przed powrotem. Sama szybkość kroków chodzika jest nadal kontrolowana przez oficjalną Chimerę, nie przez ten parametr.
+
+Uwaga: etapy `sprzedaj bronie`, `sprzedaj zbroje`, `wem` i `wlm` nadal nie mają zweryfikowanych odpowiedzi serwera. Tempo 0,7 s jest kompromisem; jeśli serwer gubi polecenia, wróć do `/exp zarobek tempo 1.2` lub `2`. Wszystkie ograniczenia dotyczące masowej sprzedaży niesionego sprzętu pozostają aktualne.
