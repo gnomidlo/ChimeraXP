@@ -59,6 +59,7 @@ local function normalize_profile(src, name)
     local p = {
         name = trim(name or old.name), route = rooms_from(old.route),
         targets = unique_names(old.targets), avoid = unique_names(old.avoid),
+        loot = unique_names(old.loot),
         safeRoom = valid_id(old.safeRoom) and old.safeRoom or nil,
         rules = {},
     }
@@ -80,7 +81,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.10",
+    version = "0.5.0-beta.11",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1077,11 +1078,12 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.10"},
+                {"Wersja", "0.5.0-beta.11"},
                 {"Stan", phase .. (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
                 {"Cele", p and table.concat(p.targets, ", ") or "brak"},
+                {"Planowane lupy", p and (#p.loot>0 and table.concat(p.loot, ", ") or "brak") or "brak"},
                 {"Omijane", p and table.concat(p.avoid, ", ") or "brak"},
                 {"Bezpieczna", p and tostring(p.safeRoom or "brak") or "brak"},
                 {"Ostatnia uwaga", last_reason ~= "" and last_reason or "brak"},
@@ -1096,6 +1098,8 @@ return {
             ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | odwrot-test | pauza | wznow | stop")
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
+            ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza")
+            ctx.log.info("EXP+zarobek nie wykonuje jeszcze handlu: najpierw weryfikacja GMCP udzwigu i odpowiedzi serwera.")
         end)
         command("aktualizuj", nil, function()
             local updater = rawget(_G, "chimera_xp_updater")
@@ -1107,6 +1111,115 @@ return {
         end)
         command("start", nil, function() start(false) end)
         command("test", nil, function() start(true) end)
+        -- ECONOMY PHASE 1: configuration and read-only diagnostics only.
+        -- Explicitly no loot, sales, bank or travel commands are sent.
+        command("lup dodaj", "<tekst>", function(item)
+            if not allowed_config() then return end
+            local p = profile()
+            item = trim(item)
+            if not p then note("Wybierz expowisko.", "warn"); return end
+            if item == "" or #item > 80 or item:find("[;\\r\\n]") then
+                note("Podaj bezpieczny tekst odmiany przedmiotu, np. /exp lup dodaj miecz.", "warn")
+                return
+            end
+            p.loot = p.loot or {}
+            p.loot[#p.loot + 1] = item
+            p.loot = unique_names(p.loot)
+            remember()
+            note("Lupy profilu: " .. table.concat(p.loot, ", "))
+        end)
+        command("lup usun", "<tekst>", function(item)
+            if not allowed_config() then return end
+            local p = profile()
+            if not p then note("Wybierz expowisko.", "warn"); return end
+            p.loot = p.loot or {}
+            for i, value in ipairs(p.loot) do
+                if normalized(value) == normalized(item) then
+                    table.remove(p.loot, i)
+                    remember()
+                    note("Usunieto z listy lupow: " .. value)
+                    return
+                end
+            end
+            note("Nie ma takiego przedmiotu na liscie lupow.", "warn")
+        end)
+        command("lup lista", nil, function()
+            local p = profile()
+            if not p then note("Wybierz expowisko.", "warn"); return end
+            note("Lupy " .. p.name .. ": " ..
+                ((p.loot and #p.loot > 0) and table.concat(p.loot, ", ") or "brak"))
+        end)
+        command("zarobek prog", "<procent>", function(value)
+            if not allowed_config() then return end
+            local p, number = profile(), tonumber(value)
+            if not p or not number or number < 1 or number >= 100 or number % 1 ~= 0 then
+                note("Uzycie: /exp zarobek prog 75 (od 1 do 99)", "warn"); return
+            end
+            p.rules.economyLoadThreshold = number
+            remember()
+            note("Prog kursu handlowego: " .. number .. "%. Kursy NIE SA JESZCZE aktywne.")
+        end)
+        command("zarobek diagnoza", nil, function()
+            local p = profile()
+            note("Zarobek: diagnostyka tylko do odczytu, niczego nie wysylam do gry.")
+            note("Prog: " .. tostring(p and (p.rules.economyLoadThreshold or 75) or 75)
+                 .. "%; przedmioty: " .. tostring(p and #(p.loot or {}) or 0))
+            local root = type(gmcp) == "table" and gmcp or {}
+            local char = type(root.Char) == "table" and root.Char or {}
+            local terms = {"weight", "weigh", "carry", "capacity", "encumbr", "load",
+                           "udzw", "waga", "wagi", "obcia", "ciezar", "ciezk", "maxwt"}
+            local found = {}
+            local seen = {}
+            local function scan(node, path, depth)
+                if depth > 5 or type(node) ~= "table" or seen[node] then return end
+                seen[node] = true
+                for key, value in pairs(node) do
+                    local label = tostring(key)
+                    local lower = label:lower()
+                    local name = path .. "." .. label
+                    if (type(value) == "number" or (type(value) == "string" and tonumber(value)))
+                        and #found < 25 then
+                        for _, word in ipairs(terms) do
+                            if lower:find(word, 1, true) then
+                                found[#found + 1] = name .. " = " .. tostring(value)
+                                break
+                            end
+                        end
+                    elseif type(value) == "table" then
+                        scan(value, name, depth + 1)
+                    end
+                end
+            end
+            scan(char, "gmcp.Char", 0)
+            if type(root.Inventory) == "table" then scan(root.Inventory, "gmcp.Inventory", 0) end
+            if type(root.Items) == "table" then scan(root.Items, "gmcp.Items", 0) end
+            table.sort(found)
+            if #found == 0 then
+                note("Nie znaleziono numerycznego pola obciazenia w GMCP.Char/Inventory/Items. " ..
+                     "Do ustalenia: rzeczywiste pole, jednostki i max udzwig.", "warn")
+            else
+                for _, text in ipairs(found) do note("Kandydat GMCP: " .. text) end
+            end
+            local packet = gmcp_api.entities()
+            if type(packet) == "table" and packet.room == room_id() then
+                local corpses = 0
+                for _, ent in ipairs(packet.entities or {}) do
+                    local kind = normalized(ent.kind)
+                    local name = normalized(ent.name)
+                    if kind == "corpse" or name:find("cial", 1, true) then
+                        corpses = corpses + 1
+                        if corpses <= 5 then
+                            note("Kandydat ciala: " .. tostring(ent.name) ..
+                                "; id=" .. tostring(ent.id) .. "; kind=" .. tostring(ent.kind))
+                        end
+                    end
+                end
+                if corpses == 0 then note("Brak rozpoznanych cial w GMCP Room.Entities.") end
+            else
+                note("Brak aktualnych Room.Entities do diagnostyki cial.")
+            end
+            note("Sprawdz tagi poleceniami /room lista sklep oraz /room lista bank.")
+        end)
         command("odwrot-test", nil, function()
             local p, r = profile(), room()
             if not p or not r or not valid_id(r.id) or not valid_id(p.safeRoom) then
