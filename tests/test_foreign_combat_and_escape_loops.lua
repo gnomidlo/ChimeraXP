@@ -23,7 +23,7 @@ local function trial(case)
     state={},log={info=function(t) logs[#logs+1]=t end,warn=function(t) logs[#logs+1]=t end},
     saved=function(_,k,d)
       if k=="selected" then return "test" end
-      if k=="profiles" then return {test={name="test",route={"d","s","a"},
+      if k=="profiles" then return {test={name="test",route={"a","s","d"},
         targets={"goblin"},avoid={"pajak"},safeRoom="safe",rules={
         escapeWait=4,escapeMaxTries=3,maxEnemies=3,retreatHP=35,returnHP=85,
         minRoomRevisit=60,syncWait=4,attackWait=3,lootGrace=7}}} end
