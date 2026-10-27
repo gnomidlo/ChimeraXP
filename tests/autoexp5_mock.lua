@@ -54,6 +54,7 @@ local ctx = {
     end,
     saved=function(_,key,default) return storage[key] or default end,
     save=function(_,key,value) storage[key] = value end,
+    trigger=function() end,
     on=function(_,event,fn) handlers[event]=handlers[event] or {};table.insert(handlers[event],fn) end,
     command=function(_,p) commands[p[1]] = p.fn end,
     timer=function(_,delay,fn,repeating)

@@ -52,7 +52,8 @@ end
 local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
     minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7,
     escapeWait = 4, escapeMaxTries = 3,
-    safeMoveWait = 3, safeMoveTries = 2, emergencyFallbackSteps = 40 }
+    safeMoveWait = 3, safeMoveTries = 2, emergencyFallbackSteps = 40,
+    economyLoadThreshold = 75 }
 local function normalize_profile(src, name)
     local old = type(src) == "table" and src or {}
     local rules = type(old.rules) == "table" and old.rules or {}
@@ -60,6 +61,7 @@ local function normalize_profile(src, name)
         name = trim(name or old.name), route = rooms_from(old.route),
         targets = unique_names(old.targets), avoid = unique_names(old.avoid),
         loot = unique_names(old.loot),
+        economy = { enabled = type(old.economy) == "table" and bool(old.economy.enabled) },
         safeRoom = valid_id(old.safeRoom) and old.safeRoom or nil,
         rules = {},
     }
@@ -81,7 +83,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.13",
+    version = "0.5.0-beta.14",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -146,6 +148,13 @@ return {
         local last_group = nil
         local external_walk = false
         local evaluate
+        -- Economy mode is opt-in. Session callbacks are explicitly cancellable.
+        local economy_run, economy_timer, process_economy, begin_economy
+        local loot_run, loot_timer = nil, nil
+        local function cancel_economy_timers()
+            if economy_timer then ctx:cancel(economy_timer); economy_timer=nil end
+            if loot_timer then ctx:cancel(loot_timer); loot_timer=nil end
+        end
 
         local function note(message, level)
             local fn = level == "warn" and ctx.log.warn or ctx.log.info
@@ -494,6 +503,8 @@ return {
         local function halt(reason)
             expected_manual = nil
             if pending then ctx:cancel(pending); pending = nil end
+            cancel_economy_timers()
+            economy_run, loot_run = nil, nil
             started, paused, dry = false, false, false
             hazard_chain, engaged_here = nil, false
             phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
@@ -514,6 +525,8 @@ return {
             phase = "PAUSED"
             last_reason = reason
             if pending then ctx:cancel(pending); pending = nil end
+            cancel_economy_timers()
+            economy_run, loot_run = nil, nil
             if state.owns_walk then
                 stop_ours = true
                 walker.stop("AutoExp: pauza")
@@ -795,6 +808,16 @@ return {
                 end
                 announce("RECOVERY"); return
             end
+            if economy_run then
+                if active then pause("Walka przerwala kurs handlowy"); return end
+                if danger then pause("Niskie HP w czasie kursu. Przejmij sterowanie!"); return end
+                process_economy(r)
+                return
+            end
+            if loot_run then
+                announce("LOOTING")
+                return
+            end
             if not ready_entities() then
                 announce("WAIT_ENTITIES")
                 if observed_room and last_visited
@@ -842,8 +865,47 @@ return {
                 -- allow a grace period before moving away from the corpse.
                 if os.time() - post_combat_at < (tonumber(p.rules.lootGrace) or DEFAULT.lootGrace) then return end
                 post_combat_at = nil
+                if p.economy and p.economy.enabled and type(p.loot) == "table"
+                    and #p.loot > 0 and not dry then
+                    -- Corpses are text-visible, not reliable Room.Entities entries.
+                    -- Single attempt per item; no retried duplicate takes.
+                    local run = {origin=r.id, list=p.loot, index=1}
+                    loot_run=run
+                    local function next_loot()
+                        loot_timer=nil
+                        if loot_run ~= run or not started or paused then return end
+                        if room_id() ~= run.origin then
+                            pause("Lupy: zmiana pokoju w trakcie zbierania")
+                            return
+                        end
+                        if run.index > #run.list then
+                            loot_run=nil
+                            queue(2) -- allow weight GMCP to catch up
+                            return
+                        end
+                        local item=run.list[run.index]
+                        run.index=run.index+1
+                        note("AutoExp LUP: wez " .. item .. " z ciala")
+                        local ok, err=pcall(ctx.send, ctx, "wez " .. item .. " z ciala")
+                        if not ok then pause("Lupy: blad wysylania: "..tostring(err));return end
+                        loot_timer=ctx:timer(2, next_loot)
+                    end
+                    next_loot()
+                    return
+                end
             end
             if state.owns_walk then return end
+            if p.economy and p.economy.enabled and not dry then
+                local burden=tonumber((gmcp_api.vitals() or {}).encumbrance)
+                if not burden then
+                    pause("Zarobek: brak encumbrance w GMCP - nie ryzykuje kursu")
+                    return
+                end
+                if burden > (tonumber(p.rules.economyLoadThreshold) or 75) then
+                    begin_economy(false)
+                    return
+                end
+            end
             if phase == "ENGAGING" and pending_attack then
                 if os.time() - pending_attack.since < p.rules.attackWait then return end
                 if r.id == pending_attack.room then
@@ -930,6 +992,8 @@ return {
             record_room(room())
             started, paused, dry = true, false, test_mode == true
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
+            cancel_economy_timers()
+            economy_run, loot_run = nil, nil
             attacked_in_room, last_seen, skip_exit_history = {}, {}, {}
             hazard_chain, engaged_here = nil, false
             last_visited = os.time()
@@ -963,6 +1027,10 @@ return {
                 -- A server teleport or stale mapper link is NOT grounds to
                 -- abandon a lifesaving retreat. Use actual confirmed GMCP.
                 note("AutoExp ALARM: trafilem do innego pokoju niz planowano; przeliczam odwrot z GMCP!", "warn")
+            end
+            if loot_run and r and r.id ~= loot_run.origin then
+                pause("Zbieranie lupow przerwane przez zmiane pokoju")
+                return
             end
             if was_escaping then
                 escape = nil -- direct step from an avoided room succeeded
@@ -1021,8 +1089,9 @@ return {
         ctx:on("chimera.walk.arrived", function(event)
             external_walk = false
             if not state.owns_walk or not move then return end
-            if event.map_room ~= move.map or event.target ~= move.id then
-                pause("Chodzik dotarl do innego pokoju")
+            if event.map_room ~= move.map or event.target ~= move.id
+                or room_id() ~= move.id then
+                pause("Chodzik: cel lub pozycja GMCP nie potwierdzily dotarcia")
                 return
             end
             state.owns_walk = false
@@ -1070,6 +1139,8 @@ return {
             if started and not paused then queue(0) end
         end, true)
         ctx:cleanup(function()
+            cancel_economy_timers()
+            economy_run, loot_run = nil, nil
             if state.owns_walk then walker.stop("AutoExp: przeladowanie") end
             state.owns_walk = false
         end)
@@ -1081,12 +1152,14 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.13"},
-                {"Stan", phase .. (dry and " [TEST]" or "")},
+                {"Wersja", "0.5.0-beta.14"},
+                {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
+                    (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
                 {"Cele", p and table.concat(p.targets, ", ") or "brak"},
                 {"Planowane lupy", p and (type(p.loot) == "table" and #p.loot>0 and table.concat(p.loot, ", ") or "brak") or "brak"},
+                {"Zarobek", p and p.economy and p.economy.enabled and "WLACZONY" or "wylaczony"},
                 {"Omijane", p and table.concat(p.avoid, ", ") or "brak"},
                 {"Bezpieczna", p and tostring(p.safeRoom or "brak") or "brak"},
                 {"Ostatnia uwaga", last_reason ~= "" and last_reason or "brak"},
@@ -1102,7 +1175,8 @@ return {
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
             ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza | zarobek trasa")
-            ctx.log.info("EXP+zarobek nie wykonuje jeszcze handlu: najpierw weryfikacja GMCP udzwigu i odpowiedzi serwera.")
+            ctx.log.info("/exp zarobek wlacz | zarobek wylacz | zarobek kurs (REALNY sklep-bank-powrot)")
+            ctx.log.info("UWAGA: sprzedaj bronie/zbroje obejmuje niesione przedmioty; wem i wlm to globalne aliasy.")
         end)
         command("aktualizuj", nil, function()
             local updater = rawget(_G, "chimera_xp_updater")
@@ -1212,6 +1286,200 @@ return {
             end
             return best, cost
         end
+        -- A consciously enabled, one-shot, sequential merchant/bank trip.
+        -- Shop and bank confirmations are not documented yet. Those stages
+        -- proceed after a grace period and are logged as UNCONFIRMED. Denomination
+        -- has a known server response and MUST be confirmed to proceed.
+        local function economy_delay(run, stage, seconds, callback)
+            if economy_timer then ctx:cancel(economy_timer); economy_timer=nil end
+            economy_timer=ctx:timer(seconds, function()
+                economy_timer=nil
+                if economy_run == run and started and not paused and run.stage == stage then
+                    callback()
+                end
+            end)
+        end
+        local function economy_do_send(run, text, as_alias)
+            note("AutoExp HANDEL [" .. run.stage .. "]: " .. text)
+            local ok,err
+            if as_alias then
+                if type(expandAlias)~="function" then
+                    pause("Brak funkcji expandAlias dla " .. text)
+                    return false
+                end
+                ok,err=pcall(expandAlias, text, false)
+            else
+                ok,err=pcall(ctx.send, ctx, text)
+            end
+            if not ok then
+                pause("Nie udalo sie wykonac " .. text .. ": " .. tostring(err))
+                return false
+            end
+            return true
+        end
+        local function economy_travel(run, stage, target)
+            if economy_run ~= run or paused then return end
+            run.stage=stage
+            if room_id() == target then
+                queue(0)
+            else
+                if not move_to(target, "economy") then return end
+            end
+        end
+        process_economy=function(r)
+            local run=economy_run
+            if not run or state.owns_walk then return end
+            if run.stage=="TO_SHOP" then
+                if r.id~=run.shop.hash then
+                    pause("Kurs: brak potwierdzenia przybycia do sklepu")
+                    return
+                end
+                run.stage="SALE_WEAPONS"
+                if not economy_do_send(run, "sprzedaj bronie") then return end
+                economy_delay(run,"SALE_WEAPONS",3,function()
+                    if room_id() ~= run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
+                    run.stage="SALE_ARMOR"
+                    if not economy_do_send(run,"sprzedaj zbroje") then return end
+                    economy_delay(run,"SALE_ARMOR",3,function()
+                        if room_id() ~= run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
+                        note("AutoExp: wyslano obie sprzedaze (brak niezawodnych potwierdzen serwera).", "warn")
+                        economy_travel(run,"TO_BANK",run.bank.hash)
+                    end)
+                end)
+            elseif run.stage=="TO_BANK" then
+                if r.id~=run.bank.hash then
+                    pause("Kurs: brak potwierdzenia przybycia do banku")
+                    return
+                end
+                run.stage="BANK_WEM"
+                if not economy_do_send(run,"wem",true) then return end
+                economy_delay(run,"BANK_WEM",3,function()
+                    if room_id()~=run.bank.hash then pause("Opuszczono bank przed denominacja");return end
+                    run.stage="BANK_DENOMINATE"
+                    if not economy_do_send(run,"zdenominuj") then return end
+                    if economy_run~=run or run.stage~="BANK_DENOMINATE" then return end
+                    economy_delay(run,"BANK_DENOMINATE",20,function()
+                        pause("Brak potwierdzenia denominacji w 20 sekund; WLМ nie wyslano")
+                    end)
+                end)
+            elseif run.stage=="TO_RETURN" then
+                if r.id~=run.origin then
+                    pause("Kurs: brak potwierdzenia powrotu do miejsca expa")
+                    return
+                end
+                local single=run.test_only
+                economy_run=nil
+                if economy_timer then ctx:cancel(economy_timer);economy_timer=nil end
+                if single then
+                    halt("Zakonczono probny kurs sklep -> bank -> expowisko")
+                else
+                    local weight=tonumber((gmcp_api.vitals() or {}).encumbrance)
+                    local threshold=tonumber((profile().rules or {}).economyLoadThreshold) or 75
+                    if not weight or weight>threshold then
+                        pause("Kurs zakonczony, ale obciazenie nie spadlo ponizej progu (" ..
+                             tostring(weight) .. "/" .. tostring(threshold) .. "). Sprawdz sprzedaz!")
+                    else
+                        note("AutoExp: powrot z handlu, wznowienie patrolu ("..weight..").")
+                        observed_room, entities_ready=r.id,false
+                        local packet=gmcp_api.entities()
+                        entities_ready=packet and packet.room==r.id or false
+                        queue(0)
+                    end
+                end
+            end
+        end
+        begin_economy=function(test_only)
+            if not started or paused or dry or economy_run then return false end
+            if state.owns_walk or external_walk then
+                note("Zarobek: inny chodzik jest aktywny.", "warn")
+                return false
+            end
+            local r=room()
+            local current=mapper.current_room()
+            if not r or not valid_id(r.id) or type(current)~="number"
+                or type(getRoomIDbyHash)~="function" or getRoomIDbyHash(r.id)~=current then
+                pause("Zarobek: niespojna lokacja GMCP i mapper")
+                return false
+            end
+            local hp, weak, group=health()
+            local fighting=combat_status(group)
+            if not hp or hp<=profile().rules.retreatHP or
+                (weak and weak.hp<=profile().rules.retreatHP) or fighting then
+                pause("Zarobek: kurs odmowiony z powodu walki lub HP")
+                return false
+            end
+            local shops,err=economy_candidates("sklep")
+            if not shops then pause("Zarobek: "..err);return false end
+            local shop=economy_nearest(current,shops)
+            if not shop then pause("Zarobek: brak trasy do sklepu");return false end
+            local banks,err2=economy_candidates("bank")
+            if not banks then pause("Zarobek: "..err2);return false end
+            local bank=economy_nearest(shop.map,banks)
+            if not bank then pause("Zarobek: brak trasy sklep -> bank");return false end
+            if not economy_cost(bank.map,current) then
+                pause("Zarobek: nie ma potwierdzonej drogi bank -> miejsce expa")
+                return false
+            end
+            local run={origin=r.id,shop=shop,bank=bank,
+                       stage="TO_SHOP",test_only=test_only}
+            economy_run=run
+            pending_attack,post_combat_at,escape=nil,nil,nil
+            note("AutoExp: kurs do sklepu "..shop.map.." -> banku "..bank.map..
+                 " -> powrotu "..current.."; test="..tostring(test_only))
+            economy_travel(run,"TO_SHOP",shop.hash)
+            return true
+        end
+        -- One exact recognized server confirmation authorizes the final
+        -- withdrawal alias. Never emit wlm before denominations complete.
+        local function economy_denom_confirmed()
+            local run=economy_run
+            if not run or run.stage~="BANK_DENOMINATE"
+                or room_id()~=run.bank.hash or paused then return end
+            if economy_timer then ctx:cancel(economy_timer);economy_timer=nil end
+            run.stage="BANK_WLM"
+            if not economy_do_send(run,"wlm",true) then return end
+            economy_delay(run,"BANK_WLM",3,function()
+                if room_id()~=run.bank.hash then pause("Opuszczono bank przed powrotem");return end
+                economy_travel(run,"TO_RETURN",run.origin)
+            end)
+        end
+        ctx:trigger([[^Twoje pieniadze zostaly zdenominowane\.$]], economy_denom_confirmed)
+        ctx:trigger([[^Twoje pieniadze juz sa maksymalnie zdenominowane\.$]], economy_denom_confirmed)
+        command("zarobek wlacz",nil,function()
+            if not allowed_config() then return end
+            local p=profile()
+            if not p then note("Wybierz expowisko", "warn");return end
+            p.economy=p.economy or {}
+            p.economy.enabled=true
+            remember()
+            note("EXP+ZAROBEK WLACZONY. UWAGA: 'sprzedaj bronie/zbroje' moze sprzedac tez PRYWATNE przedmioty!", "warn")
+        end)
+        command("zarobek wylacz",nil,function()
+            if not allowed_config() then return end
+            local p=profile()
+            if not p then note("Wybierz expowisko", "warn");return end
+            p.economy=p.economy or {}
+            p.economy.enabled=false
+            remember()
+            note("EXP+ZAROBEK WYLACZONY.")
+        end)
+        -- Manual one-shot test drives real shop/bank commands, then STOPS.
+        -- It doesn't require auto economy enabled. Start only from idle.
+        command("zarobek kurs",nil,function()
+            if started or state.owns_walk or external_walk then
+                note("Najpierw /exp stop i zatrzymaj zewnetrzny chodzik.", "warn")
+                return
+            end
+            note("TEST REALNY: sprzedaje WSZYSTKIE niesione bronie i zbroje! /exp stop przerwie kurs.", "warn")
+            start(false)
+            if not started then
+                note("Nie udalo sie zainicjowac probnego kursu.", "warn")
+                return
+            end
+            if not begin_economy(true) then
+                halt("Probny kurs nie mogl wystartowac")
+            end
+        end)
         command("zarobek trasa", nil, function()
             note("EXP+ZAROBEK: test trasy, bez ruchu, sprzedazy i operacji bankowych.")
             local r, p = room(), profile()

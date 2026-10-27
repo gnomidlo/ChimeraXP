@@ -31,6 +31,7 @@ local function trial(hazard, delayed, same_direction)
         return ({gmcp=gmcp,mapper={current_room=function() return world.current end},
         walker={go=function(dest) moves[#moves+1]=dest;return true end,stop=function()return true end}})[key]
       end,
+      trigger=function() end,
       on=function(_,event,fn) handlers[event]=handlers[event] or {};handlers[event][#handlers[event]+1]=fn end,
       command=function(_,opts) commands[opts[1]]=opts.fn end,
       timer=function(_,delay,fn,repeating) local id=#timers+1;timers[id]={fn=fn,active=true,repeating=repeating};return id end,

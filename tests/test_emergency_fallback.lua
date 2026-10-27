@@ -28,6 +28,7 @@ local function trial(which)
     use=function(_,key) return ({gmcp=gmcp,mapper={current_room=function() return world.current end},
       walker={go=function()error('should not walker.go') end,stop=function()return true end}})[key] end,
     command=function(_,conf)commands[conf[1]]=conf.fn end,
+    trigger=function() end,
     on=function(_,event,cb)handlers[event]=handlers[event] or {};table.insert(handlers[event],cb) end,
     timer=function(_,delay,cb,repeating)local idx=#timers+1;timers[idx]={fn=cb,active=true,repeating=repeating};return idx end,
     cancel=function(_,idx)if timers[idx] then timers[idx].active=false end end,

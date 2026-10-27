@@ -40,6 +40,7 @@ local function trial(case)
           stop=function(msg) emit("chimera.walk.stopped",{reason=msg});return true end}
       })[key]
     end,
+    trigger=function() end,
     on=function(_,k,fn) handlers[k]=handlers[k] or {};table.insert(handlers[k],fn) end,
     command=function(_,o) commands[o[1]]=o.fn end,
     timer=function(_,d,fn,repeat_) local id=#timers+1;timers[id]={fn=fn,active=true,repeating=repeat_};return id end,
