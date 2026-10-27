@@ -1,6 +1,9 @@
 local path = "plugins/chimera_autoexp/init.lua"
 local P = dofile(path)
-assert(P.name == "autoexp" and #P.deps == 3)
+assert(P.name == "autoexp" and #P.deps == 4 and P.deps[4] == "locations",
+  "locations must be declared as an official Chimera module dependency")
+local declared_deps={}
+for _, name in ipairs(P.deps) do declared_deps[name]=true end
 local storage, commands, handlers, timers, sent, moves, messages = {}, {}, {}, {}, {}, {}, {}
 local time = 0
 os.time = function() return time end
@@ -40,6 +43,7 @@ local walker = {
 local ctx = {
     state={},log={info=function(m) messages[#messages+1] = m end,warn=function(m) messages[#messages+1] = "WARN:"..m end},
     use=function(_,key)
+      assert(declared_deps[key], "undeclared ctx:use dependency: "..tostring(key))
       return ({
         gmcp=gmcp,mapper={current_room=function() return world.current end},
         walker=walker,
