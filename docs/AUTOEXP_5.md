@@ -107,3 +107,9 @@ Jesli serwer odrzuca ruch w walce, po dwoch probach i braku zmiany `Room.Info` a
 ## EXP + zarobek: diagnostyka i lista łupów (beta.11)
 
 Wprowadzono **tylko konfigurację** per profil expowiska: `/exp lup dodaj TEKST`, `/exp lup usun TEKST`, `/exp lup lista`, `/exp zarobek prog 75`, `/exp zarobek diagnoza`. Przypisane przedmioty zachowują podaną odmianę dla planowanego `wez <tekst> z ciala`. Diagnostyka jest tylko do odczytu (GMCP Char, Inventory, Items i Room.Entities). Nie wykonuje sprzedaży i nie porusza postacią. Pełna maszyna stanów łupy→sklep→bank→powrót: https://github.com/gnomidlo/ChimeraXP/issues/8
+
+## EXP + zarobek — plan trasy (beta.12)
+
+`/exp zarobek trasa` — tylko odczyt tagów `locations.targets("sklep")` i `locations.targets("bank")`. Kandydat musi mieć poprawny GMCP hash i identyfikator na mapie. Algorytm sprawdza koszt `walker.cost`, wybiera najbliższy osiągalny sklep i bank osiągalny od tego sklepu, pokazuje koszty oraz przykładowy powrót na expowisko. **Nie wykonuje żadnych ruchów, poleceń handlowych ani bankowych.** Działa wyłącznie przy zgodności GMCP z mapperem. Brak tagów lub trasy jest zgłaszany jako ostrzeżenie.
+
+Diagnostyka wyświetla surowe `gmcp.Char.Vitals.encumbrance`, **bez przypisywania skali procentowej** przed potwierdzeniem w grze.
