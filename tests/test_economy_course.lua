@@ -111,7 +111,7 @@ local function scenario(confirm, automatic)
     assert(sent[2]=="wez bronie z ciala","collect configured loot after combat")
     advance(2)
     data.vitals.encumbrance=80
-    emit("chimera.char.vitals",data.vitals);advance(0)
+    emit("chimera.char.vitals",data.vitals);advance(2)
     assert(moves[#moves]==2,"overload triggers shop trip")
     base=2
   else
