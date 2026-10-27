@@ -153,7 +153,7 @@ local function trial(combat_remains)
             "restart native walker from confirmed cross location after combat")
         place("shop","chodzik",true)
     end
-    local offset=combat_remains and 2 or 1
+    local offset=combat_remains and 3 or 2
     assert(sent[offset]=="sprzedaj bronie","shop sales continue after attack; sent="..table.concat(sent,",").."; logs="..table.concat(logs,";").."; phase="..api.status().phase)
     advance(0.71)
     assert(sent[offset+1]=="sprzedaj zbroje","armor sale is not cancelled")
