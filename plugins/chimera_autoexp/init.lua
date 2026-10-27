@@ -546,9 +546,17 @@ return {
         local function escape_avoided(p, r, name)
             local now = os.time()
             if not escape or escape.origin ~= r.id then
+                if not hazard_chain then
+                    hazard_chain = {hazards = {}, steps = 0, safe_rooms = {}, safe_count = 0}
+                end
+                hazard_chain.hazards[r.id] = (hazard_chain.hazards[r.id] or 0) + 1
+                if hazard_chain.hazards[r.id] > 2 or hazard_chain.steps >= 8 then
+                    pause("ALARM: petla miedzy niebezpiecznymi lokacjami. Zatrzymano ruch, aby nie wyczerpac sil!")
+                    return
+                end
                 escape = { origin = r.id, tried = {}, tries = 0 }
                 pending_attack, post_combat_at = nil, nil
-                note("AutoExp: omijany NPC (" .. name .. ") - opuszczam lokacje!", "warn")
+                note("AutoExp: niebezpieczna lokacja (" .. name .. ") - opuszczam!", "warn")
             end
             if state.owns_walk then
                 stop_ours = true
@@ -567,7 +575,7 @@ return {
             end
             local command = escape_exit(p, r, escape.tried)
             if not command then
-                pause("Brak dostepnego wyjscia z lokacji z omijanym NPC: " .. name)
+                pause("ALARM: wszystkie wyjscia prowadza do petli przez niebezpieczne pokoje (" .. name .. "). Przejmij sterowanie!")
                 return
             end
             if dry then
@@ -576,6 +584,7 @@ return {
                 return
             end
             escape.tries = escape.tries + 1
+            if hazard_chain then hazard_chain.steps = hazard_chain.steps + 1 end
             local history = skip_exit_history[r.id] or {}
             history[command] = (history[command] or 0) + 1
             skip_exit_history[r.id] = history
