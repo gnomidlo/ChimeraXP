@@ -81,19 +81,18 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.12",
+    version = "0.5.0-beta.13",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
-    deps = { "gmcp", "mapper", "walker" },
+    deps = { "gmcp", "mapper", "walker", "locations" },
     setup = function(ctx)
         local gmcp_api = ctx:use("gmcp")
         local mapper = ctx:use("mapper")
         local walker = ctx:use("walker")
-        -- Economy planning uses the official location tags without making
-        -- this module a hard dependency for the combat-only AutoExp.
-        local locations_ok, locations = pcall(function() return ctx:use("locations") end)
-        if not locations_ok then locations = nil end
+        -- The official loader grants ctx:use() only to declared deps.
+        -- Chimera's built-in /room uses this same locations service.
+        local locations = ctx:use("locations")
         local state = ctx.state
         local areas = ctx:saved("profiles", {})
         if type(areas) ~= "table" then areas = {} end
@@ -1082,7 +1081,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.12"},
+                {"Wersja", "0.5.0-beta.13"},
                 {"Stan", phase .. (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
