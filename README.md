@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.13** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.14** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -105,3 +105,22 @@ Nowa diagnostyczna komenda `/exp zarobek trasa` **niczego nie wysyła do serwera
 W beta.12 `/exp zarobek trasa` wyświetlało „Modul locations nie jest dostepny”, ponieważ AutoExp wywoływał `ctx:use("locations")` **bez wpisania `locations` do `deps`**. W beta.13 moduł `locations` jest wymaganą zależnością, tak samo jak we wtyczce Kurier oficjalnej Chimery. Test integracyjny weryfikuje, że wszystkie użycia `ctx:use()` mają zadeklarowane zależności.
 
 Po instalacji wykonaj `/przeladuj`, a następnie `/exp zarobek trasa`. Jeśli oficjalna Chimera nie ma uruchomionego modułu locations, AutoExp może odmówić uruchomienia — wtedy sprawdź diagnostykę `/chimera bledy`. Tagowanie `/room` jest obsługiwane przez oficjalną Chimerę; nie kopiujemy jej bazy do ChimeraXP. Nadal **nie ma automatycznego handlu ani podnoszenia łupów**.
+
+
+## EXP + zarobek: pełny kurs TESTOWY (beta.14)
+
+**UWAGA: eksperymentalne polecenia wykonują rzeczywisty handel.** Polecenia `sprzedaj bronie` i `sprzedaj zbroje` mogą sprzedać także prywatne, niesione bronie i pancerze, nie tylko łupy. Zanim uruchomisz test, odłóż cenne przedmioty i zachowaj zapas gotówki. Nie uruchamiaj bez nadzoru.
+
+```text
+/exp stop
+/exp zarobek trasa
+/exp zarobek kurs
+```
+
+`/exp zarobek kurs` wykonuje **jeden rzeczywisty kurs**, bez aktywowania automatycznego handlu dla profilu: zapisuje bieżący pokój GMCP, idzie do najbliższego tagowanego sklepu, wysyła `sprzedaj bronie`, po 3 s `sprzedaj zbroje`, potem idzie do najbliższego banku liczonego od sklepu, wywołuje `expandAlias("wem",false)`, po 3 s wysyła `zdenominuj`, czeka na potwierdzenie gry, wywołuje `expandAlias("wlm",false)`, po 3 s wraca do **oryginalnego pokoju** i zatrzymuje AutoExp. Brak potwierdzenia denominacji w 20 s = PAUSED i **brak** `wlm`. Przerwanie chodzika, walka, błędny pokój lub niskie HP = PAUSED / alarm. `/exp stop` zatrzymuje kurs.
+
+Niezależne, **domyślnie WYŁĄCZONE** automatyczne kursy patrolowe włącza `/exp zarobek wlacz`. Po walce, po standardowej pauzie na łupy, dla każdej pozycji `/exp lup dodaj TEKST` próbuje kolejno `wez TEKST z ciala` i dopiero potem sprawdza `gmcp.Char.Vitals.encumbrance`. Jeżeli surowa wartość jest **większa** niż `/exp zarobek prog 75`, uruchamia kurs sklep→bank→powrót i wznowienie patrolu. Wyłącz komendą `/exp zarobek wylacz` (w stanie OFF/PAUSED).
+
+**Aktualne ograniczenia:** nie mamy jeszcze wiarygodnych tekstowych potwierdzeń podnoszenia z ciał, obu sprzedaży ani działania `wem`/`wlm`. Dla tych etapów beta.14 wysyła pojedynczą próbę, odczekuje i kontynuuje z widocznym ostrzeżeniem. **Potwierdzenie `zdenominuj` jest obowiązkowe** (`Twoje pieniadze zostaly zdenominowane.` albo `Twoje pieniadze juz sa maksymalnie zdenominowane.`). `encumbrance` jest traktowane jako wartość progowa 0–100 do testu; skala nadal wymaga sprawdzenia w prawdziwej grze. Jeśli po kursie pozostaje powyżej progu, patrol pauzuje, zamiast jechać ponownie do sklepu.
+
+Bez testu na żywym serwerze — sprawdź najpierw jednorazowe `/exp zarobek kurs` z bezpiecznego pokoju, pod nadzorem.
