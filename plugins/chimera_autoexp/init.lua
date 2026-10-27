@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.15",
+    version = "0.5.0-beta.16",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -266,10 +266,14 @@ return {
                     or e.relation == "group" or e.relation == "ally"
                     or e.group_role == "leader" or e.group_role == "member"
                     or (id and group_ids and group_ids[id])
-                if e.kind == "npc" and not friendly and not bool(e.dead) then
+                -- Limit counts only configured EXP targets, not harmless
+                -- wildlife or unrelated NPCs in the same room. An avoided
+                -- NPC triggers its own escape rule in avoided_npc().
+                if e.kind == "npc" and not friendly and not bool(e.dead)
+                    and contains(e.name, p.targets)
+                    and not contains(e.name, p.avoid) then
                     count = count + 1
                     if not found and id and valid_id(id)
-                        and contains(e.name, p.targets) and not contains(e.name, p.avoid)
                         and not attacked_in_room[id] then
                         found = e
                     end
@@ -837,7 +841,8 @@ return {
             local target, npc_count = target_info(p, group_ids)
             local skip_reason = nil
             if npc_count > p.rules.maxEnemies then
-                skip_reason = "zbyt wiele NPC (" .. npc_count .. "/" .. p.rules.maxEnemies .. ")"
+                skip_reason = "zbyt wiele celow EXP (" .. npc_count .. "/" ..
+                    p.rules.maxEnemies .. ")"
             elseif foreign and not active and not engaged_here
                 and not (pending_attack and pending_attack.room == r.id) then
                 -- Leave only foreign fights met on arrival. A later outsider
@@ -1165,7 +1170,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.15"},
+                {"Wersja", "0.5.0-beta.16"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1185,6 +1190,7 @@ return {
         command("pomoc", nil, function()
             ctx.log.info("/exp obszary | wybierz NAZWA | mapuj NAZWA | mapuj! NAZWA | mapuj-")
             ctx.log.info("/exp cel TEKST | cel- TEKST | unikaj TEKST | unikaj- TEKST")
+            ctx.log.info("Limit NPC z /exp limit N liczy tylko cele /exp cel, nie inne zwierzeta; /exp unikaj dziala niezaleznie.")
             ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | odwrot-test | pauza | wznow | stop")
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")

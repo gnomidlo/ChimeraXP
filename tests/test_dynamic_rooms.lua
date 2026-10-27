@@ -24,10 +24,12 @@ local function scenario(kind)
         vitals={hp=100},
     }
     local function emit(key, val) for _,f in ipairs(handlers[key] or {}) do f(val) end end
+    local local_targets = (kind=='wildlife' or kind=='gnollpack' or kind=='avoided') and {'gnoll'} or {'goblin'}
+    local local_limit = (kind=='wildlife' or kind=='gnollpack' or kind=='avoided') and 1 or 3
     local ctx={state={},log={info=function(s)log[#log+1]=s end,warn=function(s)log[#log+1]=s end},
         saved=function(_,key,default) return ({profiles={test={name='test',route={'a','s','d','c'},
-            targets={'goblin'},avoid={'pajak'},safeRoom='safe',
-            rules={maxEnemies=3,minRoomRevisit=60,escapeWait=4,syncWait=4,attackWait=3,lootGrace=7,retreatHP=35,returnHP=85}}},selected='test'})[key] or default end,
+            targets=local_targets,avoid={'pajak'},safeRoom='safe',
+            rules={maxEnemies=local_limit,minRoomRevisit=60,escapeWait=4,syncWait=4,attackWait=3,lootGrace=7,retreatHP=35,returnHP=85}}},selected='test'})[key] or default end,
         save=function() end,
         use=function(_,key)
           return ({
@@ -67,10 +69,46 @@ local function scenario(kind)
     local goblin={id='goblin',name='zielony goblin',kind='npc'}
     if kind=='spider' then
         world.entities.entities[#world.entities.entities+1]=spider
+    elseif kind=='wildlife' or kind=='gnollpack' or kind=='avoided' then
+        world.entities.entities[#world.entities.entities+1]={id='hare1',name='zwinny dlugouchy zajac',kind='npc'}
+        world.entities.entities[#world.entities.entities+1]={id='hare2',name='szarawy chudy zajac',kind='npc'}
+        world.entities.entities[#world.entities.entities+1]={id='gnoll1',name='silny przebiegly gnoll',kind='npc'}
+        if kind=='gnollpack' then
+            world.entities.entities[#world.entities.entities+1]={id='gnoll2',name='wsciekly gnoll',kind='npc'}
+        elseif kind=='avoided' then
+            world.entities.entities[#world.entities.entities+1]=spider
+        end
     else
         for i=1,4 do world.entities.entities[#world.entities.entities+1]={id='mob'..i,name='goblin',kind='npc'} end
     end
     commands['exp start']();tick()
+    if kind=='wildlife' then
+        assert(not api.status().paused and api.status().phase~='AVOID_ESCAPE',
+            'two rabbits must not count against /exp limit 1')
+        assert(sent[#sent]=='zabij gnoll1',
+            'one gnoll with two harmless rabbits should be attacked')
+        commands['exp stop']()
+        os.time=previous_time
+        print('PASS dynamic NPC target limit wildlife')
+        return
+    elseif kind=='gnollpack' then
+        assert(api.status().phase=='AVOID_ESCAPE',
+            'two gnolls exceed the configured target limit 1')
+        assert(table.concat(log,';'):find('zbyt wiele celow EXP (2/1)',1,true),
+            'limit log must count exactly gnolls (not rabbits)')
+        assert(sent[#sent]=='w','too many gnolls must escape')
+        commands['exp stop']()
+        os.time=previous_time
+        print('PASS dynamic NPC target limit gnollpack')
+        return
+    elseif kind=='avoided' then
+        assert(api.status().phase=='AVOID_ESCAPE' and sent[#sent]=='w',
+            'one avoided spider must trigger escape independently of target limit')
+        commands['exp stop']()
+        os.time=previous_time
+        print('PASS dynamic NPC separately avoided spider')
+        return
+    end
     assert(not api.status().paused and api.status().phase=='AVOID_ESCAPE',kind..': first hazard should be skipped')
     assert(sent[#sent]=='w','first escape should prefer route neighbour (deep forest)')
     -- The room reached is a dead end. The only route to continue is THROUGH
@@ -98,3 +136,6 @@ local function scenario(kind)
 end
 scenario('spider')
 scenario('crowded')
+scenario('wildlife')
+scenario('gnollpack')
+scenario('avoided')

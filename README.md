@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.15** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.16** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -139,3 +139,7 @@ Możesz dostosować odstępy **dla wybranego profilu**:
 Dopuszczalny zakres: 0,3–3,0 s. Zmiana konfiguracji wymaga zatrzymania lub wstrzymania patrolu. Nie skracamy limitu 20 s **oczekiwania na potwierdzenie** `zdenominuj`: `wlm` nadal rusza dopiero po jego odpowiedzi. Po `wlm` pozostała tylko krótka przerwa przed powrotem. Sama szybkość kroków chodzika jest nadal kontrolowana przez oficjalną Chimerę, nie przez ten parametr.
 
 Uwaga: etapy `sprzedaj bronie`, `sprzedaj zbroje`, `wem` i `wlm` nadal nie mają zweryfikowanych odpowiedzi serwera. Tempo 0,7 s jest kompromisem; jeśli serwer gubi polecenia, wróć do `/exp zarobek tempo 1.2` lub `2`. Wszystkie ograniczenia dotyczące masowej sprzedaży niesionego sprzętu pozostają aktualne.
+
+## Limit celów zamiast liczenia całej fauny (beta.16)
+
+`/exp limit 1` pozwala na walkę, gdy na lokacji jest **jeden NPC zgodny z listą `/exp cel`**, niezależnie od obecności zwierząt i innych niecelowanych NPC. Przykład: dwa zające i jeden gnoll → atak gnolla; dwa zające i dwa gnolle → pominięcie starcia (`zbyt wiele celow EXP (2/1)`). Pod uwagę bierzemy tylko żywe, nieprzyjazne cele wskazane w ustawieniach; NPC z `/exp unikaj` nie są doliczane do limitu i nadal powodują natychmiastowe omijanie lokacji własnym mechanizmem. Zawartość lokacji pozostaje dynamiczna, bez czasowego blacklistowania. Przy wielu wpisach `/exp cel` limit jest wspólny dla wszystkich dopasowanych celów.

@@ -12,7 +12,7 @@ ChimeraXP to **osobny projekt**. Nie zależy od ChimeraVIP. Bazuje na API oficja
 
 ## Mapowanie i konfiguracja
 
-`/exp mapuj Bagna` — start mapowania; powtórzenie zapisuje i scala trasę. `/exp mapuj! Bagna` — mapa zastępcza. `/exp mapuj-` — rezygnacja. `/exp wybierz Bagna` — wybór obszaru. `/exp cel snotling` — dopisanie celu. `/exp unikaj boss` — wykluczenie NPC. `/exp bezpieczna` — obecny pokój jako miejsce powrotu. `/exp hp 35 85` — progi odwrotu/powrotu. `/exp limit 3` — limit obcych NPC. `/exp odnowa 60` — cooldown pustej lokacji.
+`/exp mapuj Bagna` — start mapowania; powtórzenie zapisuje i scala trasę. `/exp mapuj! Bagna` — mapa zastępcza. `/exp mapuj-` — rezygnacja. `/exp wybierz Bagna` — wybór obszaru. `/exp cel snotling` — dopisanie celu. `/exp unikaj boss` — wykluczenie NPC. `/exp bezpieczna` — obecny pokój jako miejsce powrotu. `/exp hp 35 85` — progi odwrotu/powrotu. `/exp limit 3` — limit żywych NPC pasujących do `/exp cel`, nie ogólnej liczby istot w pokoju. `/exp odnowa 60` — cooldown pustej lokacji.
 
 `/exp test` nie wysyła żadnej komendy. `/exp start` uruchamia automat, `/exp pauza`, `/exp wznow` i `/exp stop` sterują nim. Domyślnie automat jest **wyłączony**.
 
@@ -140,3 +140,7 @@ Bez testu na żywym serwerze — sprawdź najpierw jednorazowe `/exp zarobek kur
 ## Przyspieszenie ekonomii (beta.15)
 
 W trybie EXP + zarobek rozpoczęcie próby zbierania następuje po 2 s od końca walki (`economyLootGrace`, domyślnie 2), kolejne próby `wez ... z ciala` są rozdzielone 0,7 s (`economyCommandDelay`), a sprawdzenie obciążenia jest kolejkowane po 0,7 s (`economyWeightWait`). Te dwie ostatnie wartości dotyczą planowanego odstępu; domyślną przerwę poleceń możesz zmienić komendą `/exp zarobek tempo 0.7` w zakresie 0,3–3,0 s. Przerwy między sprzedażami, po `wem` i po `wlm` używają tego samego parametru. Stan `BANK_DENOMINATE` nie przyspiesza przez timer: natychmiast reaguje na potwierdzenie serwera lub zatrzymuje się po 20 s bez odpowiedzi. Bez zmian w mechanizmie `walker` i w 7-sekundowej przerwie zwykłego AutoExp bez zarobku.
+
+## Liczenie celów EXP (beta.16)
+
+Wcześniej `target_info()` zwiększał `npc_count` dla każdego obcego NPC w pokoju, nawet jeśli nie był celem. To powodowało ucieczkę z pokoju zawierającego dwa zające i jednego gnolla przy `/exp limit 1`. Obecnie licznik obejmuje wyłącznie żywe, niefriendly NPC spełniające dopasowanie `/exp cel` i niespełniające `/exp unikaj`. Zbieramy **liczbę wszystkich takich NPC**, niezależnie od tego, czy dany cel był już zaatakowany i odrzucony jako bieżący cel (nie można przez to obchodzić limitu). Wykrycie NPC z `/exp unikaj` nadal ma osobny, wcześniejszy priorytet i uruchamia opuszczenie pokoju. `/exp limit 1`: 2 zające + 1 gnoll → atak; 2 zające + 2 gnolle → omijanie. Brak czasowych blokad pokojów.
