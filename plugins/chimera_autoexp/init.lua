@@ -1153,11 +1153,13 @@ return {
             local p = profile()
             ctx:report("AutoExp 5", {
                 {"Wersja", "0.5.0-beta.14"},
-                {"Stan", phase .. (dry and " [TEST]" or "")},
+                {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
+                    (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
                 {"Cele", p and table.concat(p.targets, ", ") or "brak"},
                 {"Planowane lupy", p and (type(p.loot) == "table" and #p.loot>0 and table.concat(p.loot, ", ") or "brak") or "brak"},
+                {"Zarobek", p and p.economy and p.economy.enabled and "WLACZONY" or "wylaczony"},
                 {"Omijane", p and table.concat(p.avoid, ", ") or "brak"},
                 {"Bezpieczna", p and tostring(p.safeRoom or "brak") or "brak"},
                 {"Ostatnia uwaga", last_reason ~= "" and last_reason or "brak"},
@@ -1173,7 +1175,8 @@ return {
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
             ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza | zarobek trasa")
-            ctx.log.info("EXP+zarobek nie wykonuje jeszcze handlu: najpierw weryfikacja GMCP udzwigu i odpowiedzi serwera.")
+            ctx.log.info("/exp zarobek wlacz | zarobek wylacz | zarobek kurs (REALNY sklep-bank-powrot)")
+            ctx.log.info("UWAGA: sprzedaj bronie/zbroje obejmuje niesione przedmioty; wem i wlm to globalne aliasy.")
         end)
         command("aktualizuj", nil, function()
             local updater = rawget(_G, "chimera_xp_updater")
