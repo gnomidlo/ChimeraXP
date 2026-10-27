@@ -144,3 +144,9 @@ W trybie EXP + zarobek rozpoczęcie próby zbierania następuje po 2 s od końca
 ## Liczenie celów EXP (beta.16)
 
 Wcześniej `target_info()` zwiększał `npc_count` dla każdego obcego NPC w pokoju, nawet jeśli nie był celem. To powodowało ucieczkę z pokoju zawierającego dwa zające i jednego gnolla przy `/exp limit 1`. Obecnie licznik obejmuje wyłącznie żywe, niefriendly NPC spełniające dopasowanie `/exp cel` i niespełniające `/exp unikaj`. Zbieramy **liczbę wszystkich takich NPC**, niezależnie od tego, czy dany cel był już zaatakowany i odrzucony jako bieżący cel (nie można przez to obchodzić limitu). Wykrycie NPC z `/exp unikaj` nadal ma osobny, wcześniejszy priorytet i uruchamia opuszczenie pokoju. `/exp limit 1`: 2 zające + 1 gnoll → atak; 2 zające + 2 gnolle → omijanie. Brak czasowych blokad pokojów.
+
+## Utrzymanie kursu podczas ataku (beta.17)
+
+`chimera.walk.stopped(reason='atak')` podczas `economy_run` nie kasuje celu ani nie pauzuje AutoExp. Kurs działa nadrzędnie wobec zwykłego rozpoznawania celu i omijania NPC; gdy oficjalny chodzik się zatrzyma, jeden krok na raz wybierany jest z `getPath` oraz `gmcp.Room.Info.exits`, alternatywnie z zapamiętanego grafu GMCP. Każdy wysłany krok ma oczekiwany hash pokoju, walidowany po `chimera.room.changed`. Zdarzenie `how='reczny'` od kroku wysłanego przez skrypt nie wywołuje fałszywego przejęcia sterowania. W razie aktywnej walki idziemy dalej krokowo, a kiedy walka ustanie i wykonaliśmy choć jeden potwierdzony krok — wracamy do `walker.go` dla pozostałej trasy.
+
+Maksymalnie 3 próby nieudanego kroku (po 2 s), ograniczenie długości/kierunku serii ruchów i alarm przy nieznanej drodze; nie próbujemy uruchamiać chodzika w pętli na komunikacie `atak`. Dla HP poniżej progu nadal działa awaryjny odwrót. Testy: `tests/test_economy_attack_resume.lua` (opóźniony GMCP, nadal trwająca walka, powrót do kursu, brak automatycznych ataków).
