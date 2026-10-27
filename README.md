@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.12** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.13** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -99,3 +99,9 @@ Nowa diagnostyczna komenda `/exp zarobek trasa` **niczego nie wysyła do serwera
 `/exp zarobek diagnoza` pokazuje `gmcp.Char.Vitals.encumbrance` jako **surową wartość**, jeśli jest dostępna. Wynik np. `13` nie dowodzi jeszcze, że oznacza `13%` — przed autonomicznym kursem trzeba potwierdzić skalę i aktualizację po podnoszeniu.
 
 **Handel, bank i podnoszenie łupów nadal nie są automatyczne.** Są planowane w [issue #8](https://github.com/gnomidlo/ChimeraXP/issues/8); nie należy włączać ich przed sprawdzeniem komunikatów sukcesu i odmowy.
+
+## Poprawka integracji z tagami /room (beta.13)
+
+W beta.12 `/exp zarobek trasa` wyświetlało „Modul locations nie jest dostepny”, ponieważ AutoExp wywoływał `ctx:use("locations")` **bez wpisania `locations` do `deps`**. W beta.13 moduł `locations` jest wymaganą zależnością, tak samo jak we wtyczce Kurier oficjalnej Chimery. Test integracyjny weryfikuje, że wszystkie użycia `ctx:use()` mają zadeklarowane zależności.
+
+Po instalacji wykonaj `/przeladuj`, a następnie `/exp zarobek trasa`. Jeśli oficjalna Chimera nie ma uruchomionego modułu locations, AutoExp może odmówić uruchomienia — wtedy sprawdź diagnostykę `/chimera bledy`. Tagowanie `/room` jest obsługiwane przez oficjalną Chimerę; nie kopiujemy jej bazy do ChimeraXP. Nadal **nie ma automatycznego handlu ani podnoszenia łupów**.
