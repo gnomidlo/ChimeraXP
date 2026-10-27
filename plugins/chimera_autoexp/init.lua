@@ -53,7 +53,8 @@ local DEFAULT = { retreatHP = 35, returnHP = 85, maxEnemies = 3,
     minRoomRevisit = 60, attackWait = 3, syncWait = 4, recoveryPoll = 3, lootGrace = 7,
     escapeWait = 4, escapeMaxTries = 3,
     safeMoveWait = 3, safeMoveTries = 2, emergencyFallbackSteps = 40,
-    economyLoadThreshold = 75 }
+    economyLoadThreshold = 75, economyCommandDelay = 0.7,
+    economyLootGrace = 2, economyWeightWait = 0.7 }
 local function normalize_profile(src, name)
     local old = type(src) == "table" and src or {}
     local rules = type(old.rules) == "table" and old.rules or {}
@@ -83,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.14",
+    version = "0.5.0-beta.15",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -179,6 +180,13 @@ return {
         end
         local function profile()
             return selected and areas[selected] or nil
+        end
+        -- The trade commands have no reliable success messages yet; serialize
+        -- them with a short adjustable delay, never as one multi-command send.
+        local function economy_command_delay()
+            local p = profile()
+            local value = tonumber(p and p.rules and p.rules.economyCommandDelay)
+            return math.max(0.3, math.min(value or DEFAULT.economyCommandDelay, 3))
         end
         local function room()
             return gmcp_api.room()
@@ -861,9 +869,13 @@ return {
                 announce("POST_COMBAT")
             end
             if post_combat_at then
-                -- The official collect module sends several commands on kill;
-                -- allow a grace period before moving away from the corpse.
-                if os.time() - post_combat_at < (tonumber(p.rules.lootGrace) or DEFAULT.lootGrace) then return end
+                -- Keep the existing seven-second grace for combat-only mode.
+                -- Economy mode can safely start its OWN sequential loot a bit
+                -- earlier, but still waits for the game to settle after a kill.
+                local grace = p.economy and p.economy.enabled and not dry
+                    and (tonumber(p.rules.economyLootGrace) or DEFAULT.economyLootGrace)
+                    or (tonumber(p.rules.lootGrace) or DEFAULT.lootGrace)
+                if os.time() - post_combat_at < grace then return end
                 post_combat_at = nil
                 if p.economy and p.economy.enabled and type(p.loot) == "table"
                     and #p.loot > 0 and not dry then
@@ -880,7 +892,8 @@ return {
                         end
                         if run.index > #run.list then
                             loot_run=nil
-                            queue(2) -- allow weight GMCP to catch up
+                            queue(tonumber(p.rules.economyWeightWait)
+                                or DEFAULT.economyWeightWait) -- allow GMCP to catch up
                             return
                         end
                         local item=run.list[run.index]
@@ -888,7 +901,7 @@ return {
                         note("AutoExp LUP: wez " .. item .. " z ciala")
                         local ok, err=pcall(ctx.send, ctx, "wez " .. item .. " z ciala")
                         if not ok then pause("Lupy: blad wysylania: "..tostring(err));return end
-                        loot_timer=ctx:timer(2, next_loot)
+                        loot_timer=ctx:timer(economy_command_delay(), next_loot)
                     end
                     next_loot()
                     return
@@ -1152,7 +1165,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.14"},
+                {"Wersja", "0.5.0-beta.15"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1160,6 +1173,7 @@ return {
                 {"Cele", p and table.concat(p.targets, ", ") or "brak"},
                 {"Planowane lupy", p and (type(p.loot) == "table" and #p.loot>0 and table.concat(p.loot, ", ") or "brak") or "brak"},
                 {"Zarobek", p and p.economy and p.economy.enabled and "WLACZONY" or "wylaczony"},
+                {"Tempo handlu", string.format("%.2f s", economy_command_delay())},
                 {"Omijane", p and table.concat(p.avoid, ", ") or "brak"},
                 {"Bezpieczna", p and tostring(p.safeRoom or "brak") or "brak"},
                 {"Ostatnia uwaga", last_reason ~= "" and last_reason or "brak"},
@@ -1176,6 +1190,7 @@ return {
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
             ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza | zarobek trasa")
             ctx.log.info("/exp zarobek wlacz | zarobek wylacz | zarobek kurs (REALNY sklep-bank-powrot)")
+            ctx.log.info("/exp zarobek tempo 0.7 (odstep polecen lupow, sprzedazy i banku: 0.3-3 s)")
             ctx.log.info("UWAGA: sprzedaj bronie/zbroje obejmuje niesione przedmioty; wem i wlm to globalne aliasy.")
         end)
         command("aktualizuj", nil, function()
@@ -1225,6 +1240,19 @@ return {
             if not p then note("Wybierz expowisko.", "warn"); return end
             note("Lupy " .. p.name .. ": " ..
                 ((p.loot and #p.loot > 0) and table.concat(p.loot, ", ") or "brak"))
+        end)
+        command("zarobek tempo", "<sekundy>", function(value)
+            if not allowed_config() then return end
+            local p, seconds = profile(), tonumber(value)
+            if not p then note("Wybierz expowisko.", "warn"); return end
+            if not seconds or seconds ~= seconds or seconds < 0.3 or seconds > 3 then
+                note("Uzycie: /exp zarobek tempo 0.7 (od 0.3 do 3.0 s).", "warn")
+                return
+            end
+            p.rules.economyCommandDelay = seconds
+            remember()
+            note("Odstep polecen zarobku: " .. tostring(seconds) ..
+                " s; trasy nadal sa potwierdzane przez GMCP.")
         end)
         command("zarobek prog", "<procent>", function(value)
             if not allowed_config() then return end
@@ -1336,11 +1364,11 @@ return {
                 end
                 run.stage="SALE_WEAPONS"
                 if not economy_do_send(run, "sprzedaj bronie") then return end
-                economy_delay(run,"SALE_WEAPONS",3,function()
+                economy_delay(run,"SALE_WEAPONS",economy_command_delay(),function()
                     if room_id() ~= run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
                     run.stage="SALE_ARMOR"
                     if not economy_do_send(run,"sprzedaj zbroje") then return end
-                    economy_delay(run,"SALE_ARMOR",3,function()
+                    economy_delay(run,"SALE_ARMOR",economy_command_delay(),function()
                         if room_id() ~= run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
                         note("AutoExp: wyslano obie sprzedaze (brak niezawodnych potwierdzen serwera).", "warn")
                         economy_travel(run,"TO_BANK",run.bank.hash)
@@ -1353,7 +1381,7 @@ return {
                 end
                 run.stage="BANK_WEM"
                 if not economy_do_send(run,"wem",true) then return end
-                economy_delay(run,"BANK_WEM",3,function()
+                economy_delay(run,"BANK_WEM",economy_command_delay(),function()
                     if room_id()~=run.bank.hash then pause("Opuszczono bank przed denominacja");return end
                     run.stage="BANK_DENOMINATE"
                     if not economy_do_send(run,"zdenominuj") then return end
@@ -1438,7 +1466,7 @@ return {
             if economy_timer then ctx:cancel(economy_timer);economy_timer=nil end
             run.stage="BANK_WLM"
             if not economy_do_send(run,"wlm",true) then return end
-            economy_delay(run,"BANK_WLM",3,function()
+            economy_delay(run,"BANK_WLM",economy_command_delay(),function()
                 if room_id()~=run.bank.hash then pause("Opuszczono bank przed powrotem");return end
                 economy_travel(run,"TO_RETURN",run.origin)
             end)
