@@ -808,6 +808,16 @@ return {
                 end
                 announce("RECOVERY"); return
             end
+            if economy_run then
+                if active then pause("Walka przerwala kurs handlowy"); return end
+                if danger then pause("Niskie HP w czasie kursu. Przejmij sterowanie!"); return end
+                process_economy(r)
+                return
+            end
+            if loot_run then
+                announce("LOOTING")
+                return
+            end
             if not ready_entities() then
                 announce("WAIT_ENTITIES")
                 if observed_room and last_visited
@@ -855,8 +865,47 @@ return {
                 -- allow a grace period before moving away from the corpse.
                 if os.time() - post_combat_at < (tonumber(p.rules.lootGrace) or DEFAULT.lootGrace) then return end
                 post_combat_at = nil
+                if p.economy and p.economy.enabled and type(p.loot) == "table"
+                    and #p.loot > 0 and not dry then
+                    -- Corpses are text-visible, not reliable Room.Entities entries.
+                    -- Single attempt per item; no retried duplicate takes.
+                    local run = {origin=r.id, list=p.loot, index=1}
+                    loot_run=run
+                    local function next_loot()
+                        loot_timer=nil
+                        if loot_run ~= run or not started or paused then return end
+                        if room_id() ~= run.origin then
+                            pause("Lupy: zmiana pokoju w trakcie zbierania")
+                            return
+                        end
+                        if run.index > #run.list then
+                            loot_run=nil
+                            queue(2) -- allow weight GMCP to catch up
+                            return
+                        end
+                        local item=run.list[run.index]
+                        run.index=run.index+1
+                        note("AutoExp LUP: wez " .. item .. " z ciala")
+                        local ok, err=pcall(ctx.send, ctx, "wez " .. item .. " z ciala")
+                        if not ok then pause("Lupy: blad wysylania: "..tostring(err));return end
+                        loot_timer=ctx:timer(2, next_loot)
+                    end
+                    next_loot()
+                    return
+                end
             end
             if state.owns_walk then return end
+            if p.economy and p.economy.enabled and not dry then
+                local burden=tonumber((gmcp_api.vitals() or {}).encumbrance)
+                if not burden then
+                    pause("Zarobek: brak encumbrance w GMCP - nie ryzykuje kursu")
+                    return
+                end
+                if burden > (tonumber(p.rules.economyLoadThreshold) or 75) then
+                    begin_economy(false)
+                    return
+                end
+            end
             if phase == "ENGAGING" and pending_attack then
                 if os.time() - pending_attack.since < p.rules.attackWait then return end
                 if r.id == pending_attack.room then
@@ -978,6 +1027,10 @@ return {
                 -- A server teleport or stale mapper link is NOT grounds to
                 -- abandon a lifesaving retreat. Use actual confirmed GMCP.
                 note("AutoExp ALARM: trafilem do innego pokoju niz planowano; przeliczam odwrot z GMCP!", "warn")
+            end
+            if loot_run and r and r.id ~= loot_run.origin then
+                pause("Zbieranie lupow przerwane przez zmiane pokoju")
+                return
             end
             if was_escaping then
                 escape = nil -- direct step from an avoided room succeeded
