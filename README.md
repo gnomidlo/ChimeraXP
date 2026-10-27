@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.16** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.17** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -143,3 +143,9 @@ Uwaga: etapy `sprzedaj bronie`, `sprzedaj zbroje`, `wem` i `wlm` nadal nie mają
 ## Limit celów zamiast liczenia całej fauny (beta.16)
 
 `/exp limit 1` pozwala na walkę, gdy na lokacji jest **jeden NPC zgodny z listą `/exp cel`**, niezależnie od obecności zwierząt i innych niecelowanych NPC. Przykład: dwa zające i jeden gnoll → atak gnolla; dwa zające i dwa gnolle → pominięcie starcia (`zbyt wiele celow EXP (2/1)`). Pod uwagę bierzemy tylko żywe, nieprzyjazne cele wskazane w ustawieniach; NPC z `/exp unikaj` nie są doliczane do limitu i nadal powodują natychmiastowe omijanie lokacji własnym mechanizmem. Zawartość lokacji pozostaje dynamiczna, bez czasowego blacklistowania. Przy wielu wpisach `/exp cel` limit jest wspólny dla wszystkich dopasowanych celów.
+
+## Kurs handlowy przerwany przez atak (beta.17)
+
+Gdy podczas przejścia do sklepu, banku albo z powrotem na expowisko oficjalny chodzik zatrzyma się z powodem `atak`, ChimeraXP **nie przerywa kursu**. Zachowuje cel etapu, a w razie walki próbuje przejść pojedynczymi komendami kierunków wynikającymi z mappera i wyjść GMCP. Każdy krok musi zostać potwierdzony przez `Room.Info` — nie używamy ślepych wielokrotnych komend ruchu. Jeśli po skutecznym kroku GMCP potwierdzi koniec walki, znowu uruchamia się normalny chodzik z aktualnej lokacji do zapisanego celu. Omijanie NPC i limity zwykłego patrolu nie przejmują sterowania podczas kursu. AutoExp nie rozpoczyna dodatkowych ataków.
+
+**Zabezpieczenia:** przy niskim HP wcześniejszy awaryjny odwrót ma pierwszeństwo. Brak potwierdzenia kroku przez 2 sekundy pozwala na maksymalnie 3 próby, potem `PAUSED` z alarmem; powtarzający się cykl pokojów także kończy kurs alarmem. Ruch ręczny nadal wstrzymuje automat. Jeżeli gra nie pozwala przejść przez walkę, automat **nie może wymusić** ruchu. Istniejące warunki bezpieczeństwa transakcji pozostają bez zmian.

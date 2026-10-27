@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.16",
+    version = "0.5.0-beta.17",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -775,6 +775,18 @@ return {
                 retreat_in_combat(p, r)
                 return
             end
+            -- A commercial trip owns its destination across incidental fights.
+            -- The native walker stops on attack, so resume via confirmed
+            -- GMCP single steps until ordinary walking becomes possible.
+            -- Critical HP still takes priority above this branch.
+            if economy_run then
+                if danger then
+                    pause("Niskie HP w czasie kursu handlowego. Przejmij sterowanie!")
+                    return
+                end
+                process_economy(r, active)
+                return
+            end
             -- Apply avoid even if already attacked; the game may have started
             -- combat before Room.Entities arrived. Never call zabij here.
             local forbidden = avoided_npc(p, group_ids)
@@ -819,12 +831,6 @@ return {
                     return
                 end
                 announce("RECOVERY"); return
-            end
-            if economy_run then
-                if active then pause("Walka przerwala kurs handlowy"); return end
-                if danger then pause("Niskie HP w czasie kursu. Przejmij sterowanie!"); return end
-                process_economy(r)
-                return
             end
             if loot_run then
                 announce("LOOTING")
@@ -1050,6 +1056,20 @@ return {
                 pause("Zbieranie lupow przerwane przez zmiane pokoju")
                 return
             end
+            -- A single combat-transit direction is our own movement, even
+            -- though the official step bus may label it 'reczny'.
+            local was_trade_step = economy_run and economy_run.direct_step and r
+                and r.id ~= economy_run.direct_step.origin
+            if was_trade_step then
+                local step = economy_run.direct_step
+                if r.id ~= step.destination then
+                    pause("HANDEL: niespodziewana lokacja po kroku podczas walki")
+                    return
+                end
+                economy_run.direct_step = nil
+                economy_run.direct_steps_completed =
+                    (economy_run.direct_steps_completed or 0) + 1
+            end
             if was_escaping then
                 escape = nil -- direct step from an avoided room succeeded
                 pending_attack, post_combat_at = nil, nil
@@ -1067,7 +1087,8 @@ return {
             maybe_record(room())
             if started and not paused and not state.owns_walk then
                 -- Manual navigation while running is not treated as a patrol step.
-                if r and r.how == "reczny" and not was_escaping and not was_emergency then
+                if r and r.how == "reczny" and not was_escaping
+                    and not was_emergency and not was_trade_step then
                     pause("Wykryto ruch reczny gracza")
                 else
                     queue(0)
@@ -1125,9 +1146,13 @@ return {
             move = nil
             if started and not paused then
                 if event and event.reason == "atak" then
-                    -- Official walker stops whenever combat starts. Inspect
-                    -- current entities before deciding: avoided => escape,
-                    -- regular fight => COMBAT. Do not pause prematurely.
+                    -- Keep the merchant goal. During ordinary patrol a fight
+                    -- starts combat; during commerce we continue with GMCP
+                    -- single steps, never restarting the walker into combat.
+                    if economy_run then
+                        economy_run.combat_transit = true
+                        note("AutoExp HANDEL: atak przerwal chodzik; zachowuje cel kursu i kontynuuje krokami GMCP.", "warn")
+                    end
                     queue(0)
                 else
                     pause("Chodzik przerwany: " .. tostring(event and event.reason or "brak powodu"))
@@ -1170,7 +1195,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.16"},
+                {"Wersja", "0.5.0-beta.17"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1351,23 +1376,126 @@ return {
             end
             return true
         end
+        -- The official walker always stops on 'atak'. When we are on a
+        -- commerce trip, use one GMCP-verified exit at a time. Do not fight
+        -- or restart the full walker while the fight is active.
+        local function economy_combat_step(run, r, target)
+            local step = run.direct_step
+            if step then
+                if step.origin ~= r.id then
+                    pause("HANDEL: niezgodna lokacja oczekiwanego kroku")
+                    return
+                end
+                if os.time() - step.sent_at < 2 then return end
+                if step.tries >= 3 then
+                    pause("HANDEL: krok w walce nie przeszedl po 3 probach (" ..
+                        tostring(step.command) .. "). Przejmij sterowanie!")
+                    return
+                end
+                step.tries = step.tries + 1
+                step.sent_at = os.time()
+                local ok, err = send_owned_direction(step.command)
+                if not ok then pause("HANDEL: blad ponowienia kroku: " .. tostring(err)) end
+                return
+            end
+            local direction, next_hash
+            local from = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(r.id) or nil
+            local dest = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(target) or nil
+            if type(from) == "number" and from > 0
+                and type(dest) == "number" and dest > 0
+                and type(getPath) == "function" then
+                local ok, found = pcall(getPath, from, dest)
+                if ok and found then
+                    local path = type(speedWalkPath) == "table" and speedWalkPath or {}
+                    local next_room = path[1]
+                    local candidate = type(getRoomHashByID) == "function"
+                        and getRoomHashByID(next_room) or nil
+                    if valid_id(candidate) then
+                        for exit, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
+                            local command = EXIT_COMMANDS[exit]
+                            if hash == candidate and command then
+                                direction, next_hash = command, hash
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            if not direction then
+                direction, next_hash = known_step_toward(r, target)
+            end
+            if not direction or not valid_id(next_hash) then
+                pause("HANDEL: brak potwierdzonego kierunku GMCP do celu kursu podczas walki")
+                return
+            end
+            run.direct_visits = run.direct_visits or {}
+            local visits = (run.direct_visits[r.id] or 0) + 1
+            run.direct_visits[r.id] = visits
+            run.direct_moves = (run.direct_moves or 0) + 1
+            if visits > 3 or run.direct_moves > 120 then
+                pause("HANDEL: wykryto petle ruchu w walce; zatrzymano dla bezpieczenstwa")
+                return
+            end
+            run.direct_step = {
+                origin = r.id, destination = next_hash, command = direction,
+                sent_at = os.time(), tries = 1,
+            }
+            note("AutoExp HANDEL: walka w drodze, krok " .. direction ..
+                " -> " .. next_hash .. " (cel " .. target .. ")")
+            local ok, err = send_owned_direction(direction)
+            if not ok then pause("HANDEL: blad wyslania kroku: " .. tostring(err)) end
+        end
+        local function economy_continue_route(run, r, active, target)
+            if r.id == target then
+                run.combat_transit = false
+                run.direct_step = nil
+                return true
+            end
+            if state.owns_walk then return false end
+            -- An owned direct step has to finish (or time out) before another
+            -- route request, even if Combat GMCP has already switched to idle.
+            if run.direct_step then
+                economy_combat_step(run, r, target)
+            elseif active or run.combat_transit then
+                if not active and (run.direct_steps_completed or 0) > 0 then
+                    -- At least one owned step succeeded, and GMCP now says
+                    -- combat ended: restart native walker from this real room.
+                    run.combat_transit = false
+                    move_to(target, "economy")
+                else
+                    -- Walker can stop before the combat GMCP update arrives.
+                    -- Do not start it again prematurely: make one confirmed
+                    -- direct step instead of a walker-stop retry loop.
+                    run.combat_transit = true
+                    economy_combat_step(run, r, target)
+                end
+            else
+                move_to(target, "economy")
+            end
+            return false
+        end
         local function economy_travel(run, stage, target)
             if economy_run ~= run or paused then return end
             run.stage=stage
+            run.direct_step, run.direct_visits, run.direct_moves = nil, {}, 0
+            run.direct_steps_completed = 0
             if room_id() == target then
                 queue(0)
             else
-                if not move_to(target, "economy") then return end
+                local _, _, group_ids = health()
+                local active = combat_status(group_ids)
+                if active or run.combat_transit then
+                    queue(0)
+                else
+                    move_to(target, "economy")
+                end
             end
         end
-        process_economy=function(r)
+        process_economy=function(r, active)
             local run=economy_run
             if not run or state.owns_walk then return end
             if run.stage=="TO_SHOP" then
-                if r.id~=run.shop.hash then
-                    pause("Kurs: brak potwierdzenia przybycia do sklepu")
-                    return
-                end
+                if not economy_continue_route(run, r, active, run.shop.hash) then return end
                 run.stage="SALE_WEAPONS"
                 if not economy_do_send(run, "sprzedaj bronie") then return end
                 economy_delay(run,"SALE_WEAPONS",economy_command_delay(),function()
@@ -1381,10 +1509,7 @@ return {
                     end)
                 end)
             elseif run.stage=="TO_BANK" then
-                if r.id~=run.bank.hash then
-                    pause("Kurs: brak potwierdzenia przybycia do banku")
-                    return
-                end
+                if not economy_continue_route(run, r, active, run.bank.hash) then return end
                 run.stage="BANK_WEM"
                 if not economy_do_send(run,"wem",true) then return end
                 economy_delay(run,"BANK_WEM",economy_command_delay(),function()
@@ -1397,10 +1522,7 @@ return {
                     end)
                 end)
             elseif run.stage=="TO_RETURN" then
-                if r.id~=run.origin then
-                    pause("Kurs: brak potwierdzenia powrotu do miejsca expa")
-                    return
-                end
+                if not economy_continue_route(run, r, active, run.origin) then return end
                 local single=run.test_only
                 economy_run=nil
                 if economy_timer then ctx:cancel(economy_timer);economy_timer=nil end

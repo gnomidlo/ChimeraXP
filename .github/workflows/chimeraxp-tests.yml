@@ -18,6 +18,7 @@ jobs:
           lua5.4 tests/test_emergency_fallback.lua
           lua5.4 tests/test_foreign_combat_and_escape_loops.lua
           lua5.4 tests/test_economy_course.lua
+          lua5.4 tests/test_economy_attack_resume.lua
           lua5.4 tests/online_updater_mock.lua
       - name: Manifest and package integrity
         run: python3 -m unittest discover -s tests -p "test_*.py" -v
