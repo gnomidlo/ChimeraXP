@@ -81,7 +81,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.11",
+    version = "0.5.0-beta.12",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -90,6 +90,10 @@ return {
         local gmcp_api = ctx:use("gmcp")
         local mapper = ctx:use("mapper")
         local walker = ctx:use("walker")
+        -- Economy planning uses the official location tags without making
+        -- this module a hard dependency for the combat-only AutoExp.
+        local locations_ok, locations = pcall(function() return ctx:use("locations") end)
+        if not locations_ok then locations = nil end
         local state = ctx.state
         local areas = ctx:saved("profiles", {})
         if type(areas) ~= "table" then areas = {} end
@@ -1078,7 +1082,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.11"},
+                {"Wersja", "0.5.0-beta.12"},
                 {"Stan", phase .. (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
                 {"Lokacje", p and tostring(#p.route) or "0"},
@@ -1098,7 +1102,7 @@ return {
             ctx.log.info("/exp bezpieczna | hp ODWROT POWROT | limit NPC | odnowa SEK | start | test | odwrot-test | pauza | wznow | stop")
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
-            ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza")
+            ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza | zarobek trasa")
             ctx.log.info("EXP+zarobek nie wykonuje jeszcze handlu: najpierw weryfikacja GMCP udzwigu i odpowiedzi serwera.")
         end)
         command("aktualizuj", nil, function()
@@ -1159,9 +1163,115 @@ return {
             remember()
             note("Prog kursu handlowego: " .. number .. "%. Kursy NIE SA JESZCZE aktywne.")
         end)
+
+        -- Read-only economy route planner. Never starts walker or sends commands.
+        -- Tagged rooms are verified against GMCP hashes and current Mudlet map.
+        local function economy_cost(from_map, to_map)
+            if from_map == to_map then return 0 end
+            if type(walker.cost) ~= "function" then return nil end
+            local ok, distance = pcall(walker.cost, from_map, to_map)
+            if ok and type(distance) == "number" and distance >= 0
+                and distance < math.huge then return distance end
+            return nil
+        end
+        local function economy_candidates(tag)
+            if type(locations) ~= "table" or type(locations.targets) ~= "function" then
+                return nil, "Modul locations nie jest dostepny w oficjalnej Chimerze."
+            end
+            if type(getRoomIDbyHash) ~= "function" then
+                return nil, "Mapper nie udostepnia getRoomIDbyHash()."
+            end
+            local ok, targets = pcall(locations.targets, tag)
+            if not ok or type(targets) ~= "table" then
+                return nil, "Nie mozna odczytac tagu /room " .. tag
+            end
+            local out, unique = {}, {}
+            for _, value in pairs(targets) do
+                local hash = type(value) == "table" and (value.hash or value.id) or value
+                if valid_id(hash) and not unique[hash] then
+                    unique[hash] = true
+                    local map = getRoomIDbyHash(hash)
+                    if type(map) == "number" and map > 0 and map == math.floor(map) then
+                        out[#out + 1] = {hash = hash, map = map}
+                    end
+                end
+            end
+            table.sort(out, function(a,b) return a.hash < b.hash end)
+            if #out == 0 then
+                return nil, "Brak otagowanych, znanych na mapie lokacji /room " .. tag
+            end
+            return out
+        end
+        local function economy_nearest(from_map, options)
+            local best, cost
+            for _, candidate in ipairs(options or {}) do
+                local length = economy_cost(from_map, candidate.map)
+                if length and (not best or length < cost or
+                    (length == cost and candidate.map < best.map)) then
+                    best, cost = candidate, length
+                end
+            end
+            return best, cost
+        end
+        command("zarobek trasa", nil, function()
+            note("EXP+ZAROBEK: test trasy, bez ruchu, sprzedazy i operacji bankowych.")
+            local r, p = room(), profile()
+            if not p or not r or not valid_id(r.id) then
+                note("Brak profilu expowiska lub aktualnego pokoju GMCP.", "warn")
+                return
+            end
+            if type(getRoomIDbyHash) ~= "function" then
+                note("Brak getRoomIDbyHash w mapperze.", "warn")
+                return
+            end
+            local from = mapper.current_room()
+            if type(from) ~= "number" or from < 1 or getRoomIDbyHash(r.id) ~= from then
+                note("Niespojna pozycja GMCP / mapper; nie planuje kursu.", "warn")
+                return
+            end
+            local shops, shop_error = economy_candidates("sklep")
+            if not shops then note(shop_error, "warn"); return end
+            local shop, shop_cost = economy_nearest(from, shops)
+            if not shop then
+                note("Brak osiagalnego sklepu od obecnej lokacji.", "warn")
+                return
+            end
+            local banks, bank_error = economy_candidates("bank")
+            if not banks then note(bank_error, "warn"); return end
+            local bank, bank_cost = economy_nearest(shop.map, banks)
+            if not bank then
+                note("Nie ma banku osiagalnego od wybranego sklepu (mapa " ..
+                     tostring(shop.map) .. ").", "warn")
+                return
+            end
+            note("Sklep: mapa " .. shop.map .. ", GMCP " .. shop.hash ..
+                " (koszt trasy od aktualnej lokacji: " .. shop_cost .. ").")
+            note("Bank: mapa " .. bank.map .. ", GMCP " .. bank.hash ..
+                " (koszt trasy od sklepu: " .. bank_cost .. ").")
+            local resume = type(p.route) == "table" and p.route[1] or nil
+            if valid_id(resume) then
+                local resume_map = getRoomIDbyHash(resume)
+                local back = type(resume_map) == "number" and
+                    economy_cost(bank.map, resume_map) or nil
+                if back then
+                    note("Przykladowy powrot do pierwszego pokoju trasy: mapa " ..
+                        resume_map .. " (koszt: " .. back .. ").")
+                else
+                    note("Brak potwierdzonej drogi z banku do poczatku trasy expowiska.", "warn")
+                end
+            end
+            note("Kurs nie jest wlaczony. Docelowy powrot bedzie do miejsca przerwania patrolu.")
+        end)
         command("zarobek diagnoza", nil, function()
             local p = profile()
             note("Zarobek: diagnostyka tylko do odczytu, niczego nie wysylam do gry.")
+            local enc = type(gmcp) == "table" and type(gmcp.Char) == "table"
+                and type(gmcp.Char.Vitals) == "table"
+                and tonumber(gmcp.Char.Vitals.encumbrance) or nil
+            if enc then
+                note("Obciazenie GMCP: " .. enc ..
+                    " (surowa wartosc; czy to procent wymaga weryfikacji).")
+            end
             note("Prog: " .. tostring(p and (p.rules.economyLoadThreshold or 75) or 75)
                  .. "%; przedmioty: " .. tostring(p and #(p.loot or {}) or 0))
             local root = type(gmcp) == "table" and gmcp or {}

@@ -26,6 +26,7 @@ local gmcp = {
   connected=function() return world.connected end,
 }
 local walker = {
+  cost=function(from, destination) return math.abs(destination - from) end,
   go=function(dest)
     moves[#moves+1] = dest
     emit("chimera.walk.started",{map_room=dest})
@@ -39,7 +40,13 @@ local walker = {
 local ctx = {
     state={},log={info=function(m) messages[#messages+1] = m end,warn=function(m) messages[#messages+1] = "WARN:"..m end},
     use=function(_,key)
-      return ({gmcp=gmcp,mapper={current_room=function() return world.current end},walker=walker})[key]
+      return ({
+        gmcp=gmcp,mapper={current_room=function() return world.current end},
+        walker=walker,
+        locations={targets=function(tag)
+          return ({sklep={"r3"},bank={"safe"}})[tag] or {}
+        end}
+      })[key]
     end,
     saved=function(_,key,default) return storage[key] or default end,
     save=function(_,key,value) storage[key] = value end,
@@ -88,8 +95,13 @@ assert(storage.profiles.test.rules.economyLoadThreshold==75,"saved economy limit
 local saved_global_gmcp=_G.gmcp
 _G.gmcp={Char={Vitals={weight=75,max_weight=100}}}
 cmd("exp zarobek diagnoza")
+cmd("exp zarobek trasa")
 _G.gmcp=saved_global_gmcp
-assert(#sent==0 and #moves==0, "economy diagnostics cannot move, loot or sell")
+assert(#sent==0 and #moves==0, "economy diagnostics and planning cannot move, loot or sell")
+assert(table.concat(messages,";"):find("Sklep: mapa 3, GMCP r3",1,true),
+  "route planner selects tagged shop")
+assert(table.concat(messages,";"):find("Bank: mapa 5, GMCP safe",1,true),
+  "route planner selects bank from selected shop")
 assert(table.concat(messages,";"):find("gmcp.Char.Vitals.weight = 75",1,true),
   "diagnostics display a candidate weight field but do not infer %")
 cmd("exp lup usun","miecz")

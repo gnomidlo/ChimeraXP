@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.11** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.12** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -91,3 +91,11 @@ Ten etap jest **bezpieczną diagnostyką i konfiguracją**, nie uruchamia automa
 Lista łupów i próg są zapamiętywane **oddzielnie dla każdego profilu expowiska**. `/exp zarobek diagnoza` nic nie wysyła do MUD-a: wyświetla numeryczne pola GMCP sugerujące wagę/udźwig oraz identyfikatory potencjalnych ciał z Room.Entities. Jeśli brak właściwego pola, nie zgadujemy obciążenia. Do sprawdzenia tagów użyj istniejących `/room lista sklep` i `/room lista bank`.
 
 **Nie uruchamiaj automatycznej sprzedaży** do czasu weryfikacji źródła udźwigu i komunikatów serwera po `wez ... z ciala`, `sprzedaj bronie/zbroje`, `wem`, `zdenominuj`, `wlm`. Komendy sprzedaży wszystkich broni/zbroi mogą też objąć przedmioty osobiste. Dopiero następny etap wprowadzi ochronę przed przypadkową sprzedażą.
+
+## EXP + zarobek — planowanie kursu (beta.12)
+
+Nowa diagnostyczna komenda `/exp zarobek trasa` **niczego nie wysyła do serwera** i nie uruchamia chodzika. Korzysta z istniejących tagów `/room sklep` i `/room bank` poprzez oficjalny moduł `locations`; wybiera najbliższy osiągalny sklep i najbliższy bank *od sklepu*. Weryfikuje GMCP hash celu, numery pokoi na mapie i koszt trasy `walker.cost`. Pokazuje także możliwość powrotu do pierwszego pokoju trasy expa, ale docelowo pełny automat wróci do faktycznego miejsca przerwania.
+
+`/exp zarobek diagnoza` pokazuje `gmcp.Char.Vitals.encumbrance` jako **surową wartość**, jeśli jest dostępna. Wynik np. `13` nie dowodzi jeszcze, że oznacza `13%` — przed autonomicznym kursem trzeba potwierdzić skalę i aktualizację po podnoszeniu.
+
+**Handel, bank i podnoszenie łupów nadal nie są automatyczne.** Są planowane w [issue #8](https://github.com/gnomidlo/ChimeraXP/issues/8); nie należy włączać ich przed sprawdzeniem komunikatów sukcesu i odmowy.
