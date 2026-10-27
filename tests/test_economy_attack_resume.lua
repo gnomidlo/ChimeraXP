@@ -2,7 +2,7 @@
 -- Native walker stops on 'atak'; AutoExp uses verified single GMCP exits,
 -- then returns to walker after the fight ends, without initiating attacks.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function trial(combat_remains)
+local function trial(combat_remains, blocked_step)
     local old_time=os.time
     local now=100
     os.time=function() return now end
@@ -135,6 +135,21 @@ local function trial(combat_remains)
     advance(0)
     assert(sent[1]=="e","after walker attack stop, send a verified east step")
     assert(not api.status().paused,"attack must not pause the merchant course")
+    if blocked_step then
+        -- Room.Info never changes: two retried steps and then fail-closed.
+        advance(2)
+        assert(sent[2]=="e" and not api.status().paused,"first retry at 2s")
+        advance(2)
+        assert(sent[3]=="e" and not api.status().paused,"second retry at 4s")
+        advance(2)
+        assert(api.status().paused,"third failed step must stop commerce safely")
+        assert(#sent==3,"no more movement or trade commands after failed steps")
+        assert(table.concat(logs,";"):find("po 3 probach",1,true),
+            "give actionable warning when combat blocks exit")
+        os.time=old_time
+        print("PASS economy attack transit blocked step")
+        return
+    end
     if combat_remains then
         world.combat={self_active=1,relations={{attacker="gnoll",defender="me"}}}
     end
@@ -179,3 +194,4 @@ local function trial(combat_remains)
 end
 trial(false)
 trial(true)
+trial(false,true)
