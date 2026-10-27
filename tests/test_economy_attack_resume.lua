@@ -154,7 +154,7 @@ local function trial(combat_remains)
         place("shop","chodzik",true)
     end
     local offset=combat_remains and 2 or 1
-    assert(sent[offset]=="sprzedaj bronie","shop sales continue after attack")
+    assert(sent[offset]=="sprzedaj bronie","shop sales continue after attack; sent="..table.concat(sent,",").."; logs="..table.concat(logs,";").."; phase="..api.status().phase)
     advance(0.71)
     assert(sent[offset+1]=="sprzedaj zbroje","armor sale is not cancelled")
     advance(0.71)
