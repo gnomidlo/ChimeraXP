@@ -76,6 +76,26 @@ cmd("exp mapuj","Test")
 cmd("exp wybierz","Test")
 cmd("exp cel","ork")
 cmd("exp cel","snotling")
+-- Economy phase 1 is configuration + read-only diagnostics.
+cmd("exp lup dodaj","miecz")
+cmd("exp lup dodaj","miecz")
+cmd("exp lup dodaj","tarcze")
+cmd("exp lup lista")
+assert(#storage.profiles.test.loot==2 and storage.profiles.test.loot[1]=="miecz",
+  "loot wishlist deduplicated and saved per exp profile")
+cmd("exp zarobek prog","75")
+assert(storage.profiles.test.rules.economyLoadThreshold==75,"saved economy limit")
+local saved_global_gmcp=_G.gmcp
+_G.gmcp={Char={Vitals={weight=75,max_weight=100}}}
+cmd("exp zarobek diagnoza")
+_G.gmcp=saved_global_gmcp
+assert(#sent==0 and #moves==0, "economy diagnostics cannot move, loot or sell")
+assert(table.concat(messages,";"):find("gmcp.Char.Vitals.weight = 75",1,true),
+  "diagnostics display a candidate weight field but do not infer %")
+cmd("exp lup usun","miecz")
+assert(#storage.profiles.test.loot==1 and storage.profiles.test.loot[1]=="tarcze",
+  "loot wishlist remove")
+
 assert(#storage.profiles.test.targets == 2,"target appending")
 assert(#storage.profiles.test.route==2,"map route saving")
 cmd("exp bezpieczna")

@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.10** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.11** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -74,3 +74,20 @@ Gdy **inny gracz walczy już przy naszym wejściu** i nasza drużyna jeszcze nie
 Ucieczka przed omijanymi NPC lub nadmierną liczbą mobów używa wspólnej pamięci bieżącej serii niebezpiecznych pokoi. Powrót do takiego pokoju jest dopuszczany tylko, gdy znamy stamtąd jeszcze niewykorzystane wyjście. Wykryta pętla kończy serię ruchem **STOP / PAUSED** z alarmem — nie próbujemy bez końca dwóch kierunków. Pokoi nadal nie blokujemy czasowo. Po opuszczeniu zagrożonego obszaru albo podjęciu poprawnej walki pamięć serii jest czyszczona.
 
 **Nie testowano na żywym serwerze**. Sprawdź najpierw na słabym expowisku pod nadzorem.
+
+## EXP + zarobek — etap 1 (beta.11)
+
+Ten etap jest **bezpieczną diagnostyką i konfiguracją**, nie uruchamia automatycznego podnoszenia przedmiotów, handlu ani przelewów. Plan pełnego cyklu: [issue #8](https://github.com/gnomidlo/ChimeraXP/issues/8).
+
+```text
+/exp lup dodaj miecz
+/exp lup dodaj tarcze
+/exp lup lista
+/exp lup usun miecz
+/exp zarobek prog 75
+/exp zarobek diagnoza
+```
+
+Lista łupów i próg są zapamiętywane **oddzielnie dla każdego profilu expowiska**. `/exp zarobek diagnoza` nic nie wysyła do MUD-a: wyświetla numeryczne pola GMCP sugerujące wagę/udźwig oraz identyfikatory potencjalnych ciał z Room.Entities. Jeśli brak właściwego pola, nie zgadujemy obciążenia. Do sprawdzenia tagów użyj istniejących `/room lista sklep` i `/room lista bank`.
+
+**Nie uruchamiaj automatycznej sprzedaży** do czasu weryfikacji źródła udźwigu i komunikatów serwera po `wez ... z ciala`, `sprzedaj bronie/zbroje`, `wem`, `zdenominuj`, `wlm`. Komendy sprzedaży wszystkich broni/zbroi mogą też objąć przedmioty osobiste. Dopiero następny etap wprowadzi ochronę przed przypadkową sprzedażą.
