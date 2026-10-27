@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.16",
+    version = "0.5.0-beta.17",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -775,6 +775,18 @@ return {
                 retreat_in_combat(p, r)
                 return
             end
+            -- A commercial trip owns its destination across incidental fights.
+            -- The native walker stops on attack, so resume via confirmed
+            -- GMCP single steps until ordinary walking becomes possible.
+            -- Critical HP still takes priority above this branch.
+            if economy_run then
+                if danger then
+                    pause("Niskie HP w czasie kursu handlowego. Przejmij sterowanie!")
+                    return
+                end
+                process_economy(r, active)
+                return
+            end
             -- Apply avoid even if already attacked; the game may have started
             -- combat before Room.Entities arrived. Never call zabij here.
             local forbidden = avoided_npc(p, group_ids)
@@ -819,12 +831,6 @@ return {
                     return
                 end
                 announce("RECOVERY"); return
-            end
-            if economy_run then
-                if active then pause("Walka przerwala kurs handlowy"); return end
-                if danger then pause("Niskie HP w czasie kursu. Przejmij sterowanie!"); return end
-                process_economy(r)
-                return
             end
             if loot_run then
                 announce("LOOTING")
@@ -1050,6 +1056,18 @@ return {
                 pause("Zbieranie lupow przerwane przez zmiane pokoju")
                 return
             end
+            -- A single combat-transit direction is our own movement, even
+            -- though the official step bus may label it 'reczny'.
+            local was_trade_step = economy_run and economy_run.direct_step and r
+                and r.id ~= economy_run.direct_step.origin
+            if was_trade_step then
+                local step = economy_run.direct_step
+                if r.id ~= step.destination then
+                    pause("HANDEL: niespodziewana lokacja po kroku podczas walki")
+                    return
+                end
+                economy_run.direct_step = nil
+            end
             if was_escaping then
                 escape = nil -- direct step from an avoided room succeeded
                 pending_attack, post_combat_at = nil, nil
@@ -1067,7 +1085,8 @@ return {
             maybe_record(room())
             if started and not paused and not state.owns_walk then
                 -- Manual navigation while running is not treated as a patrol step.
-                if r and r.how == "reczny" and not was_escaping and not was_emergency then
+                if r and r.how == "reczny" and not was_escaping
+                    and not was_emergency and not was_trade_step then
                     pause("Wykryto ruch reczny gracza")
                 else
                     queue(0)
@@ -1125,9 +1144,13 @@ return {
             move = nil
             if started and not paused then
                 if event and event.reason == "atak" then
-                    -- Official walker stops whenever combat starts. Inspect
-                    -- current entities before deciding: avoided => escape,
-                    -- regular fight => COMBAT. Do not pause prematurely.
+                    -- Keep the merchant goal. During ordinary patrol a fight
+                    -- starts combat; during commerce we continue with GMCP
+                    -- single steps, never restarting the walker into combat.
+                    if economy_run then
+                        economy_run.combat_transit = true
+                        note("AutoExp HANDEL: atak przerwal chodzik; zachowuje cel kursu i kontynuuje krokami GMCP.", "warn")
+                    end
                     queue(0)
                 else
                     pause("Chodzik przerwany: " .. tostring(event and event.reason or "brak powodu"))
@@ -1170,7 +1193,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.16"},
+                {"Wersja", "0.5.0-beta.17"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
