@@ -103,3 +103,7 @@ Jesli serwer odrzuca ruch w walce, po dwoch probach i braku zmiany `Room.Info` a
 - Obcy gracz, który zaatakuje podczas naszej walki lub po wysłaniu przez AutoExp `zabij ID`: nie uruchamia wyjścia z lokacji tylko z powodu `foreign`. Własna walka i stan próby ataku mają pierwszeństwo.
 - Dwie niebezpieczne lokacje nie mogą nas w nieskończoność przeganiać: pamięć kolejnych pokojów sprawdza, czy powrót do znanego zagrożenia daje nową drogę. Gdy nie ma takiego wyjścia, pojawia się alarm i automat pauzuje. Dodatkowo istnieje twardy limit kroków w jednej serii ucieczki.
 - Brak czasowego blacklistowania pokojów; po rzeczywistym postępie bezpieczna historia jest czyszczona. Wcześniejsze zasady odwrotu HP mają nadrzędny priorytet.
+
+## EXP + zarobek: diagnostyka i lista łupów (beta.11)
+
+Wprowadzono **tylko konfigurację** per profil expowiska: `/exp lup dodaj TEKST`, `/exp lup usun TEKST`, `/exp lup lista`, `/exp zarobek prog 75`, `/exp zarobek diagnoza`. Przypisane przedmioty zachowują podaną odmianę dla planowanego `wez <tekst> z ciala`. Diagnostyka jest tylko do odczytu (GMCP Char, Inventory, Items i Room.Entities). Nie wykonuje sprzedaży i nie porusza postacią. Pełna maszyna stanów łupy→sklep→bank→powrót: https://github.com/gnomidlo/ChimeraXP/issues/8
