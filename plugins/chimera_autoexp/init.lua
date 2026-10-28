@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.17",
+    version = "0.5.0-beta.18",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -187,6 +187,14 @@ return {
             local p = profile()
             local value = tonumber(p and p.rules and p.rules.economyCommandDelay)
             return math.max(0.3, math.min(value or DEFAULT.economyCommandDelay, 3))
+        end
+        -- Chimera omits encumbrance when the character carries no load.
+        -- Missing FIELD is 0; missing whole Vitals packet or malformed
+        -- PRESENT field is a different issue and must not silently mean 0.
+        local function economy_encumbrance(vitals)
+            if type(vitals) ~= "table" then return nil end
+            if vitals.encumbrance == nil then return 0 end
+            return tonumber(vitals.encumbrance)
         end
         local function room()
             return gmcp_api.room()
@@ -920,9 +928,9 @@ return {
             end
             if state.owns_walk then return end
             if p.economy and p.economy.enabled and not dry then
-                local burden=tonumber((gmcp_api.vitals() or {}).encumbrance)
-                if not burden then
-                    pause("Zarobek: brak encumbrance w GMCP - nie ryzykuje kursu")
+                local burden=economy_encumbrance(gmcp_api.vitals())
+                if burden == nil then
+                    pause("Zarobek: brak poprawnych danych Char.Vitals w GMCP")
                     return
                 end
                 if burden > (tonumber(p.rules.economyLoadThreshold) or 75) then
@@ -1195,7 +1203,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.17"},
+                {"Wersja", "0.5.0-beta.18"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1529,9 +1537,9 @@ return {
                 if single then
                     halt("Zakonczono probny kurs sklep -> bank -> expowisko")
                 else
-                    local weight=tonumber((gmcp_api.vitals() or {}).encumbrance)
+                    local weight=economy_encumbrance(gmcp_api.vitals())
                     local threshold=tonumber((profile().rules or {}).economyLoadThreshold) or 75
-                    if not weight or weight>threshold then
+                    if weight == nil or weight>threshold then
                         pause("Kurs zakonczony, ale obciazenie nie spadlo ponizej progu (" ..
                              tostring(weight) .. "/" .. tostring(threshold) .. "). Sprawdz sprzedaz!")
                     else
@@ -1688,12 +1696,16 @@ return {
         command("zarobek diagnoza", nil, function()
             local p = profile()
             note("Zarobek: diagnostyka tylko do odczytu, niczego nie wysylam do gry.")
-            local enc = type(gmcp) == "table" and type(gmcp.Char) == "table"
-                and type(gmcp.Char.Vitals) == "table"
-                and tonumber(gmcp.Char.Vitals.encumbrance) or nil
-            if enc then
+            local vitals = type(gmcp) == "table"
+                and type(gmcp.Char) == "table" and gmcp.Char.Vitals or nil
+            local enc = economy_encumbrance(vitals)
+            if enc ~= nil then
                 note("Obciazenie GMCP: " .. enc ..
-                    " (surowa wartosc; czy to procent wymaga weryfikacji).")
+                    (type(vitals) == "table" and vitals.encumbrance == nil
+                     and " (brak pola encumbrance = 0)" or
+                     " (surowa wartosc; skala wymaga weryfikacji)."))
+            else
+                note("Brak poprawnego pakietu Char.Vitals / encumbrance.", "warn")
             end
             note("Prog: " .. tostring(p and (p.rules.economyLoadThreshold or 75) or 75)
                  .. "%; przedmioty: " .. tostring(p and #(p.loot or {}) or 0))
