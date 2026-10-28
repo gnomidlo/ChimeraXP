@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.17** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.18** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -149,3 +149,9 @@ Uwaga: etapy `sprzedaj bronie`, `sprzedaj zbroje`, `wem` i `wlm` nadal nie mają
 Gdy podczas przejścia do sklepu, banku albo z powrotem na expowisko oficjalny chodzik zatrzyma się z powodem `atak`, ChimeraXP **nie przerywa kursu**. Zachowuje cel etapu, a w razie walki próbuje przejść pojedynczymi komendami kierunków wynikającymi z mappera i wyjść GMCP. Każdy krok musi zostać potwierdzony przez `Room.Info` — nie używamy ślepych wielokrotnych komend ruchu. Jeśli po skutecznym kroku GMCP potwierdzi koniec walki, znowu uruchamia się normalny chodzik z aktualnej lokacji do zapisanego celu. Omijanie NPC i limity zwykłego patrolu nie przejmują sterowania podczas kursu. AutoExp nie rozpoczyna dodatkowych ataków.
 
 **Zabezpieczenia:** przy niskim HP wcześniejszy awaryjny odwrót ma pierwszeństwo. Brak potwierdzenia kroku przez 2 sekundy pozwala na maksymalnie 3 próby, potem `PAUSED` z alarmem; powtarzający się cykl pokojów także kończy kurs alarmem. Ruch ręczny nadal wstrzymuje automat. Jeżeli gra nie pozwala przejść przez walkę, automat **nie może wymusić** ruchu. Istniejące warunki bezpieczeństwa transakcji pozostają bez zmian.
+
+## Brak encumbrance = zero (beta.18)
+
+Chimera pomija pole `gmcp.Char.Vitals.encumbrance`, gdy postać ma **0 obciążenia**. Od beta.18 brak tego pola w istniejącym `Char.Vitals` jest jednoznacznie interpretowany jako **0**, także podczas zwykłego patrolu z włączonym zarobkiem, diagnostyki `/exp zarobek diagnoza` i po powrocie z handlu. Nie będzie już fałszywego `Zarobek: brak encumbrance w GMCP` ani pauzy po udanym kursie, gdy odciążona postać nie ma pola w GMCP.
+
+Brak całego pakietu `Char.Vitals` albo jawnie nieprawidłowa wartość `encumbrance` to nadal błąd danych — dla bezpieczeństwa nie podstawiamy w takich przypadkach zera.

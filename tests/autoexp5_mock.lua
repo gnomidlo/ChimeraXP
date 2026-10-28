@@ -101,6 +101,14 @@ local saved_global_gmcp=_G.gmcp
 _G.gmcp={Char={Vitals={weight=75,max_weight=100}}}
 cmd("exp zarobek diagnoza")
 cmd("exp zarobek trasa")
+_G.gmcp={Char={Vitals={hp=100}}}
+cmd("exp zarobek diagnoza")
+assert(table.concat(messages,";"):find("Obciazenie GMCP: 0 (brak pola encumbrance = 0)",1,true),
+  "diagnostics must treat absent field in otherwise valid Vitals as zero")
+_G.gmcp={Char={Vitals={hp=100,encumbrance="bledna"}}}
+cmd("exp zarobek diagnoza")
+assert(table.concat(messages,";"):find("Brak poprawnego pakietu Char.Vitals / encumbrance.",1,true),
+  "explicit malformed encumbrance must not be silently interpreted as zero")
 _G.gmcp=saved_global_gmcp
 assert(#sent==0 and #moves==0, "economy diagnostics and planning cannot move, loot or sell")
 assert(table.concat(messages,";"):find("Sklep: mapa 3, GMCP r3",1,true),

@@ -1,6 +1,6 @@
 -- Real shop/bank economy state machine: mock GMCP + walker, no live game.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function scenario(confirm, automatic, configured_delay, cancel_in_shop)
+local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance)
   local clock=100
   local oldtime=os.time
   os.time=function() return clock end
@@ -101,11 +101,17 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop)
   local base=0
   if automatic then
     profile.economy={enabled=true}
-    data.vitals.encumbrance=60
+    if no_encumbrance then
+      data.vitals.encumbrance=nil
+    else
+      data.vitals.encumbrance=60
+    end
     table.insert(data.entities.entities,{id="goblin",kind="npc",name="zielony goblin"})
     commands["exp start"]()
     advance(0)
     assert(sent[1]=="zabij goblin","normal patrol fights before loot")
+    assert(not api.status().paused,
+      "absent encumbrance field is zero; never pause active exp")
     data.combat={self_active=1,relations={{attacker="me",defender="goblin"}}}
     emit("chimera.combat.state",data.combat);advance(0)
     assert(api.status().phase=="COMBAT","own fight")
@@ -161,11 +167,21 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop)
     assert(moves[#moves]==3,"return must not start before withdrawal grace")
     advance(delay*0.5+0.001)
     assert(moves[#moves]==1,"return to original GMCP room")
-    if automatic then data.vitals.encumbrance=20 end
+    if automatic then
+      if no_encumbrance then
+        data.vitals.encumbrance=nil
+      else
+        data.vitals.encumbrance=20
+      end
+    end
     travel("home")
     if automatic then
       assert(not api.status().paused and api.status().phase~="OFF",
-          "auto mode resumes patrol after successful shop/bank")
+          "auto mode resumes patrol after successful shop/bank when encumbrance absent")
+      if no_encumbrance then
+        assert(table.concat(log,";"):find("wznowienie patrolu (0)",1,true),
+          "missing encumbrance after bank must become zero, logs="..table.concat(log,";")..", phase="..api.status().phase)
+      end
     else
       assert(api.status().phase=="OFF","manual test must stop after return")
     end
@@ -182,3 +198,4 @@ scenario(false)
 scenario(true,true)
 scenario(true,false,1.2)
 scenario(true,false,nil,true)
+scenario(true,true,nil,false,true)

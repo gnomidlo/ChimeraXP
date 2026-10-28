@@ -150,3 +150,7 @@ Wcześniej `target_info()` zwiększał `npc_count` dla każdego obcego NPC w pok
 `chimera.walk.stopped(reason='atak')` podczas `economy_run` nie kasuje celu ani nie pauzuje AutoExp. Kurs działa nadrzędnie wobec zwykłego rozpoznawania celu i omijania NPC; gdy oficjalny chodzik się zatrzyma, jeden krok na raz wybierany jest z `getPath` oraz `gmcp.Room.Info.exits`, alternatywnie z zapamiętanego grafu GMCP. Każdy wysłany krok ma oczekiwany hash pokoju, walidowany po `chimera.room.changed`. Zdarzenie `how='reczny'` od kroku wysłanego przez skrypt nie wywołuje fałszywego przejęcia sterowania. W razie aktywnej walki idziemy dalej krokowo, a kiedy walka ustanie i wykonaliśmy choć jeden potwierdzony krok — wracamy do `walker.go` dla pozostałej trasy.
 
 Maksymalnie 3 próby nieudanego kroku (po 2 s), ograniczenie długości/kierunku serii ruchów i alarm przy nieznanej drodze; nie próbujemy uruchamiać chodzika w pętli na komunikacie `atak`. Dla HP poniżej progu nadal działa awaryjny odwrót. Testy: `tests/test_economy_attack_resume.lua` (opóźniony GMCP, nadal trwająca walka, powrót do kursu, brak automatycznych ataków).
+
+## Brak pola encumbrance (beta.18)
+
+Według danych z Chimery: jeśli pakiet `Char.Vitals` istnieje, ale nie zawiera pola `encumbrance`, oznacza to **0 obciążenia**, nie błąd odczytu. Jedna funkcja `economy_encumbrance(vitals)` jest używana podczas sprawdzania progu do kursu i po powrocie ze sklepu/banku. Diagnostyka również pokazuje `Obciazenie GMCP: 0 (brak pola encumbrance = 0)`. Nie ukrywamy braku całego pakietu ani nieprawidłowej jawnej wartości.
