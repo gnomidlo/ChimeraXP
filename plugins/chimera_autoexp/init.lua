@@ -1567,7 +1567,7 @@ return {
                     if started then
                         if paused then ui_command("wznow") else ui_command("pauza") end
                     else
-                        ui_command("start")
+                        floating.collapsed=false
                     end
                     refresh()
                 end,ui_palette())
