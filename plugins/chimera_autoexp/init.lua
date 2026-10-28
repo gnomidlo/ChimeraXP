@@ -1319,7 +1319,7 @@ return {
         -- into executable Lua: clickable links use callback closures.
         local function ui_line(value)
             if type(cecho) == "function" then
-                cecho("<ansi_light_gray>" .. tostring(value) .. "\n")
+                cecho("<white>" .. tostring(value) .. "\n")
             else
                 ctx.log.info(tostring(value))
             end
@@ -1447,7 +1447,8 @@ return {
             else
                 ui_line("Nieznana sekcja. Dostepne: profile, walka, bezpieczenstwo, handel, komunikaty")
             end
-            ui_row("Powrot","panel","Powrot do ekranu /exp")
+            ui_link("[ Powrot do /exp ]", "/exp", "Glowny panel")
+            if type(cechoLink)=="function" then ui_line("") end
         end
         local function print_log()
             ui_line("---- AUTOEXP | OSTATNIE ZDARZENIA ("..#event_log..") ----")
