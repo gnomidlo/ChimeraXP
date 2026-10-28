@@ -272,7 +272,8 @@ links,rendered={},{}
 cmd("exp")
 local nearest={}
 for _,v in ipairs(links) do
-  local name=v.label:match("^%s*(.-)%s*%[(%d+)%]$")
+  local plain=v.label:gsub("<[^>]+>","")
+  local name=plain:match("^%s*(.-)%s*%[(%d+)%]$")
   if name then nearest[#nearest+1]=name end
 end
 assert(#nearest==3,"/exp must expose exactly three reachable expowiska")
