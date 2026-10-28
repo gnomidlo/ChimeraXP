@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.6.0-beta.1",
+    version = "0.6.0-beta.2",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1395,7 +1395,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.6.0-beta.1 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.6.0-beta.2 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1479,294 +1479,383 @@ return {
             end
         end
 
-        -- The UI is only instantiated when /exp is opened. This keeps the
-        -- standalone module safe in headless regression tests and older Mudlet.
-        local floating = {window=nil, widgets={}, collapsed=false, tab="home", seq=0}
-        local function can_geyser()
-            return type(Geyser)=="table" and type(Geyser.UserWindow)=="table"
-                and type(Geyser.Label)=="table"
+        -- Adaptive Geyser.Container, patterned after Tacticus NG.
+        -- Only the UI changes; all actions use existing exp aliases.
+        local floating={root=nil,labels={},used={},collapsed=false,tab="home",
+            ui=ctx:saved("geyser_ui",{}),signature=nil,drag=nil}
+        if type(floating.ui)~="table" then floating.ui={} end
+        local palette={bg="#10151b",panel="#1b232d",raised="#25313d",
+            text="#e0e6ed",muted="#85939f",mint="#91c9ad",yellow="#dfba79"}
+        local function screen()
+            if type(getMainWindowSize)=="function" then
+                local w,h=getMainWindowSize()
+                if type(w)=="number" and type(h)=="number" then return w,h end
+            end
+            return 1024,768
+        end
+        local function save_ui()
+            floating.ui.collapsed=floating.collapsed
+            ctx:save("geyser_ui",floating.ui)
+        end
+        local function escape_html(t)
+            return tostring(t or ""):gsub("&","&amp;"):gsub("<","&lt;"):gsub(">","&gt;")
+        end
+        local function short(t,max)
+            local letters={}
+            for ch in tostring(t or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+                letters[#letters+1]=ch
+            end
+            if #letters<=max then return table.concat(letters) end
+            local out={}
+            for i=1,math.max(1,max-1) do out[#out+1]=letters[i] end
+            return table.concat(out).."…"
         end
         local function ui_command(alias)
-            if type(expandAlias)=="function" then
-                expandAlias("/exp "..alias,false)
-            else
-                note("Wpisz: /exp "..alias,"warn")
-            end
+            if type(expandAlias)=="function" then expandAlias("/exp "..alias,false)
+            else note("Wpisz /exp "..alias,"warn") end
         end
         local function ui_prefill(alias)
-            if type(setCmdLine)=="function" then
-                setCmdLine("/exp "..alias)
+            if type(setCmdLine)=="function" then setCmdLine("/exp "..alias)
+            else note("Wpisz /exp "..alias) end
+        end
+        local function available()
+            return type(Geyser)=="table" and type(Geyser.Container)=="table"
+                and type(Geyser.Label)=="table"
+        end
+        local function clear_ui()
+            for name,item in pairs(floating.labels) do
+                pcall(function()
+                    if item.widget.delete then item.widget:delete()
+                    elseif type(deleteLabel)=="function" then deleteLabel(name) end
+                end)
+                floating.labels[name]=nil
+            end
+            if floating.root then
+                pcall(function()
+                    floating.root:hide()
+                    if floating.root.delete then floating.root:delete() end
+                end)
+                floating.root=nil
+            end
+        end
+        local function label(key,x,y,w,h,text,color,bg,click,size)
+            local name="chimera_xp_ui."..key
+            local item=floating.labels[name]
+            if not item then
+                local widget=Geyser.Label:new({name=name,x=x,y=y,width=w,height=h},floating.root)
+                item={widget=widget}
+                floating.labels[name]=item
             else
-                note("Wpisz: /exp "..alias)
+                if item.x~=x or item.y~=y then item.widget:move(x,y) end
+                if item.w~=w or item.h~=h then item.widget:resize(w,h) end
             end
-        end
-        local function clear_floating()
-            for _,widget in ipairs(floating.widgets) do
-                pcall(function() widget:type_delete() end)
+            item.x,item.y,item.w,item.h=x,y,w,h
+            floating.used[name]=true
+            local css="QLabel {background:"..(bg or palette.panel)..
+                ";color:"..(color or palette.text)..
+                ";font-family:'Segoe UI';font-size:"..(size or 9)..
+                "pt;border:0;border-radius:3px;padding:2px;}"
+            local html="<font color='"..(color or palette.text).."'>"..escape_html(text).."</font>"
+            if item.css~=css then
+                item.widget:setStyleSheet(css)
+                item.css=css
             end
-            floating.widgets={}
-        end
-        local function ui_cell(text,x,y,w,h,action,kind)
-            floating.seq=floating.seq+1
-            local widget=Geyser.Label:new({
-                name="ChimeraXP.Floating."..floating.seq,
-                x=x,y=y,width=w,height=h,fontSize=11,
-            },floating.window)
-            local background="#20313a"
-            local border="#36505a"
-            if kind=="header" then background="#182831"
-            elseif kind=="action" then background="#31554b";border="#537b6d"
-            elseif kind=="warning" then background="#473c25";border="#766241"
-            elseif kind=="off" then background="#20262d";border="#343f47"
-            elseif kind=="blank" then background="#16252d";border="#16252d"
+            if item.html~=html then
+                item.widget:echo(html)
+                item.html=html
             end
-            widget:setStyleSheet("background-color:"..background..
-                ";color:#e6f1ed;border:1px solid "..border..
-                ";border-radius:5px;padding:5px;")
-            widget:echo(tostring(text), "#e6f1ed", "l")
-            if action then widget:setClickCallback(action) end
-            floating.widgets[#floating.widgets+1]=widget
-            return widget
+            if type(setLabelClickCallback)=="function" then
+                setLabelClickCallback(name,click or function() end)
+            elseif item.widget.setClickCallback then
+                item.widget:setClickCallback(click or function() end)
+            end
+            return item.widget
         end
-        local function ui_time()
-            local seconds=session.elapsed
-            return string.format("%dh %02dm %02ds",
-                math.floor(seconds/3600),math.floor(seconds%3600/60),seconds%60)
+        local function clock()
+            local n=session.elapsed
+            return string.format("%dh %02dm %02ds",math.floor(n/3600),
+                math.floor(n%3600/60),n%60)
         end
-        local function ui_status()
-            if not started then return "OFF" end
-            if paused then return "PAUSED" end
-            if economy_run then return "HANDEL" end
-            return "EXPING"
+        local function state_label()
+            return not started and "OFF" or paused and "PAUZA"
+                or economy_run and "HANDEL" or "EXP"
         end
-        local function ui_palette()
-            if not started then return "off" end
-            if paused then return "warning" end
-            return "action"
+        local function state_color()
+            return not started and palette.muted or paused and palette.yellow or palette.mint
         end
-        local function ui_rebuild()
-            if not floating.window then return end
-            clear_floating()
-            local win=floating.window
-            local function refresh() ui_rebuild() end
-            local function action(alias)
+        local function set_minimized(value)
+            floating.collapsed=value
+            save_ui()
+            floating.signature=nil
+            ui_refresh()
+        end
+        local function draw()
+            if not available() then return false end
+            local sw,sh=screen()
+            local compact=floating.collapsed
+            local w=compact and 280 or math.min(math.max(360,tonumber(floating.ui.w) or 650),math.max(360,sw-12))
+            local h=compact and 65 or math.min(math.max(300,tonumber(floating.ui.h) or 495),math.max(300,sh-12))
+            -- Model: small windows use single-column controls and short labels.
+            local narrow=w<510
+            local x=math.max(0,math.min(tonumber(floating.ui.x) or (sw-w-16),math.max(0,sw-w)))
+            local y=math.max(0,math.min(tonumber(floating.ui.y) or 90,math.max(0,sh-h)))
+            floating.ui.x,floating.ui.y=x,y
+            if not floating.root then
+                floating.root=Geyser.Container:new({
+                    name="chimera_xp_ui.root",x=x,y=y,width=w,height=h
+                })
+            else
+                local g=floating.geometry
+                if not g or g.x~=x or g.y~=y then floating.root:move(x,y) end
+                if not g or g.w~=w or g.h~=h then floating.root:resize(w,h) end
+            end
+            floating.geometry={x=x,y=y,w=w,h=h}
+            floating.used={}
+            local function act(alias)
                 return function()
                     ui_command(alias)
-                    refresh()
+                    floating.signature=nil
+                    ui_refresh()
                 end
             end
-            local function prefill(alias)
+            local function pre(alias)
                 return function() ui_prefill(alias) end
             end
-            if floating.collapsed then
-                win:resize(315,93)
-                win:setTitle("ChimeraXP - mini")
-                local name=profile() and profile().name or "Brak expowiska"
-                local stateIcon=not started and "■" or paused and "Ⅱ" or "▶"
-                ui_cell(stateIcon.."  "..name,4,4,268,32,function()
-                    if started then
-                        if paused then ui_command("wznow") else ui_command("pauza") end
-                    else
-                        floating.collapsed=false
+            local function tab(name)
+                return function() floating.tab=name;floating.signature=nil;ui_refresh() end
+            end
+            local state=state_color()
+            label("background",0,0,w,h,"",nil,palette.bg)
+            if compact then
+                label("compactStatus",4,3,w-77,27,
+                    (started and (paused and "Ⅱ " or "▶ ") or "■ ")..
+                    short(profile() and profile().name or "Brak profilu",25),
+                    state,not started and palette.panel or (paused and "#433822" or "#204237"),
+                    function()
+                        if started then ui_command(paused and "wznow" or "pauza")
+                        else set_minimized(false) end
+                        ui_refresh()
+                    end,9)
+                label("expand",w-32,3,28,27,"▴",palette.text,palette.raised,
+                    function() set_minimized(false) end)
+                label("compactXp",4,34,w-8,26,clock().."    +"..session.xp.." XP",
+                    state,palette.panel,nil,8)
+            else
+                label("title",8,5,w-90,30,"CHIMERA XP  ·  "..state_label(),state,palette.bg,nil,10)
+                label("fold",w-72,5,30,28,"−",palette.text,palette.raised,
+                    function() set_minimized(true) end)
+                label("close",w-36,5,28,28,"×",palette.muted,palette.bg,
+                    function() set_minimized(true) end)
+                local tabs={
+                    {"home","Główna"},{"areas","Profile"},{"combat","Walka"},
+                    {"safety","Ochrona"},{"trade","Handel"},{"logs","Log"}
+                }
+                local cols=narrow and 3 or 6
+                local tw=math.floor((w-16)/cols)
+                local th=narrow and 28 or 30
+                for i,t in ipairs(tabs) do
+                    local column=(i-1)%cols
+                    local row=math.floor((i-1)/cols)
+                    label("tab"..i,8+column*tw,39+row*(th+2),tw-3,th,
+                        t[2],floating.tab==t[1] and palette.mint or palette.muted,
+                        palette.panel,tab(t[1]),8)
+                end
+                local top=39+math.ceil(#tabs/cols)*(th+2)+6
+                local bottom=h-34
+                local lineheight=narrow and 31 or 35
+                local cur=top
+                local function line(key,text,cb,bg)
+                    if cur+lineheight>bottom then return end
+                    label(key,8,cur,w-16,lineheight-3,
+                        short(text,math.max(18,math.floor((w-24)/7))),palette.text,
+                        bg or palette.panel,cb,8)
+                    cur=cur+lineheight
+                end
+                local function pair(key,left,right,a,b)
+                    if narrow then
+                        line(key.."a",left,a)
+                        line(key.."b",right,b)
+                    elseif cur+lineheight<=bottom then
+                        local half=math.floor((w-20)/2)
+                        label(key.."a",8,cur,half,lineheight-3,left,palette.text,palette.raised,a,8)
+                        label(key.."b",12+half,cur,half,lineheight-3,right,palette.text,palette.raised,b,8)
+                        cur=cur+lineheight
                     end
-                    refresh()
-                end,ui_palette())
-                ui_cell("▴",275,4,36,32,function()
-                    floating.collapsed=false
-                    refresh()
-                end,"header")
-                ui_cell(ui_time().."     +"..session.xp.." XP",
-                    4,40,307,34,nil,ui_palette())
-                return
-            end
-            win:resize(720,555)
-            win:setTitle("ChimeraXP 0.6 - konfiguracja (przeciagnij za pasek tytulu)")
-            ui_cell("CHIMERA XP 0.6   |   "..ui_status(),8,8,625,36,nil,"header")
-            ui_cell("—",638,8,68,36,function()
-                floating.collapsed=true
-                refresh()
-                if type(saveWindowLayout)=="function" then pcall(saveWindowLayout) end
-            end,"header")
-            local tabs={
-                {"home","Glowna"},{"areas","Expowiska"},{"combat","Walka"},
-                {"safety","Bezpieczenstwo"},{"trade","Handel"},{"logs","Komunikaty"},
-            }
-            for i,t in ipairs(tabs) do
-                local tab=t[1]
-                ui_cell(t[2],8+(i-1)*117,51,110,32,function()
-                    floating.tab=tab
-                    refresh()
-                end,floating.tab==tab and "action" or "header")
-            end
-            local y=94
-            local function line(text,fn,style)
-                if y>493 then return end
-                ui_cell(text,10,y,695,34,fn,style or "blank")
-                y=y+38
-            end
-            local function pair(left,right,a,b)
-                if y>493 then return end
-                ui_cell(left,10,y,342,34,a,"header")
-                ui_cell(right,359,y,346,34,b,"header")
-                y=y+38
-            end
-            local p=profile()
-            local editable=not started -- never mutate a running or paused session
-            if floating.tab=="home" then
-                line("Expowisko: "..(p and p.name or "brak")..
-                    "  |  "..ui_status().."  |  "..ui_time()..
-                    "  |  +"..session.xp.." XP",nil,"header")
-                pair(started and (paused and "▶ WZNOW" or "Ⅱ PAUZA") or "▶ START",
-                    "■ STOP",action(started and (paused and "wznow" or "pauza") or "start"),action("stop"))
-                line("TRZY NAJBLIZSZE EXPOWISKA (koszt sciezki z mappera):")
-                local near=nearest_profiles(3)
-                for _,item in ipairs(near) do
-                    line((item.key==selected and "✓ " or "  ")..
-                        item.name.."   |  koszt: "..item.cost,
-                        editable and action("wybierz "..item.name) or nil,
-                        item.key==selected and "action" or "header")
                 end
-                if #near==0 then line("Brak dostepnych tras / pozycji mappera.") end
-                line("Kliknij zakladke, aby zmienic ustawienia.")
-            elseif floating.tab=="areas" then
-                line("Wybrane: "..(p and p.name or "brak")..
-                    "  |  pokoje: "..(p and #p.route or 0))
-                pair("ZMIEN NAZWE", "MAPUJ / DODAJ", editable and prefill("nazwa ") or nil,
-                    editable and prefill("mapuj ") or nil)
-                line("Wybierz expowisko (klikniecie):")
-                local all={}
-                for key,area in pairs(areas) do
-                    all[#all+1]={key=key,name=area.name,rooms=#area.route}
+                local p=profile()
+                local editable=not started
+                if floating.tab=="home" then
+                    line("summary","Profil: "..(p and p.name or "brak").."  ·  +"..session.xp.." XP")
+                    line("elapsed","Czas: "..clock().."  ·  "..state_label())
+                    pair("run",started and (paused and "▶ WZNÓW" or "Ⅱ PAUZA") or "▶ START",
+                        "■ STOP",act(started and (paused and "wznow" or "pauza") or "start"),act("stop"))
+                    line("nearTitle","Najbliższe expowiska (koszt trasy):")
+                    for i,item in ipairs(nearest_profiles(3)) do
+                        line("near"..i,item.name.."  ["..item.cost.."]",
+                            editable and act("wybierz "..item.name) or nil,
+                            item.key==selected and "#244539" or palette.panel)
+                    end
+                elseif floating.tab=="areas" then
+                    line("profile","Profil: "..(p and p.name or "brak"))
+                    pair("rename","Zmień nazwę","Mapuj nowy",editable and pre("nazwa ") or nil,
+                        editable and pre("mapuj ") or nil)
+                    local all={}
+                    for k,v in pairs(areas) do all[#all+1]={key=k,name=v.name,rooms=#v.route} end
+                    table.sort(all,function(a,b) return a.name<b.name end)
+                    for i=1,math.min(#all,5) do
+                        local it=all[i]
+                        line("area"..i,it.name.." ("..it.rooms.." pokoi)",
+                            editable and act("wybierz "..it.name) or nil)
+                    end
+                elseif floating.tab=="combat" then
+                    line("targets","Cele: "..(p and table.concat(p.targets,", ") or "brak"))
+                    pair("targetsEdit","+ Dodaj cel","− Usuń cel",
+                        editable and pre("cel ") or nil,editable and pre("cel- ") or nil)
+                    line("avoid","Unikane: "..(p and table.concat(p.avoid,", ") or "brak"))
+                    pair("avoidEdit","+ Dodaj unikany","− Usuń unikany",
+                        editable and pre("unikaj ") or nil,editable and pre("unikaj- ") or nil)
+                    line("limit","Limit atakowanych NPC: "..(p and p.rules.maxEnemies or "-"))
+                    pair("limitEdit","− Limit","+ Limit",
+                        editable and act("limit-") or nil,editable and act("limit+") or nil)
+                elseif floating.tab=="safety" then
+                    line("hp","HP odwrót/powrót: "..(p and p.rules.retreatHP or "-")..
+                        "% / "..(p and p.rules.returnHP or "-").."%")
+                    pair("hpEdit","−5% odwrót","+5% odwrót",
+                        editable and p and pre("hp "..math.max(1,p.rules.retreatHP-5).." "..p.rules.returnHP) or nil,
+                        editable and p and pre("hp "..math.min(p.rules.returnHP-1,p.rules.retreatHP+5).." "..p.rules.returnHP) or nil)
+                    line("safe","Bezpieczny pokój: "..(p and tostring(p.safeRoom) or "brak"))
+                    line("safeSet","Ustaw obecną lokację jako bezpieczną",
+                        editable and act("bezpieczna") or nil)
+                elseif floating.tab=="trade" then
+                    line("economy","Zarobek: "..(p and p.economy and p.economy.enabled and "ON" or "OFF"))
+                    pair("tradeToggle","Włącz handel","Wyłącz handel",
+                        editable and act("zarobek wlacz") or nil,editable and act("zarobek wylacz") or nil)
+                    line("loot","Łupy: "..(p and table.concat(p.loot,", ") or "brak"))
+                    pair("lootEdit","+ Dodaj łup","− Usuń łup",
+                        editable and pre("lup dodaj ") or nil,editable and pre("lup usun ") or nil)
+                    line("weight","Próg obciążenia: "..(p and p.rules.economyLoadThreshold or 75).."%")
+                    pair("weightEdit","Próg −5","Próg +5",
+                        editable and p and act("zarobek prog "..math.max(1,p.rules.economyLoadThreshold-5)) or nil,
+                        editable and p and act("zarobek prog "..math.min(99,p.rules.economyLoadThreshold+5)) or nil)
+                    line("tempo","Tempo: "..string.format("%.1f",economy_command_delay()).." s")
+                    pair("tempoEdit","Wolniej","Szybciej",
+                        editable and act("zarobek tempo "..string.format("%.1f",math.min(3,economy_command_delay()+0.1))) or nil,
+                        editable and act("zarobek tempo "..string.format("%.1f",math.max(0.3,economy_command_delay()-0.1))) or nil)
+                elseif floating.tab=="logs" then
+                    line("logLevel","Komunikaty: "..verbosity)
+                    pair("logMode","Dyskretne","Normalne",act("glosnosc quiet"),act("glosnosc normal"))
+                    line("debug","Diagnostyka",act("glosnosc debug"))
+                    for i=math.max(1,#event_log-4),#event_log do
+                        line("log"..i,event_log[i].time.." "..event_log[i].msg)
+                    end
                 end
-                table.sort(all,function(a,b)return a.name<b.name end)
-                for i=1,math.min(#all,5) do
-                    local it=all[i]
-                    line(it.name.." ("..it.rooms.." pokoi)",
-                        editable and action("wybierz "..it.name) or nil,
-                        it.key==selected and "action" or "header")
+                label("footer",8,h-29,w-16,23,
+                    editable and "OFF · edycja dostępna" or "Zatrzymaj EXP, aby edytować",
+                    editable and palette.mint or palette.yellow,palette.bg,nil,8)
+            end
+            if type(getMousePosition)=="function" and type(setLabelMoveCallback)=="function"
+                and type(setLabelReleaseCallback)=="function"
+                and type(setLabelClickCallback)=="function" then
+                -- Drag only on the title bar; the mini status is an action,
+                -- so reserve the last 34 px for a dedicated drag handle.
+                local handle="chimera_xp_ui."..(compact and "miniDrag" or "title")
+                if compact then
+                    label("miniDrag",w-71,3,32,27,"⋮⋮",palette.muted,palette.panel,nil,9)
                 end
-            elseif floating.tab=="combat" then
-                line("Atakowane: "..(p and table.concat(p.targets,", ") or "brak"))
-                pair("+ DODAJ CEL","- USUN CEL",
-                    editable and prefill("cel ") or nil,editable and prefill("cel- ") or nil)
-                line("Unikane: "..(p and table.concat(p.avoid,", ") or "brak"))
-                pair("+ DODAJ UNIKANY","- USUN UNIKANY",
-                    editable and prefill("unikaj ") or nil,editable and prefill("unikaj- ") or nil)
-                line("Limit celow EXP: "..(p and p.rules.maxEnemies or "-")..
-                    " (neutralne zwierzeta nie sa wliczane)")
-                pair("− LIMIT","＋ LIMIT",editable and action("limit-") or nil,
-                    editable and action("limit+") or nil)
-            elseif floating.tab=="safety" then
-                line("Odwort przy HP: "..(p and p.rules.retreatHP or "-")..
-                    "%  |  powrot po regeneracji: "..(p and p.rules.returnHP or "-").."%")
-                pair("HP −5%","HP +5%",
-                    editable and p and action("hp "..math.max(1,p.rules.retreatHP-5)..
-                        " "..p.rules.returnHP) or nil,
-                    editable and p and action("hp "..math.min(p.rules.returnHP-1,p.rules.retreatHP+5)..
-                        " "..p.rules.returnHP) or nil)
-                line("Bezpieczny pokoj: "..(p and tostring(p.safeRoom) or "brak"))
-                line("USTAW OBECNY POKOJ JAKO BEZPIECZNY",
-                    editable and action("bezpieczna") or nil,"action")
-                line("Zaawansowane progi: /exp hp 35 85")
-            elseif floating.tab=="trade" then
-                line("Zarobek: "..(p and p.economy and p.economy.enabled and "WLACZONY" or "wylaczony"))
-                pair("WLACZ","WYLACZ",editable and action("zarobek wlacz") or nil,
-                    editable and action("zarobek wylacz") or nil)
-                line("Lupy: "..(p and table.concat(p.loot,", ") or "brak"))
-                pair("+ DODAJ LUP","- USUN LUP",editable and prefill("lup dodaj ") or nil,
-                    editable and prefill("lup usun ") or nil)
-                line("Prog obciazenia: "..(p and p.rules.economyLoadThreshold or 75).."%")
-                pair("PROG −5","PROG +5", editable and p and
-                    action("zarobek prog "..math.max(1,p.rules.economyLoadThreshold-5)) or nil,
-                    editable and p and
-                    action("zarobek prog "..math.min(99,p.rules.economyLoadThreshold+5)) or nil)
-                line("Tempo: "..string.format("%.2f",economy_command_delay()).." s")
-                pair("TEMPO −0.1","TEMPO +0.1",editable and p and
-                    action("zarobek tempo "..string.format("%.1f",
-                        math.max(0.3,economy_command_delay()-0.1))) or nil,
-                    editable and p and
-                    action("zarobek tempo "..string.format("%.1f",
-                        math.min(3,economy_command_delay()+0.1))) or nil)
-            elseif floating.tab=="logs" then
-                line("Poziom komunikatow: "..verbosity)
-                pair("DYSKRETNIE","NORMALNIE",action("glosnosc quiet"),action("glosnosc normal"))
-                line("DIAGNOSTYKA",action("glosnosc debug"),"action")
-                line("Ostatnie zdarzenia (pelna lista: /exp log):")
-                local from=math.max(1,#event_log-4)
-                for i=from,#event_log do
-                    line(event_log[i].time.." "..event_log[i].msg)
+                setLabelClickCallback(handle,function()
+                    local mx,my=getMousePosition()
+                    floating.drag={mx=mx,my=my,x=x,y=y}
+                end)
+                setLabelMoveCallback(handle,function()
+                    if not floating.drag then return end
+                    local mx,my=getMousePosition()
+                    floating.ui.x=math.max(0,math.min(sw-w,floating.drag.x+mx-floating.drag.mx))
+                    floating.ui.y=math.max(0,math.min(sh-h,floating.drag.y+my-floating.drag.my))
+                    floating.root:move(floating.ui.x,floating.ui.y)
+                end)
+                setLabelReleaseCallback(handle,function()
+                    floating.drag=nil
+                    save_ui()
+                end)
+            end
+            for name,item in pairs(floating.labels) do
+                if not floating.used[name] then
+                    pcall(function()
+                        if item.widget.delete then item.widget:delete()
+                        elseif type(deleteLabel)=="function" then deleteLabel(name) end
+                    end)
+                    floating.labels[name]=nil
                 end
             end
-            ui_cell(editable and "OFF: mozna edytowac. Lista tekstowa: kliknij i wpisz w linii." or
-                "Patrol aktywny lub wstrzymany: zatrzymaj, by edytowac.",
-                10,510,695,30,nil,editable and "action" or "warning")
+            return true
         end
         ui_refresh=function()
-            if floating.window then
-                if floating.collapsed then
-                    ui_rebuild()
-                else
-                    -- Update once per second while visible (no extra timers).
-                    if floating.tab=="home" then ui_rebuild() end
-                end
+            if not floating.root or floating.drag then return end
+            local signature=table.concat({tostring(started),tostring(paused),
+                tostring(session.elapsed),tostring(session.xp),tostring(selected),
+                tostring(floating.collapsed),floating.tab,tostring(verbosity)},"|")
+            if floating.signature==signature then return end
+            floating.signature=signature
+            local ok,err=pcall(draw)
+            if not ok then
+                floating.signature=nil
+                note("Blad okna Geyser: "..tostring(err),"warn")
+                clear_ui()
             end
         end
         local function open_floating()
-            if not can_geyser() then
+            if not available() then
                 panel("")
-                note("Brak Geyser.UserWindow; uzywam zapasowego panelu tekstowego.","warn")
+                note("Brak Geyser.Container, panel tekstowy pozostaje dostepny","warn")
                 return
             end
-            if not floating.window then
-                local ok,win=pcall(function()
-                    return Geyser.UserWindow:new({
-                        name="ChimeraXP_Floating",
-                        titleText="ChimeraXP 0.6",
-                        x="16%",y="12%",width=720,height=555,
-                        docked=false,autoDock=false,
-                        dockPosition="floating",restoreLayout=true,
-                    })
-                end)
-                if not ok or not win then
-                    panel("")
-                    note("Nie mozna utworzyc plynacego Geyser: "..tostring(win),"warn")
-                    return
-                end
-                floating.window=win
-                if type(win.disableAutoDock)=="function" then win:disableAutoDock() end
-                if type(win.setDockPosition)=="function" then win:setDockPosition("floating") end
+            if floating.collapsed then floating.collapsed=false end
+            floating.signature=nil
+            if not floating.root then
+                local ok,err=pcall(draw)
+                if not ok then note("Nie mozna otworzyc Geyser: "..tostring(err),"warn");return end
             end
-            floating.collapsed=false
-            ui_rebuild()
-            floating.window:show()
+            ui_refresh()
         end
-        ctx:cleanup(function()
-            if floating.window then
-                if type(saveWindowLayout)=="function" then pcall(saveWindowLayout) end
-                clear_floating()
-                pcall(function() floating.window:type_delete() end)
-                floating.window=nil
+        command("okno rozmiar","<szerokosc wysokosc>",function(value)
+            local w,h=tostring(value or ""):match("^(%d+)%s+(%d+)$")
+            w,h=tonumber(w),tonumber(h)
+            if not w or not h or w<360 or w>1100 or h<300 or h>850 then
+                note("Uzycie: /exp okno rozmiar 650 495 (360..1100 x 300..850)","warn")
+                return
             end
+            floating.ui.w,floating.ui.h=w,h
+            floating.signature=nil
+            save_ui()
+            ui_refresh()
         end)
+        command("okno reset",nil,function()
+            floating.ui={w=650,h=495}
+            save_ui()
+            floating.signature=nil
+            ui_refresh()
+        end)
+        ctx:on("sysWindowResizeEvent",function()
+            floating.signature=nil
+            ui_refresh()
+        end)
+        ctx:cleanup(function() clear_ui() end)
         command("nazwa","<nowa nazwa>",function(value)
-            if started then
-                note("Zmiana nazwy wymaga /exp stop.","warn");return
-            end
+            if started then note("Zmiana nazwy wymaga /exp stop","warn");return end
             local p=profile()
             value=trim(value)
             if not p or value=="" or #value>80 or value:find("[%c;]") then
-                note("Uzycie: /exp nazwa NOWA NAZWA (do 80 znakow)","warn");return
+                note("Uzycie: /exp nazwa NOWA NAZWA","warn");return
             end
             local key=normalized(value)
-            if areas[key] and key~=selected then
-                note("Takie expowisko juz istnieje.","warn");return
-            end
+            if areas[key] and key~=selected then note("Taka nazwa juz istnieje","warn");return end
             areas[selected]=nil
             p.name=value
             areas[key]=p
             selected=key
             remember()
-            note("Nowa nazwa expowiska: "..value)
+            note("Zmieniono nazwe: "..value)
+            floating.signature=nil
             ui_refresh()
         end)
         command("panel", "<sekcja>", panel)
@@ -1794,7 +1883,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.6.0-beta.1"},
+                {"Wersja", "0.6.0-beta.2"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},

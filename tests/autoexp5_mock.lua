@@ -297,67 +297,83 @@ assert(#rendered>0 and #messages>=before_messages,"event history should be acces
 cmd("exp glosnosc","debug")
 assert(storage.verbosity=="debug","diagnostics mode must persist")
 cechoLink,cecho,expandAlias=old_cechoLink,old_cecho,old_expandAlias
--- Floating Geyser mock: native movable UserWindow, miniature status and controls.
-local oldGeyser,oldSetCmdLine,oldSaveWindowLayout=Geyser,setCmdLine,saveWindowLayout
-local uiWindows,uiLabels,inputBuffer,layouts={},{},"",0
+-- Responsive Geyser.Container regression: drag, mini, resize, cached labels.
+local oldGeyser,oldSetCmdLine,oldGetMousePosition=Geyser,setCmdLine,getMousePosition
+local oldMove,oldRelease,oldClick=setLabelMoveCallback,setLabelReleaseCallback,setLabelClickCallback
+local oldScreen=getMainWindowSize
+local labels,callbacks,moves,releases={}, {}, {}, {}
+local roots,created= {},0
+getMainWindowSize=function()return 1000,800 end
+local mouse={100,100}
+getMousePosition=function()return mouse[1],mouse[2] end
+setLabelClickCallback=function(name,fn)callbacks[name]=fn end
+setLabelMoveCallback=function(name,fn)moves[name]=fn end
+setLabelReleaseCallback=function(name,fn)releases[name]=fn end
+setCmdLine=function(value)world.input=value end
 Geyser={
-  UserWindow={new=function(_,opt)
-    assert(opt.autoDock==false and opt.dockPosition=="floating" and opt.restoreLayout,
-      "floating UI must disable docking and restore layout")
-    local w={cfg=opt,visible=true,width=opt.width,height=opt.height,title=opt.titleText}
-    function w:resize(x,y)self.width,self.height=x,y end
-    function w:setTitle(t)self.title=t end
-    function w:show()self.visible=true end
-    function w:disableAutoDock()self.noDock=true end
-    function w:setDockPosition(p)self.dock=p end
-    function w:type_delete()self.deleted=true end
-    uiWindows[#uiWindows+1]=w
-    return w
-  end},
-  Label={new=function(_,opt,parent)
-    local label={name=opt.name,parent=parent}
-    function label:setStyleSheet(css)self.css=css end
-    function label:echo(text)self.text=text end
-    function label:setClickCallback(fn)self.callback=fn end
-    function label:type_delete()self.deleted=true end
-    uiLabels[#uiLabels+1]=label
-    return label
-  end}
+ Container={new=function(_,opt)
+  local root={opt=opt,x=opt.x,y=opt.y,w=opt.width,h=opt.height}
+  function root:move(x,y)self.x,self.y=x,y end
+  function root:resize(w,h)self.w,self.h=w,h end
+  function root:hide()self.hidden=true end
+  function root:delete()self.deleted=true end
+  roots[#roots+1]=root
+  return root
+ end},
+ Label={new=function(_,opt,root)
+   local item={name=opt.name,root=root,text=""}
+   created=created+1
+   function item:move(x,y)self.x,self.y=x,y end
+   function item:resize(w,h)self.w,self.h=w,h end
+   function item:setStyleSheet(css)self.css=css end
+   function item:echo(html)self.text=html end
+   function item:delete()self.deleted=true end
+   function item:setClickCallback(cb)callbacks[self.name]=cb end
+   labels[item.name]=item
+   return item
+ end}
 }
-saveWindowLayout=function()layouts=layouts+1 end
-setCmdLine=function(txt)inputBuffer=txt end
 cmd("exp")
-assert(#uiWindows==1 and uiWindows[1].width==720 and uiWindows[1].noDock,
-  "/exp should open real, floating Geyser UserWindow")
-local function click_text(label)
-  for i=#uiLabels,1,-1 do
-    local element=uiLabels[i]
-    if not element.deleted and element.text and
-      element.text:find(label,1,true) and element.callback then
-      element.callback()
-      return true
-    end
-  end
-  return false
-end
-assert(click_text("Expowiska"),"Geyser tabs are clickable")
-assert(click_text("ZMIEN NAZWE"),"profile rename is clickable")
-assert(inputBuffer=="/exp nazwa ","name edit should prefill input safely")
-local previously_selected=api.status().selected
-local previously_rooms=#storage.profiles[previously_selected].route
+assert(#roots==1 and roots[1].w==650 and roots[1].h==495,
+ "opening /exp should create responsive Geyser.Container")
+assert(callbacks["chimera_xp_ui.fold"],"fold button exists")
+local oldcreated=created
+cmd("exp")
+assert(created==oldcreated,"rendering unchanged UI must reuse cached labels")
+cmd("exp okno rozmiar","440 380")
+assert(roots[1].w==440 and roots[1].h==380,
+ "compact layout adapts container dimensions")
+assert(storage.geyser_ui.w==440,"window width must persist")
+assert(callbacks["chimera_xp_ui.fold"],"fold available in narrow layout")
+callbacks["chimera_xp_ui.fold"]()
+assert(roots[1].w==280 and roots[1].h==65,
+ "mini must resize actual container and contents, not overlay it")
+assert(labels["chimera_xp_ui.compactStatus"] and not labels["chimera_xp_ui.compactStatus"].deleted,
+ "mini retains clickable session status")
+assert(callbacks["chimera_xp_ui.miniDrag"] and moves["chimera_xp_ui.miniDrag"],
+ "mini status and dragging must use separate hit targets")
+callbacks["chimera_xp_ui.miniDrag"]()
+mouse={145,140};moves["chimera_xp_ui.miniDrag"]()
+releases["chimera_xp_ui.miniDrag"]()
+assert(type(storage.geyser_ui.x)=="number","drag must save position")
+callbacks["chimera_xp_ui.expand"]()
+assert(roots[1].w==440 and roots[1].h==380,
+ "expand restores chosen window dimensions")
+-- Resume normal editable profile UI and preserve route on rename.
+cmd("exp okno rozmiar","650 495")
+callbacks["chimera_xp_ui.tab2"]()
+assert(callbacks["chimera_xp_ui.renamea"],"rename entry exists")
+callbacks["chimera_xp_ui.renamea"]()
+assert(world.input=="/exp nazwa ","rename should prefill command line")
+local previous=api.status().selected
+local rooms=#storage.profiles[previous].route
 cmd("exp nazwa","Nowa nazwa")
-assert(api.status().selected=="nowa nazwa" and storage.profiles["nowa nazwa"] and
-  not storage.profiles[previously_selected] and
-  #storage.profiles["nowa nazwa"].route==previously_rooms,
-  "profile rename must replace the selected key and preserve its route")
-assert(click_text("—"),"minimize button must exist")
-assert(uiWindows[1].width==315 and uiWindows[1].height==93,
-  "minimized UI should become a small floating status label")
-assert(click_text("▴"),"miniature has a separate expand button")
-assert(uiWindows[1].width==720 and uiWindows[1].height==555,
-  "expanding UI restores full dimensions")
-assert(layouts>0,"window layout should be saved on minimize")
-Geyser,setCmdLine,saveWindowLayout=oldGeyser,oldSetCmdLine,oldSaveWindowLayout
+assert(api.status().selected=="nowa nazwa" and not storage.profiles[previous]
+ and #storage.profiles["nowa nazwa"].route==rooms,
+ "rename should migrate selected profile without losing route")
+Geyser,setCmdLine,getMousePosition=oldGeyser,oldSetCmdLine,oldGetMousePosition
+setLabelMoveCallback,setLabelReleaseCallback,setLabelClickCallback=oldMove,oldRelease,oldClick
+getMainWindowSize=oldScreen
 -- Online updater command delegates to the Mudlet package bootstrap.
 local update_calls = 0
 chimera_xp_updater = {check=function(_, verbose)
