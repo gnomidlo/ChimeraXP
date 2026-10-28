@@ -67,13 +67,13 @@ assert(U:check(true),'manual update request starts')
 assert(contents(target)==plugin,'noop update retains current source')
 assert(#urls==3,'no need to redownload source when already on version')
 -- A newer public release must replace plugin with a backup.
-manifest=manifest:gsub('0%.5%.0%-beta%.22','0.6.0-beta.23')
-plugin=plugin:gsub('version = "0%.5%.0%-beta%.22"','version = "0.6.0-beta.23"',1)
+manifest=manifest:gsub('0%.6%.0%-beta%.1','0.6.0-beta.2')
+plugin=plugin:gsub('version = "0%.6%.0%-beta%.1"','version = "0.6.0-beta.2"',1)
 assert(U:check(true),'new release download')
 assert(contents(target)==plugin,'updated source')
 local old=io.popen('find "'..dir..'/ChimeraXP/backups" -type f | head -1')
 local backup=old:read('*l');old:close()
-assert(backup and contents(backup):find('version = "0.6.0-beta.22"',1,true),'backups work')
+assert(backup and contents(backup):find('version = "0.6.0-beta.1"',1,true),'backups work')
 -- Network errors must not touch working code.
 missing=true
 assert(U:check(true),'offline check attempted')
@@ -81,8 +81,8 @@ assert(contents(target)==plugin,'offline update must preserve installed source')
 -- Unknown file in the plugin location must not be overwritten.
 missing=false
 local f=assert(io.open(target,'wb'));f:write('-- foreign package, not AutoExp');f:close()
-manifest=manifest:gsub('0%.5%.0%-beta%.23','0.6.0-beta.24')
-plugin=plugin:gsub('version = "0%.5%.0%-beta%.23"','version = "0.6.0-beta.24"',1)
+manifest=manifest:gsub('0%.6%.0%-beta%.2','0.6.0-beta.3')
+plugin=plugin:gsub('version = "0%.6%.0%-beta%.2"','version = "0.6.0-beta.3"',1)
 assert(U:check(true),'foreign target check attempted')
 assert(contents(target)=='-- foreign package, not AutoExp','foreign file must not be touched')
 print('online-updater smoke tests PASS: initial install, noop, upgrade + backup, offline, foreign file',#urls)
