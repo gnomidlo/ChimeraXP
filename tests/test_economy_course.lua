@@ -101,7 +101,11 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
   local base=0
   if automatic then
     profile.economy={enabled=true}
-    data.vitals.encumbrance=no_encumbrance and nil or 60
+    if no_encumbrance then
+      data.vitals.encumbrance=nil
+    else
+      data.vitals.encumbrance=60
+    end
     table.insert(data.entities.entities,{id="goblin",kind="npc",name="zielony goblin"})
     commands["exp start"]()
     advance(0)
@@ -163,7 +167,13 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
     assert(moves[#moves]==3,"return must not start before withdrawal grace")
     advance(delay*0.5+0.001)
     assert(moves[#moves]==1,"return to original GMCP room")
-    if automatic then data.vitals.encumbrance=no_encumbrance and nil or 20 end
+    if automatic then
+      if no_encumbrance then
+        data.vitals.encumbrance=nil
+      else
+        data.vitals.encumbrance=20
+      end
+    end
     travel("home")
     if automatic then
       assert(not api.status().paused and api.status().phase~="OFF",
