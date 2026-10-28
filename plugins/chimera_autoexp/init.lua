@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.18",
+    version = "0.5.0-beta.19",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -556,6 +556,98 @@ return {
             move, pending_attack, escape, emergency = nil, nil, nil, nil
             note("AutoExp WSTRZYMANY: " .. reason, "warn")
         end
+        -- Room.Entities does not reliably contain corpses. Ask the MUD to
+        -- count them after combat, then loot each ordinal corpse exactly once.
+        -- The server uses Polish genitive number phrases in its response.
+        local CORPSE_COUNTS = {
+            [1] = "jednej sztuki", [2] = "dwoch sztuk",
+            [3] = "trzech sztuk", [4] = "czterech sztuk",
+            [5] = "pieciu sztuk", [6] = "szesciu sztuk",
+            [7] = "siedmiu sztuk", [8] = "osmiu sztuk",
+            [9] = "dziewieciu sztuk", [10] = "dziesieciu sztuk",
+            [11] = "jedenastu sztuk", [12] = "dwunastu sztuk",
+            [13] = "trzynastu sztuk", [14] = "czternastu sztuk",
+            [15] = "pietnastu sztuk", [16] = "szesnastu sztuk",
+            [17] = "siedemnastu sztuk", [18] = "osiemnastu sztuk",
+            [19] = "dziewietnastu sztuk", [20] = "dwudziestu sztuk",
+            [21] = "dwudziestu jednej sztuki", [22] = "dwudziestu dwoch sztuk",
+            [23] = "dwudziestu trzech sztuk", [24] = "dwudziestu czterech sztuk",
+            [25] = "dwudziestu pieciu sztuk", [26] = "dwudziestu szesciu sztuk",
+            [27] = "dwudziestu siedmiu sztuk", [28] = "dwudziestu osmiu sztuk",
+            [29] = "dwudziestu dziewieciu sztuk", [30] = "trzydziestu sztuk",
+        }
+        local function next_counted_loot(run)
+            loot_timer = nil
+            if loot_run ~= run or not started or paused then return end
+            if room_id() ~= run.origin then
+                pause("Lupy: pokoj zmienil sie podczas zbierania z cial")
+                return
+            end
+            if run.phase ~= "TAKING" then return end
+            if run.corpse > run.count then
+                loot_run = nil
+                note("AutoExp LUP: obsluzono " .. run.count .. " cial.")
+                local p = profile()
+                queue(tonumber(p and p.rules.economyWeightWait)
+                    or DEFAULT.economyWeightWait)
+                return
+            end
+            local item = run.list[run.item]
+            local command = "wez " .. item .. " z " .. run.corpse .. ". ciala"
+            run.item = run.item + 1
+            if run.item > #run.list then
+                run.item = 1
+                run.corpse = run.corpse + 1
+            end
+            note("AutoExp LUP: " .. command)
+            local ok, err = pcall(ctx.send, ctx, command)
+            if not ok then
+                pause("Lupy: blad wysylania: " .. tostring(err))
+                return
+            end
+            loot_timer = ctx:timer(economy_command_delay(), function()
+                next_counted_loot(run)
+            end)
+        end
+        local function counted_corpses(count)
+            local run = loot_run
+            if not run or run.phase ~= "COUNTING" or not started or paused
+                or room_id() ~= run.origin then return end
+            if loot_timer then ctx:cancel(loot_timer); loot_timer = nil end
+            run.count, run.corpse, run.item, run.phase = count, 1, 1, "TAKING"
+            note("AutoExp LUP: policzono " .. count .. " cial.")
+            next_counted_loot(run)
+        end
+        for count, words in pairs(CORPSE_COUNTS) do
+            local n = count
+            ctx:trigger("^Doliczyl(?:as|es) sie " .. words .. [[\.$]],
+                function() counted_corpses(n) end)
+        end
+        -- Some builds print a numerical rather than a written count.
+        for count = 1, 30 do
+            local n = count
+            local noun = count == 1 and "sztuki" or "sztuk"
+            ctx:trigger("^Doliczyl(?:as|es) sie " .. count .. " " .. noun .. [[\.$]],
+                function() counted_corpses(n) end)
+        end
+        ctx:trigger([[^Nie doliczyl(?:as|es) sie (?:ani jednej|zadnej) sztuki\.$]],
+            function() counted_corpses(0) end)
+        local function begin_counted_loot(p, r)
+            local run = {origin=r.id, list=p.loot, phase="COUNTING"}
+            loot_run = run
+            announce("COUNT_CORPSES")
+            loot_timer = ctx:timer(5, function()
+                loot_timer = nil
+                if loot_run == run and run.phase == "COUNTING" then
+                    pause("Lupy: brak potwierdzenia 'policz ciala' po 5 s. Sprawdz odpowiedz serwera.")
+                end
+            end)
+            note("AutoExp LUP: policz ciala")
+            local ok, err = pcall(ctx.send, ctx, "policz ciala")
+            if not ok then
+                pause("Lupy: nie udalo sie policzyc cial: " .. tostring(err))
+            end
+        end
         local function move_to(id, purpose)
             local current = mapper.current_room()
             local destination = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(id) or nil
@@ -898,31 +990,9 @@ return {
                 post_combat_at = nil
                 if p.economy and p.economy.enabled and type(p.loot) == "table"
                     and #p.loot > 0 and not dry then
-                    -- Corpses are text-visible, not reliable Room.Entities entries.
-                    -- Single attempt per item; no retried duplicate takes.
-                    local run = {origin=r.id, list=p.loot, index=1}
-                    loot_run=run
-                    local function next_loot()
-                        loot_timer=nil
-                        if loot_run ~= run or not started or paused then return end
-                        if room_id() ~= run.origin then
-                            pause("Lupy: zmiana pokoju w trakcie zbierania")
-                            return
-                        end
-                        if run.index > #run.list then
-                            loot_run=nil
-                            queue(tonumber(p.rules.economyWeightWait)
-                                or DEFAULT.economyWeightWait) -- allow GMCP to catch up
-                            return
-                        end
-                        local item=run.list[run.index]
-                        run.index=run.index+1
-                        note("AutoExp LUP: wez " .. item .. " z ciala")
-                        local ok, err=pcall(ctx.send, ctx, "wez " .. item .. " z ciala")
-                        if not ok then pause("Lupy: blad wysylania: "..tostring(err));return end
-                        loot_timer=ctx:timer(economy_command_delay(), next_loot)
-                    end
-                    next_loot()
+                    -- Count physical corpses first, since a group may leave
+                    -- several and Room.Entities does not expose their IDs.
+                    begin_counted_loot(p, r)
                     return
                 end
             end
@@ -1203,7 +1273,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.18"},
+                {"Wersja", "0.5.0-beta.19"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1228,6 +1298,7 @@ return {
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
             ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza | zarobek trasa")
+            ctx.log.info("Lupy: po walce policz ciala, potem wez TEKST z 1. ciala, 2. ciala itd. (do 30)")
             ctx.log.info("/exp zarobek wlacz | zarobek wylacz | zarobek kurs (REALNY sklep-bank-powrot)")
             ctx.log.info("/exp zarobek tempo 0.7 (odstep polecen lupow, sprzedazy i banku: 0.3-3 s)")
             ctx.log.info("UWAGA: sprzedaj bronie/zbroje obejmuje niesione przedmioty; wem i wlm to globalne aliasy.")

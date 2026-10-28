@@ -154,3 +154,9 @@ Maksymalnie 3 próby nieudanego kroku (po 2 s), ograniczenie długości/kierunku
 ## Brak pola encumbrance (beta.18)
 
 Według danych z Chimery: jeśli pakiet `Char.Vitals` istnieje, ale nie zawiera pola `encumbrance`, oznacza to **0 obciążenia**, nie błąd odczytu. Jedna funkcja `economy_encumbrance(vitals)` jest używana podczas sprawdzania progu do kursu i po powrocie ze sklepu/banku. Diagnostyka również pokazuje `Obciazenie GMCP: 0 (brak pola encumbrance = 0)`. Nie ukrywamy braku całego pakietu ani nieprawidłowej jawnej wartości.
+
+## Numerowane ciała po walce (beta.19)
+
+`Room.Entities` nie udostępnia pewnej listy ciał. Zamiast jednego `wez TEKST z ciala` dla całej walki, po przejściu `COMBAT → POST_COMBAT` i upływie `economyLootGrace` AutoExp uruchamia `begin_counted_loot(p,r)`. Zapisuje `loot_run={origin, list, phase='COUNTING'}`, wysyła `policz ciala` i czeka maksymalnie 5 s na konkretną odpowiedź serwera. Akceptowane przykłady: `Doliczylas sie jednej sztuki.` i `Doliczylas sie dwoch sztuk.` (także rodzaj męski, 1–30 i cyfry). Nieznany format oznacza pauzę zamiast zgadywania. Wyłącznie gdy potwierdzono liczbę, przechodzi do `phase='TAKING'` i iteruje po `corpse=1..count`, `item=1..#loot`, wysyłając `wez <tekst> z <corpse>. ciala`, co `economyCommandDelay` sekund. Po ostatniej komendzie zwalnia `loot_run`, czeka `economyWeightWait` i kontynuuje dotychczasowy handel. Zmiana pokoju, `/exp stop` i pauza anulują timery. Powtarzające się informacje GMCP nie uruchamiają drugiego liczenia podczas `loot_run`.
+
+**Ważne:** potwierdzenia pojedynczego `wez` nie są jeszcze parsowane; po każdej pozycji wykonywana jest jedna próba, bez ponawiania. Lista ciał jest liczona na końcu walki, zatem wcześniejsze ciała leżące na lokacji także zostaną uwzględnione.
