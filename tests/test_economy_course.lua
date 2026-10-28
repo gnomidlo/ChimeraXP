@@ -135,8 +135,9 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
     end
     local response=two_corpses and "dwoch sztuk" or "jednej sztuki"
     local count_ack=false
+    local pattern="^Doliczyl(?:as|es) sie "..response.."\\.$"
     for _,t in ipairs(triggers) do
-      if t.pattern:find(response,1,true) then t.fn(); count_ack=true; break end
+      if t.pattern==pattern then t.fn(); count_ack=true; break end
     end
     assert(count_ack,"server count phrase must have a registered trigger")
     local expected={}
