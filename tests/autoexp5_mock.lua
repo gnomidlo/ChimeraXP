@@ -343,9 +343,13 @@ end
 assert(click_text("Expowiska"),"Geyser tabs are clickable")
 assert(click_text("ZMIEN NAZWE"),"profile rename is clickable")
 assert(inputBuffer=="/exp nazwa ","name edit should prefill input safely")
+local previously_selected=api.status().selected
+local previously_rooms=#storage.profiles[previously_selected].route
 cmd("exp nazwa","Nowa nazwa")
 assert(api.status().selected=="nowa nazwa" and storage.profiles["nowa nazwa"] and
-  not storage.profiles.test,"profile rename preserves the route and updates storage key")
+  not storage.profiles[previously_selected] and
+  #storage.profiles["nowa nazwa"].route==previously_rooms,
+  "profile rename must replace the selected key and preserve its route")
 assert(click_text("—"),"minimize button must exist")
 assert(uiWindows[1].width==315 and uiWindows[1].height==93,
   "minimized UI should become a small floating status label")
