@@ -1478,6 +1478,297 @@ return {
                 ui_line(entry.time.." "..entry.msg)
             end
         end
+
+        -- The UI is only instantiated when /exp is opened. This keeps the
+        -- standalone module safe in headless regression tests and older Mudlet.
+        local floating = {window=nil, widgets={}, collapsed=false, tab="home", seq=0}
+        local function can_geyser()
+            return type(Geyser)=="table" and type(Geyser.UserWindow)=="table"
+                and type(Geyser.Label)=="table"
+        end
+        local function ui_command(alias)
+            if type(expandAlias)=="function" then
+                expandAlias("/exp "..alias,false)
+            else
+                note("Wpisz: /exp "..alias,"warn")
+            end
+        end
+        local function ui_prefill(alias)
+            if type(setCmdLine)=="function" then
+                setCmdLine("/exp "..alias)
+            else
+                note("Wpisz: /exp "..alias)
+            end
+        end
+        local function clear_floating()
+            for _,widget in ipairs(floating.widgets) do
+                pcall(function() widget:type_delete() end)
+            end
+            floating.widgets={}
+        end
+        local function ui_cell(text,x,y,w,h,action,kind)
+            floating.seq=floating.seq+1
+            local widget=Geyser.Label:new({
+                name="ChimeraXP.Floating."..floating.seq,
+                x=x,y=y,width=w,height=h,fontSize=11,
+            },floating.window)
+            local background="#20313a"
+            local border="#36505a"
+            if kind=="header" then background="#182831"
+            elseif kind=="action" then background="#31554b";border="#537b6d"
+            elseif kind=="warning" then background="#473c25";border="#766241"
+            elseif kind=="off" then background="#20262d";border="#343f47"
+            elseif kind=="blank" then background="#16252d";border="#16252d"
+            end
+            widget:setStyleSheet("background-color:"..background..
+                ";color:#e6f1ed;border:1px solid "..border..
+                ";border-radius:5px;padding:5px;")
+            widget:echo(tostring(text), "#e6f1ed", "l")
+            if action then widget:setClickCallback(action) end
+            floating.widgets[#floating.widgets+1]=widget
+            return widget
+        end
+        local function ui_time()
+            local seconds=session.elapsed
+            return string.format("%dh %02dm %02ds",
+                math.floor(seconds/3600),math.floor(seconds%3600/60),seconds%60)
+        end
+        local function ui_status()
+            if not started then return "OFF" end
+            if paused then return "PAUSED" end
+            if economy_run then return "HANDEL" end
+            return "EXPING"
+        end
+        local function ui_palette()
+            if not started then return "off" end
+            if paused then return "warning" end
+            return "action"
+        end
+        local function ui_rebuild()
+            if not floating.window then return end
+            clear_floating()
+            local win=floating.window
+            local function refresh() ui_rebuild() end
+            local function action(alias)
+                return function()
+                    ui_command(alias)
+                    refresh()
+                end
+            end
+            local function prefill(alias)
+                return function() ui_prefill(alias) end
+            end
+            if floating.collapsed then
+                win:resize(315,93)
+                win:setTitle("ChimeraXP - mini")
+                local name=profile() and profile().name or "Brak expowiska"
+                local stateIcon=not started and "■" or paused and "Ⅱ" or "▶"
+                ui_cell(stateIcon.."  "..name,4,4,268,32,function()
+                    if started then
+                        if paused then ui_command("wznow") else ui_command("pauza") end
+                    else
+                        ui_command("start")
+                    end
+                    refresh()
+                end,ui_palette())
+                ui_cell("▴",275,4,36,32,function()
+                    floating.collapsed=false
+                    refresh()
+                end,"header")
+                ui_cell(ui_time().."     +"..session.xp.." XP",
+                    4,40,307,34,nil,ui_palette())
+                return
+            end
+            win:resize(720,555)
+            win:setTitle("ChimeraXP 0.6 - konfiguracja (przeciagnij za pasek tytulu)")
+            ui_cell("CHIMERA XP 0.6   |   "..ui_status(),8,8,625,36,nil,"header")
+            ui_cell("—",638,8,68,36,function()
+                floating.collapsed=true
+                refresh()
+                if type(saveWindowLayout)=="function" then pcall(saveWindowLayout) end
+            end,"header")
+            local tabs={
+                {"home","Glowna"},{"areas","Expowiska"},{"combat","Walka"},
+                {"safety","Bezpieczenstwo"},{"trade","Handel"},{"logs","Komunikaty"},
+            }
+            for i,t in ipairs(tabs) do
+                local tab=t[1]
+                ui_cell(t[2],8+(i-1)*117,51,110,32,function()
+                    floating.tab=tab
+                    refresh()
+                end,floating.tab==tab and "action" or "header")
+            end
+            local y=94
+            local function line(text,fn,style)
+                if y>493 then return end
+                ui_cell(text,10,y,695,34,fn,style or "blank")
+                y=y+38
+            end
+            local function pair(left,right,a,b)
+                if y>493 then return end
+                ui_cell(left,10,y,342,34,a,"header")
+                ui_cell(right,359,y,346,34,b,"header")
+                y=y+38
+            end
+            local p=profile()
+            local editable=not started -- never mutate a running or paused session
+            if floating.tab=="home" then
+                line("Expowisko: "..(p and p.name or "brak")..
+                    "  |  "..ui_status().."  |  "..ui_time()..
+                    "  |  +"..session.xp.." XP",nil,"header")
+                pair(started and (paused and "▶ WZNOW" or "Ⅱ PAUZA") or "▶ START",
+                    "■ STOP",action(started and (paused and "wznow" or "pauza") or "start"),action("stop"))
+                line("TRZY NAJBLIZSZE EXPOWISKA (koszt sciezki z mappera):")
+                local near=nearest_profiles(3)
+                for _,item in ipairs(near) do
+                    line((item.key==selected and "✓ " or "  ")..
+                        item.name.."   |  koszt: "..item.cost,
+                        editable and action("wybierz "..item.name) or nil,
+                        item.key==selected and "action" or "header")
+                end
+                if #near==0 then line("Brak dostepnych tras / pozycji mappera.") end
+                line("Kliknij zakladke, aby zmienic ustawienia.")
+            elseif floating.tab=="areas" then
+                line("Wybrane: "..(p and p.name or "brak")..
+                    "  |  pokoje: "..(p and #p.route or 0))
+                pair("ZMIEN NAZWE", "MAPUJ / DODAJ", editable and prefill("nazwa ") or nil,
+                    editable and prefill("mapuj ") or nil)
+                line("Wybierz expowisko (klikniecie):")
+                local all={}
+                for key,area in pairs(areas) do
+                    all[#all+1]={key=key,name=area.name,rooms=#area.route}
+                end
+                table.sort(all,function(a,b)return a.name<b.name end)
+                for i=1,math.min(#all,5) do
+                    local it=all[i]
+                    line(it.name.." ("..it.rooms.." pokoi)",
+                        editable and action("wybierz "..it.name) or nil,
+                        it.key==selected and "action" or "header")
+                end
+            elseif floating.tab=="combat" then
+                line("Atakowane: "..(p and table.concat(p.targets,", ") or "brak"))
+                pair("+ DODAJ CEL","- USUN CEL",
+                    editable and prefill("cel ") or nil,editable and prefill("cel- ") or nil)
+                line("Unikane: "..(p and table.concat(p.avoid,", ") or "brak"))
+                pair("+ DODAJ UNIKANY","- USUN UNIKANY",
+                    editable and prefill("unikaj ") or nil,editable and prefill("unikaj- ") or nil)
+                line("Limit celow EXP: "..(p and p.rules.maxEnemies or "-")..
+                    " (neutralne zwierzeta nie sa wliczane)")
+                pair("− LIMIT","＋ LIMIT",editable and action("limit-") or nil,
+                    editable and action("limit+") or nil)
+            elseif floating.tab=="safety" then
+                line("Odwort przy HP: "..(p and p.rules.retreatHP or "-")..
+                    "%  |  powrot po regeneracji: "..(p and p.rules.returnHP or "-").."%")
+                pair("HP −5%","HP +5%",
+                    editable and p and action("hp "..math.max(1,p.rules.retreatHP-5)..
+                        " "..p.rules.returnHP) or nil,
+                    editable and p and action("hp "..math.min(p.rules.returnHP-1,p.rules.retreatHP+5)..
+                        " "..p.rules.returnHP) or nil)
+                line("Bezpieczny pokoj: "..(p and tostring(p.safeRoom) or "brak"))
+                line("USTAW OBECNY POKOJ JAKO BEZPIECZNY",
+                    editable and action("bezpieczna") or nil,"action")
+                line("Zaawansowane progi: /exp hp 35 85")
+            elseif floating.tab=="trade" then
+                line("Zarobek: "..(p and p.economy and p.economy.enabled and "WLACZONY" or "wylaczony"))
+                pair("WLACZ","WYLACZ",editable and action("zarobek wlacz") or nil,
+                    editable and action("zarobek wylacz") or nil)
+                line("Lupy: "..(p and table.concat(p.loot,", ") or "brak"))
+                pair("+ DODAJ LUP","- USUN LUP",editable and prefill("lup dodaj ") or nil,
+                    editable and prefill("lup usun ") or nil)
+                line("Prog obciazenia: "..(p and p.rules.economyLoadThreshold or 75).."%")
+                pair("PROG −5","PROG +5", editable and p and
+                    action("zarobek prog "..math.max(1,p.rules.economyLoadThreshold-5)) or nil,
+                    editable and p and
+                    action("zarobek prog "..math.min(99,p.rules.economyLoadThreshold+5)) or nil)
+                line("Tempo: "..string.format("%.2f",economy_command_delay()).." s")
+                pair("TEMPO −0.1","TEMPO +0.1",editable and p and
+                    action("zarobek tempo "..string.format("%.1f",
+                        math.max(0.3,economy_command_delay()-0.1))) or nil,
+                    editable and p and
+                    action("zarobek tempo "..string.format("%.1f",
+                        math.min(3,economy_command_delay()+0.1))) or nil)
+            elseif floating.tab=="logs" then
+                line("Poziom komunikatow: "..verbosity)
+                pair("DYSKRETNIE","NORMALNIE",action("glosnosc quiet"),action("glosnosc normal"))
+                line("DIAGNOSTYKA",action("glosnosc debug"),"action")
+                line("Ostatnie zdarzenia (pelna lista: /exp log):")
+                local from=math.max(1,#event_log-4)
+                for i=from,#event_log do
+                    line(event_log[i].time.." "..event_log[i].msg)
+                end
+            end
+            ui_cell(editable and "OFF: mozna edytowac. Lista tekstowa: kliknij i wpisz w linii." or
+                "Patrol aktywny lub wstrzymany: zatrzymaj, by edytowac.",
+                10,510,695,30,nil,editable and "action" or "warning")
+        end
+        ui_refresh=function()
+            if floating.window then
+                if floating.collapsed then
+                    ui_rebuild()
+                else
+                    -- Update once per second while visible (no extra timers).
+                    if floating.tab=="home" then ui_rebuild() end
+                end
+            end
+        end
+        local function open_floating()
+            if not can_geyser() then
+                panel("")
+                note("Brak Geyser.UserWindow; uzywam zapasowego panelu tekstowego.","warn")
+                return
+            end
+            if not floating.window then
+                local ok,win=pcall(function()
+                    return Geyser.UserWindow:new({
+                        name="ChimeraXP_Floating",
+                        titleText="ChimeraXP 0.6",
+                        x="16%",y="12%",width=720,height=555,
+                        docked=false,autoDock=false,
+                        dockPosition="floating",restoreLayout=true,
+                    })
+                end)
+                if not ok or not win then
+                    panel("")
+                    note("Nie mozna utworzyc plynacego Geyser: "..tostring(win),"warn")
+                    return
+                end
+                floating.window=win
+                if type(win.disableAutoDock)=="function" then win:disableAutoDock() end
+                if type(win.setDockPosition)=="function" then win:setDockPosition("floating") end
+            end
+            floating.collapsed=false
+            ui_rebuild()
+            floating.window:show()
+        end
+        ctx:cleanup(function()
+            if floating.window then
+                if type(saveWindowLayout)=="function" then pcall(saveWindowLayout) end
+                clear_floating()
+                pcall(function() floating.window:type_delete() end)
+                floating.window=nil
+            end
+        end)
+        command("nazwa","<nowa nazwa>",function(value)
+            if started then
+                note("Zmiana nazwy wymaga /exp stop.","warn");return
+            end
+            local p=profile()
+            value=trim(value)
+            if not p or value=="" or #value>80 or value:find("[%c;]") then
+                note("Uzycie: /exp nazwa NOWA NAZWA (do 80 znakow)","warn");return
+            end
+            local key=normalized(value)
+            if areas[key] and key~=selected then
+                note("Takie expowisko juz istnieje.","warn");return
+            end
+            areas[selected]=nil
+            p.name=value
+            areas[key]=p
+            selected=key
+            remember()
+            note("Nowa nazwa expowiska: "..value)
+            ui_refresh()
+        end)
         command("panel", "<sekcja>", panel)
         command("log", nil, print_log)
         command("glosnosc", "<quiet|normal|debug>", function(mode)
@@ -1518,7 +1809,7 @@ return {
                 {"Wskazowka", "/exp pomoc"},
             })
         end
-        ctx:command{ "exp", help = "ChimeraXP - panel", fn = function() panel("") end }
+        ctx:command{ "exp", help = "ChimeraXP - Geyser", fn = open_floating }
         command("status", nil, print_status)
         command("pomoc", nil, function()
             ctx.log.info("/exp obszary | wybierz NAZWA | mapuj NAZWA | mapuj! NAZWA | mapuj-")
