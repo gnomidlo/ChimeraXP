@@ -107,13 +107,13 @@ return {
         local event_log, event_log_max = {}, 40
         local session = {elapsed=0, xp=0}
         local ui_refresh = function() end
+        local started, paused, dry = false, false, false
         local function session_clock()
             if started and not paused and not dry then
                 session.elapsed = session.elapsed + 1
             end
             ui_refresh()
         end
-        local started, paused, dry = false, false, false
         local phase = "OFF"
         local mapping = nil
         local move = nil -- { id, map, purpose }
