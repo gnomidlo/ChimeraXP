@@ -1,6 +1,6 @@
 -- Real shop/bank economy state machine: mock GMCP + walker, no live game.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance, two_corpses)
+local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance, two_corpses, count_timeout)
   local clock=100
   local oldtime=os.time
   os.time=function() return clock end
@@ -123,6 +123,16 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
     emit("chimera.char.vitals",data.vitals);advance(0)
     assert(sent[2]=="policz ciala","count corpses before taking any loot")
     assert(#sent==2,"do not take from unspecified corpse before server count")
+    if count_timeout then
+      advance(5.01)
+      assert(api.status().paused, "missing corpse count response must pause safely")
+      assert(#sent==2 and #moves==0,"no guessing, no take or travel on count timeout")
+      assert(table.concat(log,";"):find("brak potwierdzenia 'policz ciala'",1,true),
+        "display actionable missing count warning")
+      os.time=oldtime
+      print("PASS economy corpse count timeout")
+      return
+    end
     local response=two_corpses and "dwoch sztuk" or "jednej sztuki"
     local count_ack=false
     for _,t in ipairs(triggers) do
@@ -221,3 +231,4 @@ scenario(true,false,1.2)
 scenario(true,false,nil,true)
 scenario(true,true,nil,false,true)
 scenario(true,true,nil,false,false,true)
+scenario(true,true,nil,false,false,false,true)
