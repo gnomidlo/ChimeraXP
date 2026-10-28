@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.21** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.6.0-beta.1** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -194,3 +194,13 @@ Sekcje: `/exp panel profile`, `/exp panel walka`, `/exp panel bezpieczenstwo`, `
 ### Komunikaty i historia
 
 `/exp glosnosc quiet|normal|debug` zmienia globalny poziom wypisywania (zapamiętywany osobno od profili). Domyślny `quiet` ukrywa częste przejścia stanów `MOVING`, `WAIT_ENTITIES`, `COOLDOWN` i szczegółowe próby zbierania/handlu; `normal` pokazuje istotniejsze etapy, a `debug` pełniejsze logowanie. **Ostrzeżenia i alarmy zawsze pozostają widoczne.** `/exp log` pokazuje 40 ostatnich komunikatów zapisanych w trakcie sesji, również ukrytych. Dane logu nie są trwale przechowywane. Funkcje handlowe, progi HP i sekwencje bankowe nie zostały zmienione.
+
+## Pływający panel Geyser 0.6.0-beta.1
+
+`/exp` otwiera **natywne, ruchome okno `Geyser.UserWindow`**. Możesz przeciągać je za standardowy pasek tytułu systemu operacyjnego i ustawiać w dowolnym miejscu ekranu. `autoDock=false` zapobiega przypadkowemu dokowaniu, `restoreLayout=true` oraz `saveWindowLayout()` pozwalają zachować jego układ i położenie. Okno korzysta z Geyser.Label dla przycisków i paneli, bez obrazków i bez ręcznego ASCII. Jeśli środowisko nie ma Geyser, dostępny jest dotychczasowy panel tekstowy. Starszy tabelaryczny widok można wywołać przez `/exp status`.
+
+Przycisk **—** zwija okno do **315 × 93 pikseli**, zachowując natywny ruchomy pasek tytułu. Miniatura pokazuje wybrane expowisko, **czas aktywnej sesji EXP** oraz sumę otrzymanego XP. Zielony panel oznacza działanie, bursztynowy pauzę, a dyskretny grafitowy OFF. Kliknięcie nazwy na miniaturze przełącza pauza/wznow, natomiast gdy EXP jest wyłączony — otwiera ustawienia; oddzielne `▴` zawsze rozwija okno. Czas stoi podczas pauzy i po zatrzymaniu. Nowy start resetuje czas i XP. Czas obejmuje automatyczny handel. XP sumuje tekstowe znaczniki `[123xp]` zabójstw (włącznie z drużyną), bez szacowania wartości. Liczniki są **sesyjne**, a nie historyczne.
+
+Zakładki Geyser: **Główna, Expowiska, Walka, Bezpieczeństwo, Handel i Komunikaty**. Główna pokazuje trzy najbliższe osiągalne profile według kosztu `walker.cost` i pozwala przełączać profil po zatrzymaniu AutoExp. W pozostałych sekcjach można kliknięciem zmieniać limity, progi, tempo oraz włączanie handlu. Edycja tekstowych nazw (np. cele, omijane NPC, łupy lub nazwa profilu) wstawia gotową komendę do linii wejściowej Mudleta: można ją uzupełnić i zatwierdzić Enterem. Nowe `/exp nazwa NOWA NAZWA` zmienia nazwę bieżącego profilu bez utraty trasy. **Wszelkie zmiany profili wymagają `/exp stop`**, również gdy sesja jest tylko wstrzymana. Ostrzeżenia bezpieczeństwa pozostają w konsoli. `/exp status`, `/exp log` i `/exp glosnosc` nadal działają.
+
+**Uwaga:** interfejs i jego zachowanie przeszły symulacje w testach Lua, ale wymaga weryfikacji w prawdziwym Mudlecie w szczególności wizualnego wyglądu etykiet Geyser oraz przywracania pozycji w systemie operacyjnym.
