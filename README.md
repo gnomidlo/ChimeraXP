@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.19** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.20** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -169,3 +169,16 @@ wez bronie z 2. ciala
 Jeżeli w profilu są także `zbroje`, dla **każdego** numeru ciała wykonuje najpierw `wez bronie z N. ciala`, potem `wez zbroje z N. ciala`. Próby są rozdzielone skonfigurowanym `/exp zarobek tempo 0.7`. Zbieranie jest jednorazowe dla każdego elementu i numeru ciała, bez ślepych powtórek. Skrypt nie opuszcza lokacji przed zakończeniem sekwencji, a dopiero potem sprawdza obciążenie i ewentualnie wykonuje dotychczasowy kurs sklep→bank→EXP.
 
 Obsługiwane są zapisane słownie liczby **1–30** (wersje żeńska i męska) oraz odpowiadające im odpowiedzi liczbowe. Znane odpowiedzi o zerowej liczbie ciał powodują pominięcie zbierania. Brak rozpoznanej odpowiedzi na `policz ciala` przez 5 sekund powoduje `PAUSED` z ostrzeżeniem; w takiej sytuacji skrypt **nie zgaduje** liczby i nie odchodzi. Gdy serwer korzysta z innego polecenia lub formatu odpowiedzi, należy przekazać log do uzupełnienia parsera. Możesz ręcznie wykonać `/exp stop` w dowolnym momencie.
+
+## Uszkodzony sprzęt po zbieraniu łupów (beta.20)
+
+Po ostatnim `wez ... z N. ciala` (lub po potwierdzeniu zerowej liczby ciał) automat wykonuje **dokładnie dwa dodatkowe polecenia**, w tej kolejności:
+
+```text
+odloz zlamane bronie
+odloz zniszczone zbroje
+```
+
+Polecenia są wysyłane kolejno, z przerwą ustawioną przez `/exp zarobek tempo 0.7`. Dopiero **po obu próbach odkładania** i krótkim odczekaniu na GMCP aktualizowane jest obciążenie i może zacząć się kurs sklep → bank → powrót. Dzięki temu nieprzydatne do sprzedaży, uszkodzone łupy nie obciążają postaci podczas marszu. Zatrzymanie automatu w trakcie tego etapu anuluje pozostałe komendy.
+
+**Uwaga:** to komendy masowe, nie ograniczają się do łupów z ostatniej walki. Mogą odłożyć również inne niesione złamane bronie lub zniszczone zbroje, jeśli pasują do tych kategorii. Potwierdzenia serwera po `odloz` nie są jeszcze parsowane; wysyłana jest jedna próba na kategorię.
