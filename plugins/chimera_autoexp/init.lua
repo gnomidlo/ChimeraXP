@@ -1627,7 +1627,7 @@ return {
             local state=state_color()
             label("background",0,0,w,h,"",nil,palette.bg)
             if compact then
-                label("compactStatus",4,3,w-40,27,
+                label("compactStatus",4,3,w-77,27,
                     (started and (paused and "Ⅱ " or "▶ ") or "■ ")..
                     short(profile() and profile().name or "Brak profilu",25),
                     state,not started and palette.panel or (paused and "#433822" or "#204237"),
@@ -1754,13 +1754,18 @@ return {
                     editable and palette.mint or palette.yellow,palette.bg,nil,8)
             end
             if type(getMousePosition)=="function" and type(setLabelMoveCallback)=="function"
-                and type(setLabelReleaseCallback)=="function" then
-                setLabelClickCallback("chimera_xp_ui."..(compact and "compactStatus" or "title"),
-                    function()
-                        local mx,my=getMousePosition()
-                        floating.drag={mx=mx,my=my,x=x,y=y}
-                    end)
-                local handle="chimera_xp_ui."..(compact and "compactStatus" or "title")
+                and type(setLabelReleaseCallback)=="function"
+                and type(setLabelClickCallback)=="function" then
+                -- Drag only on the title bar; the mini status is an action,
+                -- so reserve the last 34 px for a dedicated drag handle.
+                local handle="chimera_xp_ui."..(compact and "miniDrag" or "title")
+                if compact then
+                    label("miniDrag",w-71,3,32,27,"⋮⋮",palette.muted,palette.panel,nil,9)
+                end
+                setLabelClickCallback(handle,function()
+                    local mx,my=getMousePosition()
+                    floating.drag={mx=mx,my=my,x=x,y=y}
+                end)
                 setLabelMoveCallback(handle,function()
                     if not floating.drag then return end
                     local mx,my=getMousePosition()
@@ -1812,6 +1817,18 @@ return {
             end
             ui_refresh()
         end
+        command("okno rozmiar","<szerokosc wysokosc>",function(value)
+            local w,h=tostring(value or ""):match("^(%d+)%s+(%d+)$")
+            w,h=tonumber(w),tonumber(h)
+            if not w or not h or w<360 or w>1100 or h<300 or h>850 then
+                note("Uzycie: /exp okno rozmiar 650 495 (360..1100 x 300..850)","warn")
+                return
+            end
+            floating.ui.w,floating.ui.h=w,h
+            floating.signature=nil
+            save_ui()
+            ui_refresh()
+        end)
         command("okno reset",nil,function()
             floating.ui={w=650,h=495}
             save_ui()
