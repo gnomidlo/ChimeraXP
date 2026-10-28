@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.21",
+    version = "0.6.0-beta.1",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -105,6 +105,14 @@ return {
             verbosity = "quiet"
         end
         local event_log, event_log_max = {}, 40
+        local session = {elapsed=0, xp=0}
+        local ui_refresh = function() end
+        local function session_clock()
+            if started and not paused and not dry then
+                session.elapsed = session.elapsed + 1
+            end
+            ui_refresh()
+        end
         local started, paused, dry = false, false, false
         local phase = "OFF"
         local mapping = nil
@@ -1101,6 +1109,9 @@ return {
             move_to(next_id, "patrol")
         end
         local function start(test_mode)
+            if not started then
+                session.elapsed, session.xp = 0, 0
+            end
             if started then
                 if paused then
                     note("AutoExp jest WSTRZYMANY. Uzyj /exp wznow lub /exp stop, aby zaczac od nowa.", "warn")
@@ -1301,6 +1312,7 @@ return {
             pause("Gracz przejal sterowanie")
         end)
         ctx:timer(1, function()
+            session_clock()
             if started and not paused then queue(0) end
         end, true)
         ctx:cleanup(function()
@@ -1308,6 +1320,16 @@ return {
             economy_run, loot_run = nil, nil
             if state.owns_walk then walker.stop("AutoExp: przeladowanie") end
             state.owns_walk = false
+        end)
+        -- XP awarded for our party's kills; session-only. Captures server
+        -- '[4120xp]' markers on kill lines, not nominal mob XP estimates.
+        ctx:trigger([[^(?:Zabilas|Zabiles|.+ zabil(?:a|) .+) .+ \[([0-9]+)xp\]$]], function()
+            if not started or paused or dry then return end
+            local value = type(matches)=="table" and tonumber(matches[2])
+            if value and value > 0 and value < 100000000 then
+                session.xp = session.xp + value
+                ui_refresh()
+            end
         end)
         -- Commands intentionally share the old /exp interface only after the
         -- OLD XML package has been disabled. New /exp endpoints are explicit.
@@ -1373,7 +1395,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.5.0-beta.21 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.6.0-beta.1 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1481,7 +1503,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.21"},
+                {"Wersja", "0.6.0-beta.1"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
