@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.19",
+    version = "0.5.0-beta.20",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -576,6 +576,10 @@ return {
             [27] = "dwudziestu siedmiu sztuk", [28] = "dwudziestu osmiu sztuk",
             [29] = "dwudziestu dziewieciu sztuk", [30] = "trzydziestu sztuk",
         }
+        local DISCARD_DAMAGED = {
+            "odloz zlamane bronie",
+            "odloz zniszczone zbroje",
+        }
         local function next_counted_loot(run)
             loot_timer = nil
             if loot_run ~= run or not started or paused then return end
@@ -583,15 +587,35 @@ return {
                 pause("Lupy: pokoj zmienil sie podczas zbierania z cial")
                 return
             end
-            if run.phase ~= "TAKING" then return end
-            if run.corpse > run.count then
-                loot_run = nil
-                note("AutoExp LUP: obsluzono " .. run.count .. " cial.")
-                local p = profile()
-                queue(tonumber(p and p.rules.economyWeightWait)
-                    or DEFAULT.economyWeightWait)
+            if run.phase == "TAKING" and run.corpse > run.count then
+                -- Discard untradeable broken gear before reading encumbrance.
+                -- Keep loot_run active: no patrol/trade departure mid-cleanup.
+                run.phase, run.discard_index = "DISCARDING", 1
+            end
+            if run.phase == "DISCARDING" then
+                local discard = DISCARD_DAMAGED[run.discard_index]
+                if not discard then
+                    loot_run = nil
+                    note("AutoExp LUP: obsluzono " .. run.count ..
+                        " cial; odlozono uszkodzone przedmioty (proby).")
+                    local p = profile()
+                    queue(tonumber(p and p.rules.economyWeightWait)
+                        or DEFAULT.economyWeightWait)
+                    return
+                end
+                run.discard_index = run.discard_index + 1
+                note("AutoExp LUP: " .. discard)
+                local ok, err = pcall(ctx.send, ctx, discard)
+                if not ok then
+                    pause("Lupy: blad odkladania uszkodzonego sprzetu: " .. tostring(err))
+                    return
+                end
+                loot_timer = ctx:timer(economy_command_delay(), function()
+                    next_counted_loot(run)
+                end)
                 return
             end
+            if run.phase ~= "TAKING" then return end
             local item = run.list[run.item]
             local command = "wez " .. item .. " z " .. run.corpse .. ". ciala"
             run.item = run.item + 1
@@ -1273,7 +1297,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.19"},
+                {"Wersja", "0.5.0-beta.20"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1298,7 +1322,7 @@ return {
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
             ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza | zarobek trasa")
-            ctx.log.info("Lupy: po walce policz ciala, potem wez TEKST z 1. ciala, 2. ciala itd. (do 30)")
+            ctx.log.info("Lupy: po walce policz ciala, wez TEKST z 1./2. ciala; nastepnie odloz zlamane bronie i zniszczone zbroje")
             ctx.log.info("/exp zarobek wlacz | zarobek wylacz | zarobek kurs (REALNY sklep-bank-powrot)")
             ctx.log.info("/exp zarobek tempo 0.7 (odstep polecen lupow, sprzedazy i banku: 0.3-3 s)")
             ctx.log.info("UWAGA: sprzedaj bronie/zbroje obejmuje niesione przedmioty; wem i wlm to globalne aliasy.")
