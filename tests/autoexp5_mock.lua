@@ -250,6 +250,53 @@ emit("chimera.char.vitals",world.vitals)
 tick()
 assert(#moves==moves_prev+1 and api.status().phase=="RETREAT", "retreat is not restarted")
 cmd("exp stop")
+-- New console panel: closest profiles are ranked by walker route cost,
+-- links execute the original /exp wybierz alias, and quiet mode preserves history.
+local links,rendered={},{}
+local old_cechoLink,old_cecho,old_expandAlias=cechoLink,cecho,expandAlias
+cecho=function(value) rendered[#rendered+1]=value end
+cechoLink=function(label,fn,hint) links[#links+1]={label=label,fn=fn,hint=hint} end
+expandAlias=function(alias)
+  local name=alias:match("^/exp wybierz (.+)$")
+  if name then cmd("exp wybierz",name) end
+end
+-- Add two distinct profiles by recording separate current rooms.
+world.room={id="r3",name="Trzeci"};world.current=3
+cmd("exp mapuj","Bliskie")
+cmd("exp mapuj","Bliskie")
+world.room={id="safe",name="Piate"};world.current=5
+cmd("exp mapuj","Dalekie")
+cmd("exp mapuj","Dalekie")
+world.room={id="r2",name="Drugie"};world.current=2
+links,rendered={},{}
+cmd("exp")
+local nearest={}
+for _,v in ipairs(links) do
+  local plain=v.label:gsub("<[^>]+>","")
+  local name=plain:match("^%s*(.-)%s*%[(%d+)%]$")
+  if name then nearest[#nearest+1]=name end
+end
+assert(#nearest==3,"/exp must expose exactly three reachable expowiska")
+assert(nearest[1]:find("Test",1,true) and nearest[2]:find("Bliskie",1,true)
+  and nearest[3]:find("Dalekie",1,true),
+  "nearest list must rank by actual minimum cost across route rooms")
+for _,v in ipairs(links) do
+  if v.label:find("Bliskie",1,true) and v.label:find("[1]",1,true) then
+    v.fn()
+    break
+  end
+end
+assert(api.status().selected=="bliskie","profile click switches using existing alias")
+cmd("exp glosnosc","quiet")
+assert(storage.verbosity=="quiet","verbosity should persist globally")
+local before_messages=#messages
+cmd("exp panel","walka")
+assert(#rendered>0,"console panel should render native Mudlet links and text")
+cmd("exp log")
+assert(#rendered>0 and #messages>=before_messages,"event history should be accessible")
+cmd("exp glosnosc","debug")
+assert(storage.verbosity=="debug","diagnostics mode must persist")
+cechoLink,cecho,expandAlias=old_cechoLink,old_cecho,old_expandAlias
 -- Online updater command delegates to the Mudlet package bootstrap.
 local update_calls = 0
 chimera_xp_updater = {check=function(_, verbose)

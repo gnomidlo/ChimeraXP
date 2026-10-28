@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.5.0-beta.20",
+    version = "0.5.0-beta.21",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -100,6 +100,11 @@ return {
         local areas = ctx:saved("profiles", {})
         if type(areas) ~= "table" then areas = {} end
         local selected = ctx:saved("selected", nil)
+        local verbosity = ctx:saved("verbosity", "quiet")
+        if verbosity ~= "quiet" and verbosity ~= "normal" and verbosity ~= "debug" then
+            verbosity = "quiet"
+        end
+        local event_log, event_log_max = {}, 40
         local started, paused, dry = false, false, false
         local phase = "OFF"
         local mapping = nil
@@ -158,13 +163,28 @@ return {
         end
 
         local function note(message, level)
+            local msg = tostring(message)
+            event_log[#event_log + 1] = {time = os.date("%H:%M:%S"), msg = msg, level = level}
+            if #event_log > event_log_max then table.remove(event_log, 1) end
+            local essential = level == "warn" or level == "error"
+                or msg:find("WSTRZYMANY",1,true) or msg:find("ALARM",1,true)
+            local noisy = msg:find("AutoExp LUP:",1,true)
+                or msg:find("AutoExp HANDEL [",1,true)
+                or msg:find("AutoExp: kurs do sklepu",1,true)
+            if verbosity == "quiet" and not essential and noisy then return end
             local fn = level == "warn" and ctx.log.warn or ctx.log.info
-            fn(tostring(message))
+            fn(msg)
         end
         local function announce(label)
             if phase ~= label then
                 phase = label
-                if started then note("AutoExp: " .. phase) end
+                if started then
+                    if verbosity == "debug" or (verbosity == "normal"
+                        and label ~= "WAIT_ENTITIES" and label ~= "COOLDOWN"
+                        and label ~= "READY" and label ~= "MOVING") then
+                        note("AutoExp: " .. phase)
+                    end
+                end
             end
         end
         local function remember()
@@ -1294,10 +1314,174 @@ return {
         local function command(name, args, fn, help)
             ctx:command{ "exp " .. name, args = args, help = help or "AutoExp 5", fn = fn }
         end
+        -- Console-first UI: native Mudlet cechoLink when available, ordinary
+        -- text fallback in CI / terminal clients. Never inject profile names
+        -- into executable Lua: clickable links use callback closures.
+        local function ui_line(value)
+            if type(cecho) == "function" then
+                cecho("<white>" .. tostring(value) .. "\n")
+            else
+                ctx.log.info(tostring(value))
+            end
+        end
+        local function ui_link(label, alias, hint)
+            if type(cechoLink) == "function" then
+                local ok = pcall(cechoLink, "<cyan>" .. label .. "<reset>",
+                    function()
+                        if type(expandAlias) == "function" then
+                            expandAlias(alias, false)
+                        end
+                    end, hint or alias, true)
+                if ok then return end
+            end
+            ui_line(label .. " (" .. alias .. ")")
+        end
+        local function ui_row(name, command_name, explanation)
+            ui_link("[ " .. name .. " ]", "/exp " .. command_name, explanation)
+            ui_line("  " .. explanation)
+        end
+        local function nearest_profiles(limit)
+            local from = mapper.current_room()
+            local result = {}
+            if type(from) ~= "number" or type(getRoomIDbyHash) ~= "function"
+                or type(walker.cost) ~= "function" then return result end
+            for key,p in pairs(areas) do
+                local best
+                for _, hash in ipairs(p.route or {}) do
+                    local id = getRoomIDbyHash(hash)
+                    if type(id) == "number" and id > 0 then
+                        local distance
+                        if id == from then
+                            distance = 0
+                        else
+                            local ok,cost = pcall(walker.cost, from, id)
+                            if ok and type(cost) == "number" and cost >= 0
+                                and cost < math.huge then distance = cost end
+                        end
+                        if distance and (not best or distance < best) then best = distance end
+                    end
+                end
+                if best then result[#result + 1] = {key=key, name=p.name, cost=best} end
+            end
+            table.sort(result, function(a,b)
+                if a.cost ~= b.cost then return a.cost < b.cost end
+                return a.name < b.name
+            end)
+            while #result > limit do table.remove(result) end
+            return result
+        end
+        local function panel(section)
+            local p=profile()
+            section=normalized(section)
+            ui_line("---- CHIMERA XP 0.5.0-beta.21 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            if section == "" then
+                ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
+                    " | Expowisko: "..(p and p.name or "brak"))
+                ui_row("START", "start", "Uruchom patrol")
+                ui_row("PAUZA / WZNOW", paused and "wznow" or "pauza",
+                    paused and "Wznow wstrzymany patrol" or "Wstrzymaj")
+                ui_row("STOP", "stop", "Zatrzymaj calkowicie")
+                ui_line("Najblizsze expowiska (koszt trasy mappera):")
+                local near=nearest_profiles(3)
+                if #near==0 then ui_line("  Brak osiagalnych profili w mapie") end
+                for _,item in ipairs(near) do
+                    ui_link((item.key==selected and "* " or "  ")..item.name..
+                        " ["..item.cost.."]", "/exp wybierz "..item.name,
+                        "Wybierz to expowisko (patrol musi byc zatrzymany)")
+                    if type(cechoLink) == "function" then ui_line("") end
+                end
+                ui_line("USTAWIENIA:")
+                ui_row("Expowiska", "panel profile", "Wybor, mapa i bezpieczna lokacja")
+                ui_row("Walka", "panel walka", "Cele, omijanie, liczba NPC")
+                ui_row("Bezpieczenstwo", "panel bezpieczenstwo", "Progi HP i odwrot")
+                ui_row("Lupy i handel", "panel handel", "Zbieranie, sklep, bank, tempo")
+                ui_row("Komunikaty", "panel komunikaty", "Dyskretny / normalny / diagnostyka")
+                ui_row("Historia", "log", "Ostatnie zdarzenia automatu")
+                return
+            end
+            if section=="profile" then
+                ui_line("Wybrano: "..(p and p.name or "brak")..
+                    " | pokoi: "..(p and #p.route or 0))
+                ui_line("Najblizsze:");for _,it in ipairs(nearest_profiles(3)) do
+                    ui_link(it.name.." ("..it.cost..")", "/exp wybierz "..it.name,
+                        "Ustaw aktywny profil")
+                    if type(cechoLink)=="function" then ui_line("") end
+                end
+                ui_row("Wszystkie profile","obszary","Lista zapisanych expowisk")
+                ui_row("Bezpieczna tutaj","bezpieczna","Ustaw obecny pokoj jako bezpieczny")
+                ui_line("Dodaj profil: /exp mapuj NAZWA; ponow polecenie, aby zapisac")
+            elseif section=="walka" then
+                ui_line("Cele: "..(p and table.concat(p.targets,", ") or "brak"))
+                ui_line("Omijane: "..(p and table.concat(p.avoid,", ") or "brak"))
+                ui_line("Limit celow EXP w pokoju: "..(p and p.rules.maxEnemies or "-"))
+                ui_row("Limit -","limit-", "Zmniejsz limit o 1 (min. 1)")
+                ui_row("Limit +","limit+", "Zwieksz limit o 1 (maks. 20)")
+                ui_line("Dodawanie: /exp cel TEKST | /exp unikaj TEKST")
+                ui_line("Usuwanie: /exp cel- TEKST | /exp unikaj- TEKST")
+                ui_line("Limit liczy TYLKO cele, nie zające i inne NPC.")
+            elseif section=="bezpieczenstwo" then
+                ui_line("Odwort HP: "..(p and p.rules.retreatHP or "-")..
+                    "% | powrot HP: "..(p and p.rules.returnHP or "-").."%")
+                ui_line("Bezpieczny pokoj: "..(p and tostring(p.safeRoom) or "brak"))
+                ui_row("Bezpieczna tutaj","bezpieczna","Zapisz obecna lokacje")
+                ui_line("Zmiana progow: /exp hp 35 85")
+                ui_line("Odwrot i alarmy maja pierwszenstwo przed handlem.")
+            elseif section=="handel" then
+                ui_line("Zarobek: "..(p and p.economy and p.economy.enabled and "WLACZONY" or "wylaczony"))
+                ui_row("Wlacz handel","zarobek wlacz","Automatyczny sklep, bank i powrot")
+                ui_row("Wylacz handel","zarobek wylacz","Wylacz automatyczne kursy")
+                ui_line("Lupy: "..(p and table.concat(p.loot,", ") or "brak"))
+                ui_line("Prog: "..(p and p.rules.economyLoadThreshold or 75)..
+                    "% | Tempo: "..string.format("%.2f",economy_command_delay()).." s")
+                ui_line("Dodaj/usun: /exp lup dodaj TEKST | /exp lup usun TEKST")
+                ui_line("Próg: /exp zarobek prog 75 | Tempo: /exp zarobek tempo 0.7")
+                ui_row("Sprawdz trase","zarobek trasa","Trasa do sklepu i banku (bez handlu)")
+                ui_line("UWAGA: masowa sprzedaz obejmuje takze wlasny ekwipunek.")
+            elseif section=="komunikaty" then
+                ui_line("Tryb: "..verbosity)
+                ui_row("Dyskretny","glosnosc quiet","Tylko istotne alerty")
+                ui_row("Normalny","glosnosc normal","Etapy walki i handlu")
+                ui_row("Diagnostyka","glosnosc debug","Pelny log stanow i krokow")
+                ui_row("Historia","log","40 ostatnich zdarzen, nawet wyciszonych")
+                ui_line("Alerty bezpieczenstwa zawsze pozostaja widoczne.")
+            else
+                ui_line("Nieznana sekcja. Dostepne: profile, walka, bezpieczenstwo, handel, komunikaty")
+            end
+            ui_link("[ Powrot do /exp ]", "/exp", "Glowny panel")
+            if type(cechoLink)=="function" then ui_line("") end
+        end
+        local function print_log()
+            ui_line("---- AUTOEXP | OSTATNIE ZDARZENIA ("..#event_log..") ----")
+            for _,entry in ipairs(event_log) do
+                ui_line(entry.time.." "..entry.msg)
+            end
+        end
+        command("panel", "<sekcja>", panel)
+        command("log", nil, print_log)
+        command("glosnosc", "<quiet|normal|debug>", function(mode)
+            mode=normalized(mode)
+            if mode~="quiet" and mode~="normal" and mode~="debug" then
+                note("Tryb: /exp glosnosc quiet | normal | debug","warn");return
+            end
+            verbosity=mode
+            ctx:save("verbosity",mode)
+            note("Komunikaty AutoExp: "..mode)
+            panel("komunikaty")
+        end)
+        local function adjust_target_limit(step)
+            if not allowed_config() then return end
+            local p=profile()
+            if not p then note("Wybierz expowisko", "warn");return end
+            p.rules.maxEnemies=math.min(20,math.max(1,p.rules.maxEnemies+step))
+            remember()
+            panel("walka")
+        end
+        command("limit+",nil,function() adjust_target_limit(1) end)
+        command("limit-",nil,function() adjust_target_limit(-1) end)
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.5.0-beta.20"},
+                {"Wersja", "0.5.0-beta.21"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1312,7 +1496,7 @@ return {
                 {"Wskazowka", "/exp pomoc"},
             })
         end
-        ctx:command{ "exp", help = "AutoExp 5 - stan", fn = print_status }
+        ctx:command{ "exp", help = "ChimeraXP - panel", fn = function() panel("") end }
         command("status", nil, print_status)
         command("pomoc", nil, function()
             ctx.log.info("/exp obszary | wybierz NAZWA | mapuj NAZWA | mapuj! NAZWA | mapuj-")

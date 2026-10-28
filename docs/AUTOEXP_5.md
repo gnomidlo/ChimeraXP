@@ -164,3 +164,9 @@ Według danych z Chimery: jeśli pakiet `Char.Vitals` istnieje, ale nie zawiera 
 ## Końcowe odkładanie niesprzedawalnego sprzętu (beta.20)
 
 Po `phase='TAKING'` i `corpse > count` przechodzimy do `phase='DISCARDING'`. Dla aktualnego `loot_run` emitujemy sekwencyjnie `odloz zlamane bronie` oraz `odloz zniszczone zbroje`, używając timera `economy_command_delay()` między poleceniami. Obie próby odbywają się **przed** zwolnieniem `loot_run`, `queue(economyWeightWait)` i uruchomieniem oceny obciążenia. Dzięki temu zdarzenia GMCP nie mogą wystartować kursu handlowego w połowie odkładania. Etap obejmuje również potwierdzoną zerową liczbę ciał. Zmiana lokacji, pauza i `/exp stop` anulują pozostałe działania. Polecenia masowe mogą dotknąć również prywatnego, uszkodzonego ekwipunku.
+
+## Panel tekstowy interaktywny i 3 najblizsze profile (beta.21)
+
+Nowe `/exp` renderuje menu konsolowe (Mudlet `cecho`/`cechoLink`, fallback na `ctx.log.info`), dotychczasowy szczegółowy status pod `/exp status`. Są linki sterowania, do pięciu podstron konfiguracji i trzy najbliższe *osiągalne* expowiska wybrane według minimalnego kosztu `walker.cost` spośród pokoi każdego profilu (`getRoomIDbyHash`). Kliknięcia korzystają z `expandAlias(...,false)`, żeby zachować blokady i nie dublować logiki; callback nie interpretuje nazwy profilu jako kod Lua. Podmenu `/exp panel profile|walka|bezpieczenstwo|handel|komunikaty`, log `/exp log`. Przełączanie globalnego poziomu logów `/exp glosnosc quiet|normal|debug` jest zapisywane w `ctx:save('verbosity',...)`; ostrzeżenia zawsze w konsoli, informacyjne zdarzenia w 40-elementowym buforze sesji.
+
+Klikane plus/minus podnoszą lub obniżają `maxEnemies` przy zachowaniu `allowed_config` i ograniczeń 1–20. Nie zmieniono mechanizmu wyboru profilu, walki i kursu handlowego. `/exp status` zachowuje tradycyjną tabelę. Przy nieosiągalnym pokoju mappera wpis jest wykluczony z rankingu, nie otrzymuje sztucznej odległości.
