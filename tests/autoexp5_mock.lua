@@ -297,6 +297,63 @@ assert(#rendered>0 and #messages>=before_messages,"event history should be acces
 cmd("exp glosnosc","debug")
 assert(storage.verbosity=="debug","diagnostics mode must persist")
 cechoLink,cecho,expandAlias=old_cechoLink,old_cecho,old_expandAlias
+-- Floating Geyser mock: native movable UserWindow, miniature status and controls.
+local oldGeyser,oldSetCmdLine,oldSaveWindowLayout=Geyser,setCmdLine,saveWindowLayout
+local uiWindows,uiLabels,inputBuffer,layouts={},{},"",0
+Geyser={
+  UserWindow={new=function(_,opt)
+    assert(opt.autoDock==false and opt.dockPosition=="floating" and opt.restoreLayout,
+      "floating UI must disable docking and restore layout")
+    local w={cfg=opt,visible=true,width=opt.width,height=opt.height,title=opt.titleText}
+    function w:resize(x,y)self.width,self.height=x,y end
+    function w:setTitle(t)self.title=t end
+    function w:show()self.visible=true end
+    function w:disableAutoDock()self.noDock=true end
+    function w:setDockPosition(p)self.dock=p end
+    function w:type_delete()self.deleted=true end
+    uiWindows[#uiWindows+1]=w
+    return w
+  end},
+  Label={new=function(_,opt,parent)
+    local label={name=opt.name,parent=parent}
+    function label:setStyleSheet(css)self.css=css end
+    function label:echo(text)self.text=text end
+    function label:setClickCallback(fn)self.callback=fn end
+    function label:type_delete()self.deleted=true end
+    uiLabels[#uiLabels+1]=label
+    return label
+  end}
+}
+saveWindowLayout=function()layouts=layouts+1 end
+setCmdLine=function(txt)inputBuffer=txt end
+cmd("exp")
+assert(#uiWindows==1 and uiWindows[1].width==720 and uiWindows[1].noDock,
+  "/exp should open real, floating Geyser UserWindow")
+local function click_text(label)
+  for i=#uiLabels,1,-1 do
+    local element=uiLabels[i]
+    if not element.deleted and element.text and
+      element.text:find(label,1,true) and element.callback then
+      element.callback()
+      return true
+    end
+  end
+  return false
+end
+assert(click_text("Expowiska"),"Geyser tabs are clickable")
+assert(click_text("ZMIEN NAZWE"),"profile rename is clickable")
+assert(inputBuffer=="/exp nazwa ","name edit should prefill input safely")
+cmd("exp nazwa","Nowa nazwa")
+assert(api.status().selected=="nowa nazwa" and storage.profiles["nowa nazwa"] and
+  not storage.profiles.test,"profile rename preserves the route and updates storage key")
+assert(click_text("—"),"minimize button must exist")
+assert(uiWindows[1].width==315 and uiWindows[1].height==93,
+  "minimized UI should become a small floating status label")
+assert(click_text("▴"),"miniature has a separate expand button")
+assert(uiWindows[1].width==720 and uiWindows[1].height==555,
+  "expanding UI restores full dimensions")
+assert(layouts>0,"window layout should be saved on minimize")
+Geyser,setCmdLine,saveWindowLayout=oldGeyser,oldSetCmdLine,oldSaveWindowLayout
 -- Online updater command delegates to the Mudlet package bootstrap.
 local update_calls = 0
 chimera_xp_updater = {check=function(_, verbose)
