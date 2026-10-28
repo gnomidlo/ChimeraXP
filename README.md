@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.20** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.5.0-beta.21** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -182,3 +182,15 @@ odloz zniszczone zbroje
 Polecenia są wysyłane kolejno, z przerwą ustawioną przez `/exp zarobek tempo 0.7`. Dopiero **po obu próbach odkładania** i krótkim odczekaniu na GMCP aktualizowane jest obciążenie i może zacząć się kurs sklep → bank → powrót. Dzięki temu nieprzydatne do sprzedaży, uszkodzone łupy nie obciążają postaci podczas marszu. Zatrzymanie automatu w trakcie tego etapu anuluje pozostałe komendy.
 
 **Uwaga:** to komendy masowe, nie ograniczają się do łupów z ostatniej walki. Mogą odłożyć również inne niesione złamane bronie lub zniszczone zbroje, jeśli pasują do tych kategorii. Potwierdzenia serwera po `odloz` nie są jeszcze parsowane; wysyłana jest jedna próba na kategorię.
+
+## Panel /exp i najbliższe expowiska (beta.21)
+
+Samo `/exp` otwiera nowy **panel konsolowy**, bez dodatkowych okien Mudleta. W zwykłym kliencie klikalne elementy wykorzystują `cechoLink` i uruchamiają istniejące aliasy (start, pauza/wznow, stop, wybierz, ustawienia). Tam, gdzie klient nie udostępnia `cechoLink`, wyświetlana jest tekstowa komenda do ręcznego wykonania. Poprzedni tabelkowy status pozostaje pod `/exp status`.
+
+Panel pokazuje **trzy najbliższe osiągalne expowiska**: dla każdego profilu liczy minimum `walker.cost(aktualny_pokoj_mapy, kazdy_pokoj_profilu)`, pomijając nieznane pokoje i niedostępne trasy; remis rozstrzyga nazwą. Kliknięcie nazwy uruchamia dotychczasowe `/exp wybierz NAZWA`, więc nadal obowiązuje blokada zmian przy działającym patrolu. Liczby w nawiasach kwadratowych to koszty tras z mappera, nie odległość geometryczna. Przy braku aktualnej lokacji albo tras wyświetlany jest komunikat o braku osiągalnych profili — bez zgadywania.
+
+Sekcje: `/exp panel profile`, `/exp panel walka`, `/exp panel bezpieczenstwo`, `/exp panel handel`, `/exp panel komunikaty`. Opcje mają krótkie wyjaśnienia i odsyłacze do dotychczasowych aliasów; ustawienie limitu celów dostępne także przez przyciski `[Limit -]` / `[Limit +]` (aliasy `/exp limit-`, `/exp limit+`). Nie wszystkie parametry mają osobny klikalny edytor: dla tekstowych list i progów panel podpowiada pełną składnię aliasu — celowo unikamy niepewnego wysyłania tekstu do inputu.
+
+### Komunikaty i historia
+
+`/exp glosnosc quiet|normal|debug` zmienia globalny poziom wypisywania (zapamiętywany osobno od profili). Domyślny `quiet` ukrywa częste przejścia stanów `MOVING`, `WAIT_ENTITIES`, `COOLDOWN` i szczegółowe próby zbierania/handlu; `normal` pokazuje istotniejsze etapy, a `debug` pełniejsze logowanie. **Ostrzeżenia i alarmy zawsze pozostają widoczne.** `/exp log` pokazuje 40 ostatnich komunikatów zapisanych w trakcie sesji, również ukrytych. Dane logu nie są trwale przechowywane. Funkcje handlowe, progi HP i sekwencje bankowe nie zostały zmienione.
