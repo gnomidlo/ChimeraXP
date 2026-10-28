@@ -1,6 +1,6 @@
 # ChimeraXP — AutoExp dla Chimery 5.x
 
-Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.6.0-beta.1** — testowa, **nie uruchamiaj bez nadzoru**.
+Publiczny, niezależny projekt automatycznego patrolu PvE dla Mudleta i oficjalnej Chimery 5.x. Nie jest częścią ChimeraVIP ani oficjalnej Chimery. Wersja **0.6.0-beta.2** — testowa, **nie uruchamiaj bez nadzoru**.
 
 ## Instalacja — jedna komenda w Mudlecie
 
@@ -204,3 +204,11 @@ Przycisk **—** zwija okno do **315 × 93 pikseli**, zachowując natywny ruchom
 Zakładki Geyser: **Główna, Expowiska, Walka, Bezpieczeństwo, Handel i Komunikaty**. Główna pokazuje trzy najbliższe osiągalne profile według kosztu `walker.cost` i pozwala przełączać profil po zatrzymaniu AutoExp. W pozostałych sekcjach można kliknięciem zmieniać limity, progi, tempo oraz włączanie handlu. Edycja tekstowych nazw (np. cele, omijane NPC, łupy lub nazwa profilu) wstawia gotową komendę do linii wejściowej Mudleta: można ją uzupełnić i zatwierdzić Enterem. Nowe `/exp nazwa NOWA NAZWA` zmienia nazwę bieżącego profilu bez utraty trasy. **Wszelkie zmiany profili wymagają `/exp stop`**, również gdy sesja jest tylko wstrzymana. Ostrzeżenia bezpieczeństwa pozostają w konsoli. `/exp status`, `/exp log` i `/exp glosnosc` nadal działają.
 
 **Uwaga:** interfejs i jego zachowanie przeszły symulacje w testach Lua, ale wymaga weryfikacji w prawdziwym Mudlecie w szczególności wizualnego wyglądu etykiet Geyser oraz przywracania pozycji w systemie operacyjnym.
+
+## Adaptacyjny Geyser (0.6.0-beta.2)
+
+Interfejs `/exp` oparty teraz o `Geyser.Container` oraz trwałe `Geyser.Label`, jak w Tacticus NG. Można przeciągać za własny nagłówek i zapamiętać położenie. `−` zwija rzeczywisty kontener do 280×65 px; miniaturę przeciąga się za chwyt `⋮⋮`, kliknięcie nazwy pauzuje/wznawia, a `▴` rozwija. Przy wyłączonym automacie kliknięcie nazwy rozwija ustawienia bez uruchamiania EXP.
+
+Rozmiar pełnego okna można ustawić przez `/exp okno rozmiar 650 495` (szerokość 360–1100, wysokość 300–850); `/exp okno reset` przywraca rozmiar i pozycję. W wąskim oknie zakładki są w dwóch rzędach, przyciski ustawień w jednej kolumnie, a niepotrzebne etykiety są usuwane. Zmiany są zapisywane w `geyser_ui`. Rysowanie wykorzystuje istniejące etykiety — bez niszczenia całego panelu przy każdym tyknięciu licznika.
+
+W trybie OFF można zmienić nazwę expowiska i dodawać/usuwać cele, NPC do omijania oraz łupy przez przyciski wypełniające linię komend. Dotychczasowe aliasy i silnik EXP pozostają bez zmian. Rozmiar i wygląd wymagają praktycznego przetestowania na instalacji Mudleta.
