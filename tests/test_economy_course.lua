@@ -1,6 +1,6 @@
 -- Real shop/bank economy state machine: mock GMCP + walker, no live game.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance, two_corpses, count_timeout)
+local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance, two_corpses, count_timeout, cancel_discard)
   local clock=100
   local oldtime=os.time
   os.time=function() return clock end
@@ -155,12 +155,34 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
       assert(#sent==index+2,"next loot command must not overlap")
       advance(delay*0.5+0.001)
     end
-    assert(#sent==2+#expected,"no duplicate item take across corpses")
+    -- The last looting timer sends the first damage-discard command.
+    local start=2+#expected
+    assert(sent[start+1]=="odloz zlamane bronie",
+      "discard broken weapons after EVERY numbered corpse has been looted")
     data.vitals.encumbrance=80
-    emit("chimera.char.vitals",data.vitals)
-    advance(0.71) -- GMCP weight synchronization grace (0.7s)
-    assert(moves[#moves]==2,"overload triggers shop trip")
-    base=2+(two_corpses and 4 or 1)
+    emit("chimera.char.vitals",data.vitals);advance(0)
+    assert(#moves==0, "never leave for trade during damaged-gear cleanup")
+    if cancel_discard then
+      commands["exp stop"]()
+      advance(10)
+      assert(#sent==start+1 and #moves==0,
+        "stop during damaged gear cleanup must cancel the second discard and travel")
+      os.time=oldtime
+      print("PASS economy broken gear cleanup cancellation")
+      return
+    end
+    advance(delay*0.5)
+    assert(#sent==start+1, "ruined armor discard must wait for command pacing")
+    advance(delay*0.5+0.001)
+    assert(sent[start+2]=="odloz zniszczone zbroje",
+      "discard ruined armor after broken weapons")
+    emit("chimera.char.vitals",data.vitals);advance(0)
+    assert(#moves==0, "trade must still wait after final discard is sent")
+    advance(delay+0.001)
+    advance(0.71) -- GMCP weight synchronization after dropping damaged items
+    assert(#sent==start+2, "damage cleanup must send exactly two extra commands")
+    assert(moves[#moves]==2, "overload triggers shop only after cleanup")
+    base=start+2
   else
     commands["exp zarobek kurs"]()
     advance(0)
@@ -233,3 +255,4 @@ scenario(true,false,nil,true)
 scenario(true,true,nil,false,true)
 scenario(true,true,nil,false,false,true)
 scenario(true,true,nil,false,false,false,true)
+scenario(true,true,nil,false,false,true,false,true)
