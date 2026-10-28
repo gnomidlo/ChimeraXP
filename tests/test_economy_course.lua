@@ -170,7 +170,7 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
           "auto mode resumes patrol after successful shop/bank when encumbrance absent")
       if no_encumbrance then
         assert(table.concat(log,";"):find("wznowienie patrolu (0)",1,true),
-          "missing encumbrance field after bank must be treated as exactly zero")
+          "missing encumbrance after bank must become zero, logs="..table.concat(log,";")..", phase="..api.status().phase)
       end
     else
       assert(api.status().phase=="OFF","manual test must stop after return")
