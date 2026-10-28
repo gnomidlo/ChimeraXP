@@ -1,6 +1,6 @@
 -- Real shop/bank economy state machine: mock GMCP + walker, no live game.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance)
+local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance, two_corpses)
   local clock=100
   local oldtime=os.time
   os.time=function() return clock end
@@ -100,6 +100,7 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
   end
   local base=0
   if automatic then
+    if two_corpses then profile.loot={"bronie","zbroje"} end
     profile.economy={enabled=true}
     if no_encumbrance then
       data.vitals.encumbrance=nil
@@ -120,15 +121,35 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
     emit("chimera.combat.state",data.combat);advance(0)
     clock=clock+2
     emit("chimera.char.vitals",data.vitals);advance(0)
-    assert(sent[2]=="wez bronie z ciala","collect configured loot after combat")
-    advance(delay*0.5)
-    assert(#sent==2,"next loot step must not overlap")
-    advance(delay*0.5+0.001)
+    assert(sent[2]=="policz ciala","count corpses before taking any loot")
+    assert(#sent==2,"do not take from unspecified corpse before server count")
+    local response=two_corpses and "dwoch sztuk" or "jednej sztuki"
+    local count_ack=false
+    for _,t in ipairs(triggers) do
+      if t.pattern:find(response,1,true) then t.fn(); count_ack=true; break end
+    end
+    assert(count_ack,"server count phrase must have a registered trigger")
+    local expected={}
+    if two_corpses then
+      expected={
+        "wez bronie z 1. ciala", "wez zbroje z 1. ciala",
+        "wez bronie z 2. ciala", "wez zbroje z 2. ciala"
+      }
+    else
+      expected={"wez bronie z 1. ciala"}
+    end
+    for index,text in ipairs(expected) do
+      assert(sent[index+2]==text, "corpse/item sequence wrong at step "..index)
+      advance(delay*0.5)
+      assert(#sent==index+2,"next loot command must not overlap")
+      advance(delay*0.5+0.001)
+    end
+    assert(#sent==2+#expected,"no duplicate item take across corpses")
     data.vitals.encumbrance=80
     emit("chimera.char.vitals",data.vitals)
     advance(0.71) -- GMCP weight synchronization grace (0.7s)
     assert(moves[#moves]==2,"overload triggers shop trip")
-    base=2
+    base=2+(two_corpses and 4 or 1)
   else
     commands["exp zarobek kurs"]()
     advance(0)
@@ -199,3 +220,4 @@ scenario(true,true)
 scenario(true,false,1.2)
 scenario(true,false,nil,true)
 scenario(true,true,nil,false,true)
+scenario(true,true,nil,false,false,true)
