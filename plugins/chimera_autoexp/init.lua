@@ -88,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.1",
+    version = "0.7.0-beta.2",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1437,7 +1437,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.1 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.2 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1563,7 +1563,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.1"},
+                {"Wersja", "0.7.0-beta.2"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3174,7 +3174,7 @@ function H.new(ctx,patrol,tactics,stop)
     self.shown=settings.visible~=false
     ctx.state.hud_generation=(ctx.state.hud_generation or 0)+1
     local prefix="chimeraxp."..ctx.state.hud_generation.."."
-    local height=settings.large and 48 or 40
+    local height=settings.large and 52 or 44
     local before,owned
     local function available() return type(Geyser)=="table" and type(Geyser.Container)=="table" and type(Geyser.Label)=="table" end
     local function screen()
@@ -3190,7 +3190,7 @@ function H.new(ctx,patrol,tactics,stop)
         owned=nil
     end
     local function save() settings.visible=self.shown;ctx:save("hud",settings) end
-    local function widget(key,parent,x,y,w,h,text,tint,background,fn)
+    local function widget(key,parent,x,y,w,h,text,tint,background,fn,html_override)
         local item=self.labels[key]
         local name=prefix..key
         if not item then
@@ -3201,8 +3201,9 @@ function H.new(ctx,patrol,tactics,stop)
             if item.w~=w or item.h~=h then item.widget:resize(w,h) end
         end
         item.x,item.y,item.w,item.h=x,y,w,h
-        local css="QLabel {background:"..(background or P.panel)..";color:"..(tint or P.text)..";font-family:'Segoe UI';font-size:"..(settings.large and 10 or 8).."pt;border:0;border-radius:3px;padding:2px;}"
-        local html="<font color='"..(tint or P.text).."'>"..esc(text).."</font>"
+        local css="QLabel {background:"..(background or P.panel)..";color:"..(tint or P.text)..";font-family:'Segoe UI';font-size:"..(settings.large and 11 or 9).."pt;border:0;border-radius:3px;padding:2px;}"
+        if fn then css=css.." QLabel:hover {background:"..P.raised..";}" end
+        local html=html_override or "<font color='"..(tint or P.text).."'>"..esc(text).."</font>"
         if item.css~=css then item.widget:setStyleSheet(css);item.css=css end
         if item.html~=html then item.widget:echo(html);item.html=html end
         local callback=function() if not self.destroyed and fn then fn() end end
@@ -3220,6 +3221,7 @@ function H.new(ctx,patrol,tactics,stop)
         if not available() then return false end
         self.shown=true;save()
         self.menu=self.menu==name and nil or name;self.page=1
+        if name=="party" or name=="tactics" or name=="areas" or name=="settings" then self.anchor=name end
         if name~="member" and name~="roles" and name~="targets" then self.selected=nil end
         self:render()
     end
@@ -3308,7 +3310,7 @@ function H.new(ctx,patrol,tactics,stop)
                 local key=entry[1];add(entry[2].."  ›",function() self.menu=key;self.page=1;self:render() end)
             end
             add("Większy pasek: "..(settings.large and "WŁ." or "WYŁ."),function()
-                settings.large=not settings.large;height=settings.large and 48 or 40;save();self:render()
+                settings.large=not settings.large;height=settings.large and 52 or 44;save();self:render()
             end)
         elseif self.menu=="profiles" then
             title="Zarządzanie terenami"
@@ -3364,7 +3366,7 @@ function H.new(ctx,patrol,tactics,stop)
         end
         return items,title,note
     end
-    function self:render()
+    local function draw()
         if self.destroyed then return end
         if not self.shown then
             if self.root then self.root:hide();self.overlay:hide();self.badge:hide() end
@@ -3377,48 +3379,67 @@ function H.new(ctx,patrol,tactics,stop)
             ctx.log.warn("Inny dodatek zmienił górny margines. HUD ChimeraXP ukryty; /exp hud on przywraca pasek.")
             patrol.pause("Konflikt układu HUD: przejmij sterowanie.")
             tactics.stop("Konflikt układu HUD.")
-            self:render();return
+            if self.root then self.root:hide();self.overlay:hide();self.badge:hide() end
+            release();return
         end
         if not self.root then
             before=border()
-            self.root=Geyser.Container:new({name=prefix.."bar",x=0,y=before,width="100%",height=height})
-            self.overlay=Geyser.Container:new({name=prefix.."overlay",x=0,y=before+height,width=w,height=1})
-            self.badge=Geyser.Container:new({name=prefix.."run",x=8,y=before+height+6,width=math.min(420,w-16),height=26})
+            self.root=Geyser.Container:new({name=prefix.."bar",x=0,y=0,width="100%",height=height})
+            self.overlay=Geyser.Container:new({name=prefix.."overlay",x=0,y=height,width=w,height=1})
+            self.badge=Geyser.Container:new({name=prefix.."run",x=8,y=height+12,width=math.max(1,math.min(420,w-16)),height=29})
         end
+        local snap=patrol.snapshot();local st=snap.status;local ts=tactics.status();local rows=tactics.rows()
         if type(setBorderTop)=="function" then
             if not owned then before=border() end
-            owned=before+height;setBorderTop(owned)
+            -- The border reserves console space; it is not a Geyser y offset.
+            owned=math.max(before or 0,height+(st.started and 49 or 0))
+            if border()~=owned then setBorderTop(owned) end
         end
-        self.root:move(0,before);self.root:resize(w,height)
+        self.root:move(0,0);self.root:resize(w,height)
         self.used={}
-        local snap=patrol.snapshot();local st=snap.status;local ts=tactics.status();local rows=tactics.rows()
         widget("background",self.root,0,0,w,height,"",P.text,P.bg)
-        local small=w<500;local controls=math.min(90,math.floor(w*.28));local right=w-controls-6
-        local bw=math.max(1,math.floor((right-12)/3));local y=4;local bh=height-8
-        widget("party",self.root,6,y,bw-3,bh,small and "Drużyna ▾" or "Drużyna i role ▾",P.text,nil,function() self:open("party") end)
-        widget("tactics",self.root,6+bw,y,bw-3,bh,"Taktyka "..(ts.on and "AUTO" or "WYŁ.").." ▾",ts.on and P.mint or P.muted,nil,function() self:open("tactics") end)
-        widget("areas",self.root,6+bw*2,y,bw-3,bh,small and "EXP ▾" or "Expowiska ▾",P.text,nil,function() self:open("areas") end)
-        local cw=math.max(1,math.floor(controls/3))
-        widget("pause",self.root,right,y,cw-2,bh,st.paused and "▶" or "Ⅱ",P.muted,nil,function() request(st.paused and "wznow" or "pauza") end)
-        widget("stop",self.root,right+cw,y,cw-2,bh,"■",P.rose,"#392A35",stop)
-        widget("settings",self.root,right+cw*2,y,cw-2,bh,"⚙",P.muted,nil,function() self:open("settings") end)
+        local small=w<500;local cw=settings.large and 36 or 32
+        cw=math.min(cw,math.max(3,math.floor(w*.09)))
+        local right=w-8-cw*3;local y=5;local bh=height-10
+        local widths=small and {83,84,58} or {128,132,104}
+        local scale=math.min(1,math.max(0.01,(right-20)/(widths[1]+widths[2]+widths[3])))
+        local x=8
+        local function nav(key,text,tint,width)
+            width=math.max(1,math.floor(width*scale))
+            widget(key,self.root,x,y,width,bh,text,tint,self.menu and self.anchor==key and P.raised or P.bg,function() self:open(key) end)
+            x=x+width+4
+        end
+        nav("party",small and "Drużyna ▾" or "Drużyna i role ▾",P.text,widths[1])
+        nav("tactics",small and "Taktyka ▾" or "Taktyka "..(ts.on and "AUTO" or "WYŁ.").." ▾",ts.on and P.mint or P.muted,widths[2])
+        nav("areas",small and "EXP ▾" or "Expowiska ▾",P.text,widths[3])
+        widget("pause",self.root,right,y,cw-3,bh,st.paused and "▶" or "Ⅱ",P.muted,P.bg,function() request(st.paused and "wznow" or "pauza") end)
+        widget("stop",self.root,right+cw,y,cw-3,bh,"■",P.rose,"#392A35",stop)
+        widget("settings",self.root,right+cw*2,y,cw-3,bh,"⚙",P.muted,self.menu and self.anchor=="settings" and P.raised or P.bg,function() self:open("settings") end)
         if st.started then
             local name=snap.profile and snap.profile.name or "Brak terenu"
             local earn=snap.profile and snap.profile.economy and snap.profile.economy.enabled
-            local text=(st.paused and "Ⅱ PAUZA" or st.dry and "TEST" or "● AutoEXP").." · "..name.." · "..clock(st.elapsed)..(earn and " · Zarobek" or "")
-            local width=math.min(w-16,math.max(180,#text*6))
-            self.badge:move(8,before+height+6);self.badge:resize(width,26)
-            widget("badge",self.badge,0,0,width,26,short(text,math.max(1,math.floor(width/6))),st.paused and P.yellow or P.mint,P.panel,function() self:open("session") end)
+            local lead=st.paused and "Ⅱ PAUZA" or st.dry and "TEST" or "● AutoEXP"
+            local suffix=earn and not small and " · Zarobek" or ""
+            local charwidth=settings.large and 8 or 7
+            local _,namechars=name:gsub("[%z\1-\127\194-\244][\128-\191]*","")
+            local width=math.max(1,math.min(w-16,(namechars+#lead+#suffix+17)*charwidth))
+            local clipped=short(name,math.max(1,math.floor(width/charwidth)-#lead-#suffix-17))
+            local tint=st.paused and P.yellow or P.mint
+            local html="<font color='"..tint.."'>"..esc(lead).."</font><font color='"..P.text.."'> · "..esc(clipped).." · </font><font face='Consolas' color='"..tint.."'>"..clock(st.elapsed).."</font><font color='"..P.muted.."'>"..esc(suffix).."</font>"
+            self.badge:move(8,height+12);self.badge:resize(width,29)
+            widget("badge",self.badge,0,0,width,29,"",tint,st.paused and "#302B24" or "#202D2B",function() self:open("session") end,html)
             self.badge:show()
         else self.badge:hide() end
         if self.menu then
             local items,title,note=items_for(snap,rows,ts)
             local mw=math.max(1,math.min(470,w-16));local rowh=settings.large and 32 or 27
-            local capacity=math.max(1,math.floor((h-before-height-96)/rowh))
+            local capacity=math.max(1,math.floor((h-height-96)/rowh))
             local pages=math.max(1,math.ceil(#items/capacity));self.page=math.min(self.page,pages)
             local first=(self.page-1)*capacity+1;local last=math.min(#items,first+capacity-1)
-            local mh=math.min(math.max(1,h-before-height-8),64+math.max(0,last-first+1)*rowh+(pages>1 and 27 or 0))
-            self.overlay:move(8,before+height+5);self.overlay:resize(mw,mh)
+            local mh=math.min(math.max(1,h-height-8),64+math.max(0,last-first+1)*rowh+(pages>1 and 27 or 0))
+            local anchor=self.labels[self.anchor or "party"]
+            local mx=math.max(8,math.min(anchor and anchor.x or 8,w-mw-8))
+            self.overlay:move(mx,height+5);self.overlay:resize(mw,mh)
             widget("menu_bg",self.overlay,0,0,mw,mh,"",P.text,P.panel)
             widget("menu_title",self.overlay,8,3,mw-42,25,title,P.lavender,P.panel)
             widget("menu_close",self.overlay,mw-30,3,23,25,"×",P.muted,P.panel,function() self.menu=nil;self:render() end)
@@ -3438,6 +3459,13 @@ function H.new(ctx,patrol,tactics,stop)
         else self.overlay:hide() end
         for key,item in pairs(self.labels) do if not self.used[key] and type(item.widget.hide)=="function" then item.widget:hide() end end
         self.root:show()
+    end
+    function self:render()
+        if self.destroyed or self.rendering then return end
+        self.rendering=true
+        local ok,err=pcall(draw)
+        self.rendering=false
+        if not ok then error(err,0) end
     end
     ctx:on("sysWindowResizeEvent",function() self:render() end)
     ctx:on("chimera.group.state",function() self:render() end)

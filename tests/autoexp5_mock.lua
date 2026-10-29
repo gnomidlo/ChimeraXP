@@ -337,7 +337,7 @@ Geyser={
  end}
 }
 cmd("exp")
-assert(#roots==3 and roots[1].w==1000 and roots[1].h==40,
+assert(#roots==3 and roots[1].w==1000 and roots[1].h==44,
  "opening /exp creates the compact bar, overlay and small run label")
 assert(api.hud.labels.party and api.hud.labels.areas and api.hud.labels.stop,"main controls exist")
 local oldcreated=created
@@ -345,7 +345,7 @@ cmd("exp")
 assert(created==oldcreated,"rendering unchanged UI must reuse cached labels")
 getMainWindowSize=function()return 320,400 end
 emit("sysWindowResizeEvent")
-assert(roots[1].w==320 and roots[1].h==40,"HUD adapts without a large floating window")
+assert(roots[1].w==320 and roots[1].h==44,"HUD adapts without a large floating window")
 cmd("exp hud","off");assert(roots[1].hidden,"HUD can be hidden")
 cmd("exp hud","on")
 api.hud:open("profiles")
