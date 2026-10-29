@@ -1,4 +1,6 @@
-# AutoExp 5 — silnik ChimeraXP (beta)
+# AutoExp 5 — dokument historyczny do 0.6.0-beta.2
+
+Aktualne sterowanie górnym HUD-em i integrację taktyki opisują [README](../README.md) oraz [REWORK](REWORK.md). Sekcje o dawnym pływającym oknie nie dotyczą wydania 0.7.
 
 ChimeraXP to **osobny projekt**. Nie zależy od ChimeraVIP. Bazuje na API oficjalnej Chimery 5.x: `ctx:use('gmcp')`, `ctx:use('mapper')`, `ctx:use('walker')`, `ctx:on('chimera.*')`. Dla aktualizacji prywatnej paczki korzystaj z narzędzia `update.cmd` i własnego `gh auth login`. Instalacja jest możliwa offline z ZIP-a.
 
@@ -182,3 +184,4 @@ The miniature is green during EXP, amber during pause and dark when OFF. Clickin
 ## Adaptive Geyser.Container beta.2
 
 Replaces `Geyser.UserWindow` with a draggable `Geyser.Container` following the Tacticus NG label-cache pattern. Positions and configured full size are persisted under `geyser_ui`. Miniature is a real 280×65 resized container (rather than a large invisible overlay); it has a distinct mini drag grip, expand action and status pause/resume action. Full title bar supports mouse press/move/release; visual rows switch from two-column to one-column below width 510, and tabs wrap. Controls are cached by stable names and updated with move/resize/echo/style instead of deleting on every timer tick. `sysWindowResizeEvent` clamps geometry to the screen. `/exp okno rozmiar W H` and `/exp okno reset` are supported. Existing `/exp` commands drive controls; gameplay engine remains untouched.
+
