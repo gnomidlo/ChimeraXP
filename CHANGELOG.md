@@ -1,5 +1,12 @@
 # Zmiany
 
+## 0.7.0-beta.2 — położenie i wygląd HUD-u
+
+- Pasek przy górnej krawędzi obszaru Mudleta (`y=0`), niezależnie od wcześniejszego marginesu konsoli.
+- Zwarte, płaskie menu po lewej, wolna przestrzeń pośrodku i małe przyciski po prawej; menu otwierane pod przyciskiem.
+- Etykieta AutoEXP rezerwuje miejsce nad tekstem gry; długa nazwa terenu nie usuwa zegara.
+- Zmiany marginesu nie wywołują ponownego renderowania w pętli; ukrycie i przeładowanie przywracają poprzedni margines.
+
 ## 0.7.0-beta.1 — rework
 
 - Zwięzły górny HUD w stylu ChimeraVIP: Drużyna i role, Taktyka, Expowiska, pauza, STOP i ustawienia.

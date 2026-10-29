@@ -1,7 +1,7 @@
 local new=dofile("tests/support_harness.lua")
 local P=dofile("plugins/chimera_autoexp/init.lua")
-local function fixture()
-    local h=new();h.width=1000;h.height=700;h.border=12;h.labels={};h.roots={};h.created=0
+local function fixture(initial_border)
+    local h=new();h.width=1000;h.height=700;h.border=initial_border or 12;h.labels={};h.roots={};h.created=0
     h.saved.profiles={
         alpha={name="Jaskinie grimloków",route={"rooma","safe"},targets={"Goblin"},avoid={},loot={},safeRoom="safe",rules={maxEnemies=5},economy={enabled=false}},
         beta={name="Las",route={"rooma","safe"},targets={"Goblin"},avoid={},loot={},safeRoom="safe",rules={maxEnemies=5},economy={enabled=true}},
@@ -9,7 +9,10 @@ local function fixture()
     getRoomIDbyHash=function(id) return id=="rooma" and 1 or 2 end
     getMainWindowSize=function() return h.width,h.height end
     getBorderTop=function() return h.border end
-    setBorderTop=function(value) h.border=value end
+    setBorderTop=function(value)
+        h.border=value;h.border_writes=(h.border_writes or 0)+1
+        h.emit("sysWindowResizeEvent")
+    end
     setCmdLine=function(value) h.input=value end
     Geyser={
         Container={new=function(_,o)
@@ -40,7 +43,13 @@ local function fixture()
 end
 do
     local h=fixture();local api=h.api
-    assert(h.border==52 and not api.status().started,"bar reserves only its own 40px and never starts AUTO")
+    assert(h.border==44 and api.hud.root.y==0 and not api.status().started,"bar starts at viewport top and reserves console space")
+    assert(api.hud.labels.party.w<150 and api.hud.labels.areas.x+api.hud.labels.areas.w<450,"menus keep compact natural widths")
+    assert(api.hud.labels.pause.x>850,"controls stay at the right edge")
+    assert(api.hud.labels.party.css:find("background:#181C26",1,true),"idle menus share the bar background")
+    local writes=h.border_writes;api.hud:render();assert(h.border_writes==writes,"unchanged border must not trigger resize loops")
+    api.hud:open("tactics");assert(api.hud.overlay.x==api.hud.labels.tactics.x,"dropdown anchors to its menu")
+    api.hud:open("settings");assert(api.hud.overlay.x+api.hud.overlay.w==h.width-8,"right dropdown fits the viewport")
     api.hud:open("party")
     for _,label in pairs(api.hud.labels) do
         if not label.widget.hidden then assert(not label.html:find("%%"),"party list must not duplicate health") end
@@ -52,6 +61,7 @@ do
     assert(api.status().started and api.status().elapsed==2)
     assert(api.hud.labels.badge.html:find("Jaskinie grimloków",1,true))
     assert(api.hud.labels.badge.html:find("00:00:02",1,true))
+    assert(api.hud.badge.y==56 and h.border>=api.hud.badge.y+api.hud.badge.h,"active label reserves its own console space")
     assert(not api.set_economy("alpha",false),"active profile editing is guarded")
     api.request("pauza");local elapsed=api.status().elapsed;h.advance(3)
     assert(api.status().elapsed==elapsed,"paused time is excluded")
@@ -66,6 +76,17 @@ do
     api.stop_all();h.dispose();assert(h.border==12,"original top margin restored on disposal")
     api.request("start");for _,timer in ipairs(h.timers) do timer.fn() end
     assert(not api.status().started,"disposed API and queued callbacks cannot restart")
+end
+do
+    local h=fixture(180);local api=h.api
+    assert(api.hud.root.y==0 and h.border==180,"existing margin never offsets the bar")
+    api.hud:visible(false);assert(h.border==180)
+    api.hud:visible(true);h.emit("sysWindowResizeEvent")
+    assert(api.hud.root.y==0 and h.border==180,"show and resize preserve the absolute top anchor")
+    h.saved.profiles.alpha.name=string.rep("Żółć",40)
+    h.width=320;api.request("start");h.advance(2.1)
+    assert(api.hud.labels.badge.html:find("00:00:02",1,true),"long terrain names cannot truncate the clock")
+    api.stop_all();h.dispose();assert(h.border==180)
 end
 do
     local h=fixture();local api=h.api
