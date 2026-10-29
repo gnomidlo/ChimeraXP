@@ -316,6 +316,7 @@ Geyser={
   function root:move(x,y)self.x,self.y=x,y end
   function root:resize(w,h)self.w,self.h=w,h end
   function root:hide()self.hidden=true end
+  function root:show()self.hidden=false end
   function root:delete()self.deleted=true end
   roots[#roots+1]=root
   return root
@@ -328,42 +329,31 @@ Geyser={
    function item:setStyleSheet(css)self.css=css end
    function item:echo(html)self.text=html end
    function item:delete()self.deleted=true end
+   function item:hide()self.hidden=true end
+   function item:show()self.hidden=false end
    function item:setClickCallback(cb)callbacks[self.name]=cb end
    labels[item.name]=item
    return item
  end}
 }
 cmd("exp")
-assert(#roots==1 and roots[1].w==650 and roots[1].h==495,
- "opening /exp should create responsive Geyser.Container")
-assert(callbacks["chimera_xp_ui.fold"],"fold button exists")
+assert(#roots==3 and roots[1].w==1000 and roots[1].h==40,
+ "opening /exp creates the compact bar, overlay and small run label")
+assert(api.hud.labels.party and api.hud.labels.areas and api.hud.labels.stop,"main controls exist")
 local oldcreated=created
 cmd("exp")
 assert(created==oldcreated,"rendering unchanged UI must reuse cached labels")
-cmd("exp okno rozmiar","440 380")
-assert(roots[1].w==440 and roots[1].h==380,
- "compact layout adapts container dimensions")
-assert(storage.geyser_ui.w==440,"window width must persist")
-assert(callbacks["chimera_xp_ui.fold"],"fold available in narrow layout")
-callbacks["chimera_xp_ui.fold"]()
-assert(roots[1].w==280 and roots[1].h==65,
- "mini must resize actual container and contents, not overlay it")
-assert(labels["chimera_xp_ui.compactStatus"] and not labels["chimera_xp_ui.compactStatus"].deleted,
- "mini retains clickable session status")
-assert(callbacks["chimera_xp_ui.miniDrag"] and moves["chimera_xp_ui.miniDrag"],
- "mini status and dragging must use separate hit targets")
-callbacks["chimera_xp_ui.miniDrag"]()
-mouse={145,140};moves["chimera_xp_ui.miniDrag"]()
-releases["chimera_xp_ui.miniDrag"]()
-assert(type(storage.geyser_ui.x)=="number","drag must save position")
-callbacks["chimera_xp_ui.expand"]()
-assert(roots[1].w==440 and roots[1].h==380,
- "expand restores chosen window dimensions")
--- Resume normal editable profile UI and preserve route on rename.
-cmd("exp okno rozmiar","650 495")
-callbacks["chimera_xp_ui.tab2"]()
-assert(callbacks["chimera_xp_ui.renamea"],"rename entry exists")
-callbacks["chimera_xp_ui.renamea"]()
+getMainWindowSize=function()return 320,400 end
+emit("sysWindowResizeEvent")
+assert(roots[1].w==320 and roots[1].h==40,"HUD adapts without a large floating window")
+cmd("exp hud","off");assert(roots[1].hidden,"HUD can be hidden")
+cmd("exp hud","on")
+api.hud:open("profiles")
+local renamed=false
+for _,item in pairs(api.hud.labels) do
+ if item.html and item.html:find("Zmień nazwę",1,true) then callbacks[item.widget.name]();renamed=true end
+end
+assert(renamed,"profile name editor exists")
 assert(world.input=="/exp nazwa ","rename should prefill command line")
 local previous=api.status().selected
 local rooms=#storage.profiles[previous].route
@@ -384,3 +374,4 @@ cmd("exp aktualizuj")
 assert(update_calls == 1,"/exp aktualizuj should invoke online updater")
 chimera_xp_updater = nil
 print("AutoExp 5: integration mock tests PASS; commands",#sent,"moves",#moves)
+

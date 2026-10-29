@@ -72,7 +72,7 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
   local api=P.setup(ctx)
   if configured_delay then
     commands["exp zarobek tempo"](tostring(configured_delay))
-    assert(profile.rules.economyCommandDelay==configured_delay,
+    assert(api.snapshot().profile.rules.economyCommandDelay==configured_delay,
         "economy tempo command persists the selected interval")
   end
   local delay=configured_delay or 0.7
@@ -100,8 +100,8 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
   end
   local base=0
   if automatic then
-    if two_corpses then profile.loot={"bronie","zbroje"} end
-    profile.economy={enabled=true}
+    if two_corpses then commands["exp lup dodaj"]("zbroje") end
+    assert(api.set_economy("test",true))
     if no_encumbrance then
       data.vitals.encumbrance=nil
     else
@@ -256,3 +256,4 @@ scenario(true,true,nil,false,true)
 scenario(true,true,nil,false,false,true)
 scenario(true,true,nil,false,false,false,true)
 scenario(true,true,nil,false,false,true,false,true)
+

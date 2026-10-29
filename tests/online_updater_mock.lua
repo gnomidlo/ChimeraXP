@@ -1,6 +1,6 @@
 -- Run from ChimeraXP repository root (Lua >= 5.1 compatible).
 local os_execute = os.execute
-local dir = "/tmp/chimera_xp_updater_smoke_" .. os.time()
+local dir = (TEST_TMP or "/tmp") .. "/chimera_xp_updater_smoke_" .. os.time()
 assert(os_execute('mkdir -p "' .. dir .. '"'))
 getMudletHomeDir = function() return dir end
 package.preload.lfs = function()
@@ -40,6 +40,15 @@ local function emit(name,...)
 end
 local manifest = contents('manifest.json')
 local plugin = contents('plugins/chimera_autoexp/init.lua')
+local original_version=assert(manifest:match('"version"%s*:%s*"([^"]+)"'))
+local function upgrade()
+    local previous=assert(manifest:match('"version"%s*:%s*"([^"]+)"'))
+    local prefix,beta=assert(previous:match('^(.*%-beta%.)(%d+)$'))
+    local next_version=prefix..(tonumber(beta)+1)
+    local pattern=previous:gsub('([^%w])','%%%1')
+    manifest=manifest:gsub(pattern,next_version)
+    plugin=plugin:gsub('(version%s*=%s*")'..pattern,function(head) return head..next_version end,1)
+end
 local missing=false
 local urls={}
 downloadFile=function(destination,url)
@@ -51,7 +60,7 @@ downloadFile=function(destination,url)
     local body
     if url:find('manifest.json',1,true) then body=manifest
     elseif url:find('plugins/chimera_autoexp/init.lua',1,true) then body=plugin
-    else error('Unexpected '+ url) end
+    else error('Unexpected '.. url) end
     local f=assert(io.open(destination,'wb'));f:write(body);f:close()
     emit('sysDownloadDone',destination,#body,url)
     return true
@@ -67,13 +76,12 @@ assert(U:check(true),'manual update request starts')
 assert(contents(target)==plugin,'noop update retains current source')
 assert(#urls==3,'no need to redownload source when already on version')
 -- A newer public release must replace plugin with a backup.
-manifest=manifest:gsub('0%.6%.0%-beta%.2','0.6.0-beta.3')
-plugin=plugin:gsub('version = "0%.6%.0%-beta%.2"','version = "0.6.0-beta.3"',1)
+upgrade()
 assert(U:check(true),'new release download')
 assert(contents(target)==plugin,'updated source')
 local old=io.popen('find "'..dir..'/ChimeraXP/backups" -type f | head -1')
 local backup=old:read('*l');old:close()
-assert(backup and contents(backup):find('version = "0.6.0-beta.2"',1,true),'backups work')
+assert(backup and contents(backup):find('version = "'..original_version..'"',1,true),'backups work')
 -- Network errors must not touch working code.
 missing=true
 assert(U:check(true),'offline check attempted')
@@ -81,9 +89,9 @@ assert(contents(target)==plugin,'offline update must preserve installed source')
 -- Unknown file in the plugin location must not be overwritten.
 missing=false
 local f=assert(io.open(target,'wb'));f:write('-- foreign package, not AutoExp');f:close()
-manifest=manifest:gsub('0%.6%.0%-beta%.3','0.6.0-beta.4')
-plugin=plugin:gsub('version = "0%.6%.0%-beta%.3"','version = "0.6.0-beta.4"',1)
+upgrade()
 assert(U:check(true),'foreign target check attempted')
 assert(contents(target)=='-- foreign package, not AutoExp','foreign file must not be touched')
 print('online-updater smoke tests PASS: initial install, noop, upgrade + backup, offline, foreign file',#urls)
 os_execute('rm -rf "'..dir..'"')
+
