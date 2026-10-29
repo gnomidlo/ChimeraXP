@@ -1,5 +1,14 @@
 # Zmiany
 
+## 0.7.0-beta.3 — jeden rząd i krótkie menu expowisk
+
+- Nazwa terenu, czas i zarobek mieszczą się w pasku obok przycisków sterowania; bez dodatkowego rzędu i marginesu konsoli.
+- Powtórne kliknięcie zakładki zamyka menu, także po wejściu w jego podmenu.
+- Przy Taktyce i Expowiskach kółka oznaczają wyłączenie (szare), pauzę (żółte) i włączenie (zielone).
+- Menu expowisk pokazuje trzy najbliższe osiągalne tereny według kosztu dojścia na mapie; pełna lista otwiera osobne okno z podziałem na strony.
+- Każdy teren zajmuje jeden wiersz z osobnym przełącznikiem zarobku. Przeliczanie odległości następuje przy otwarciu menu i zmianie lokacji, zamiast przy każdym odświeżeniu zegara.
+- Przycisk play uruchamia wybrany teren, pauza zatrzymuje czas, a kolejne play wznawia tę samą wyprawę.
+
 ## 0.7.0-beta.2 — położenie i wygląd HUD-u
 
 - Pasek przy górnej krawędzi obszaru Mudleta (`y=0`), niezależnie od wcześniejszego marginesu konsoli.

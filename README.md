@@ -1,25 +1,24 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.2** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.3** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy automatyczne Lua 5.1/5.4; zachowanie serwerowych komend i wygląd Qt/Geyser wymagają jeszcze próby w działającym Mudlecie.
 
 ## Zwięzły interfejs
 
 ```text
-[Drużyna i role ▾] [Taktyka WYŁ. ▾] [Expowiska ▾]      [Ⅱ] [■] [⚙]
-
-po uruchomieniu:
-● AutoEXP · Jaskinie grimloków · 00:24:18 · Zarobek
+[Drużyna i role ▾] [● Taktyka ▾] [● Expowiska ▾]    Jaskinie grimloków · 00:24:18 · Zarobek [Ⅱ] [■] [⚙]
 ```
 
 - **Drużyna i role:** obecne jednostki, Tank / Off tank / Standard / Asekuracja / Support, udział w automatyce, efektywne progi, limit przeciwników i preferencja ochrony. Pachołki mają dodatkowo zadanie: automatyczne, ochrona, wsparcie lub rezerwa.
-- **Expowiska:** zapisane tereny, trasy i osobny przełącznik auto-zarobku dla każdego profilu. Zmiana terenu wymaga STOP; zmianę auto-zarobku można wykonać także w pauzie.
-- **Mała etykieta:** nazwa rzeczywiście aktywnego profilu i czas działania, obejmujący patrol, walkę, regenerację i handel. Pauza zatrzymuje licznik, nowy start go zeruje. STOP chowa etykietę.
+- **Expowiska:** trzy najbliższe osiągalne tereny według mapy. Każdy zajmuje jeden wiersz z liczbą lokacji, kosztem dojścia i przełącznikiem zarobku. „Wszystkie expowiska…” otwiera osobne okno z pełną listą i stronami. Zmiana terenu wymaga STOP; zmianę auto-zarobku można wykonać także w pauzie.
+- **Stan wyprawy w pasku:** nazwa rzeczywiście aktywnego profilu i czas działania po prawej, obok sterowania, bez dodatkowego rzędu. Czas obejmuje patrol, walkę, regenerację i handel. Pauza zatrzymuje licznik, nowy start go zeruje. STOP chowa szczegóły wyprawy.
 - **Taktyka:** osobne włączenie AUTO, rozkazów graczom, rozkazów zbiorowych, masowej zasłony i wycofania w szyku. Podczas wyprawy manewry wykonywane są tylko w fazie walki; podczas ruchu, handlu i pauzy czekają.
 - **Ustawienia:** cele, unikane NPC, schronienie, progi powrotu, łupy, tempo handlu, mapowanie, import, sesja i komunikaty.
 
 HP drużyny pozostaje w osobnym oknie Kondycji. Dolny pasek i docki ChimeraVIP nie są przebudowywane. Rozwinięcia mają strony dla dużych drużyn i list terenów. Tekstowe nazwy uzupełnia się w linii komend, bez wykonywania kodu Lua z nazw.
+
+Ponowne kliknięcie zakładki zamyka jej menu. Kółka przy Taktyce i Expowiskach oznaczają: szare — wyłączone, żółte — pauza lub oczekiwanie taktyki na walkę, zielone — włączone. Play uruchamia wybrany teren, a po pauzie wznawia wyprawę.
 
 ## Instalacja i aktualizacja
 

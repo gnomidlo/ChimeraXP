@@ -337,8 +337,8 @@ Geyser={
  end}
 }
 cmd("exp")
-assert(#roots==3 and roots[1].w==1000 and roots[1].h==44,
- "opening /exp creates the compact bar, overlay and small run label")
+assert(#roots==2 and roots[1].w==1000 and roots[1].h==44,
+ "opening /exp creates the compact bar and dropdown without an extra run strip")
 assert(api.hud.labels.party and api.hud.labels.areas and api.hud.labels.stop,"main controls exist")
 local oldcreated=created
 cmd("exp")

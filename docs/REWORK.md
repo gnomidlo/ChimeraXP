@@ -17,7 +17,11 @@ Wydanie przenosi sprawdzany wcześniej patrol do osobnego modułu, łączy go z 
 
 ## Przepływ
 
-HUD jest zakotwiczony przy `y=0` głównego obszaru Mudleta. Górny margines służy wyłącznie do rezerwowania miejsca dla konsoli: większa z wartości poprzedniego marginesu i wysokości paska (44 px, opcjonalnie 52 px), powiększonej o 49 px podczas wyprawy. Nie dodajemy poprzedniego marginesu do współrzędnych Geyser. Menu mają zwarte szerokości i własne punkty zakotwiczenia, a prawa grupa przycisków pozostaje przy krawędzi.
+HUD jest zakotwiczony przy `y=0` głównego obszaru Mudleta. Górny margines służy wyłącznie do rezerwowania miejsca dla konsoli: większa z wartości poprzedniego marginesu i wysokości paska (44 px, opcjonalnie 52 px). Nazwa terenu i zegar znajdują się w tym samym rzędzie po prawej, obok sterowania; nie dodają marginesu. Przy małej szerokości skracamy podpisy zakładek i nazwę terenu, zachowując zegar. Menu mają zwarte szerokości i własne punkty zakotwiczenia. Powtórne kliknięcie zakładki zamyka również jej otwarte podmenu.
+
+Kółka przy Taktyce i Expowiskach oznaczają wyłączenie (szare), pauzę (żółte) i włączenie (zielone). Taktyka oczekująca na walkę podczas wyprawy również jest oznaczona na żółto. Szczegółowy powód pozostaje w menu Taktyka.
+
+Menu Expowiska pobiera przez `nearest_profiles(3)` trzy najbliższe osiągalne profile. Koszt to najkrótsze dojście do dowolnej znanej lokacji trasy według `walker.cost`, bez poruszania postacią. Nieznane i nieosiągalne tereny pozostają dostępne w osobnym oknie pełnej listy, posortowanym po nazwie i podzielonym na strony. Odległości buforujemy do zmiany lokacji lub ponownego otwarcia zakładki. Jeden wiersz obejmuje wybór terenu, liczbę lokacji, odległość i oddzielnie klikalny przełącznik zarobku; wybranie terenu nie uruchamia automatyki.
 
 Patrol wybiera cel i trasę. Taktyka podczas aktywnej wyprawy może działać tylko w fazie `COMBAT`; podczas ręcznej gry może pracować samodzielnie. Przejście do powrotu, handlu, ruchu albo pauzy odbiera jej możliwość nowych manewrów. UI i aliasy korzystają z tych samych walidowanych operacji.
 

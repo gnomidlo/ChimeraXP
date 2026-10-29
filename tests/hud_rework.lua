@@ -1,6 +1,6 @@
 local new=dofile("tests/support_harness.lua")
 local P=dofile("plugins/chimera_autoexp/init.lua")
-local function fixture(initial_border)
+local function fixture(initial_border,configure)
     local h=new();h.width=1000;h.height=700;h.border=initial_border or 12;h.labels={};h.roots={};h.created=0
     h.saved.profiles={
         alpha={name="Jaskinie grimloków",route={"rooma","safe"},targets={"Goblin"},avoid={},loot={},safeRoom="safe",rules={maxEnemies=5},economy={enabled=false}},
@@ -38,8 +38,81 @@ local function fixture(initial_border)
             h.labels[w.name]=w;return w
         end},
     }
+    if configure then configure(h) end
     h.api=P.setup(h.ctx)
     return h
+end
+local function visible_item(h,text)
+    for _,item in pairs(h.api.hud.labels) do
+        if not item.widget.hidden and item.html:find(text,1,true) then return item end
+    end
+end
+do
+    local h=fixture();local api=h.api
+    for _,name in ipairs({"party","tactics","areas","settings"}) do
+        api.hud.labels[name].widget.click();assert(api.hud.menu==name)
+        api.hud.labels[name].widget.click();assert(api.hud.menu==nil and api.hud.overlay.hidden,"second tab click closes its dropdown")
+    end
+    api.hud:open("settings");visible_item(h,"Walka i cele").widget.click()
+    api.hud.labels.settings.widget.click();assert(not api.hud.menu,"parent tab closes an open submenu")
+    assert(api.hud.labels.areas.html:find("#AEB6C5",1,true),"stopped expedition has a grey indicator")
+    assert(api.hud.labels.tactics.html:find("#AEB6C5",1,true),"disabled tactics have a grey indicator")
+    api.tactics.toggle(true)
+    assert(api.hud.labels.tactics.html:find("#A8DCC2",1,true),"enabled tactics have a green indicator")
+    api.hud.labels.pause.widget.click();assert(api.status().started,"play starts the selected terrain")
+    assert(api.hud.labels.areas.html:find("#A8DCC2",1,true))
+    api.hud.labels.pause.widget.click();assert(api.status().paused)
+    assert(api.hud.labels.areas.html:find("#EFD8A6",1,true) and api.hud.labels.tactics.html:find("#EFD8A6",1,true),"paused automation has yellow indicators")
+    assert(h.border==44 and #h.roots==2,"pause never adds a separate status strip")
+    api.hud.labels.pause.widget.click();assert(not api.status().paused)
+    api.stop_all();h.dispose()
+end
+do
+    local h=fixture(nil,function(h)
+        h.saved.profiles={};h.maproom=1;h.costcalls=0
+        for i=1,6 do h.saved.profiles["p"..i]={name="Teren "..i,route={"p"..i.."0"},targets={},avoid={},loot={},rules={},economy={enabled=false}} end
+        h.saved.profiles.p1.route={"p10","p11"};h.saved.selected="p1"
+        getRoomIDbyHash=function(hash) return tonumber(hash:match("^p(%d+)$")) or -1 end
+        local use=h.ctx.use
+        h.ctx.use=function(ctx,name)
+            if name=="mapper" then return {current_room=function() return h.maproom end} end
+            if name=="walker" then return {cost=function(from,to)
+                h.costcalls=h.costcalls+1
+                return ({[10]=20,[11]=2,[20]=1,[30]=5,[40]=4})[to]
+            end} end
+            return use(ctx,name)
+        end
+    end)
+    local api=h.api
+    api.hud:open("areas")
+    assert(visible_item(h,"Teren 2").y<visible_item(h,"Teren 1").y and visible_item(h,"Teren 1").y<visible_item(h,"Teren 4").y,"three nearest are sorted by the cheapest reachable route point")
+    assert(not visible_item(h,"Teren 3") and not visible_item(h,"Teren 5"),"dropdown excludes farther and unreachable areas")
+    local row=visible_item(h,"Teren 2");local economy=api.hud.labels.item1_economy
+    assert(economy.y==row.y and economy.x>=row.x+row.w,"economy action shares the terrain row")
+    economy.widget.click();assert(api.snapshot().profiles.p2.economy.enabled and not api.snapshot().profiles.p1.economy.enabled)
+    local calls=h.costcalls;api.hud:render();assert(h.costcalls==calls,"clock updates do not recompute all paths")
+    visible_item(h,"Wszystkie expowiska").widget.click()
+    assert(api.hud.catalog and not api.hud.catalog.hidden and api.hud.overlay.hidden,"full list opens a separate floating window")
+    assert(visible_item(h,"Teren 6"),"full list includes areas with unknown paths")
+    visible_item(h,"Teren 3").widget.click();assert(api.status().selected=="p3","full-list rows can select terrain")
+    api.hud.labels.catalog_menu_close.widget.click();assert(api.hud.catalog.hidden)
+    api.hud:open("areas");h.maproom=30;h.emit("chimera.room.changed")
+    assert(visible_item(h,"Teren 3").y<visible_item(h,"Teren 2").y,"nearest list updates after moving")
+    h.maproom=nil;h.emit("chimera.room.changed")
+    assert(visible_item(h,"Brak osiągalnych") and visible_item(h,"Wszystkie expowiska"),"unknown position keeps the full catalog accessible")
+    h.dispose();assert(api.hud.catalog.deleted,"floating catalog is cleaned up")
+end
+do
+    local h=fixture(nil,function(h)
+        for i=1,80 do h.saved.profiles["extra"..i]={name=string.format("Teren %03d",i),route={"safe"},rules={},economy={enabled=false}} end
+    end)
+    h.api.hud:open("areas");visible_item(h,"Wszystkie expowiska").widget.click()
+    assert(visible_item(h,"Teren 001") and not visible_item(h,"Teren 080"),"large catalogs render one page at a time")
+    local next_page=h.api.hud.labels.catalog_next
+    assert(next_page and not next_page.widget.hidden)
+    next_page.widget.click();assert(h.api.hud.page==2 and not visible_item(h,"Teren 001"))
+    local created=h.created;h.api.hud:render();assert(h.created==created,"catalog rows are reused")
+    h.dispose()
 end
 do
     local h=fixture();local api=h.api
@@ -61,7 +134,8 @@ do
     assert(api.status().started and api.status().elapsed==2)
     assert(api.hud.labels.badge.html:find("Jaskinie grimloków",1,true))
     assert(api.hud.labels.badge.html:find("00:00:02",1,true))
-    assert(api.hud.badge.y==56 and h.border>=api.hud.badge.y+api.hud.badge.h,"active label reserves its own console space")
+    assert(api.hud.badge.parent==api.hud.root and h.border==44,"active label belongs to the bar without extra console space")
+    assert(api.hud.badge.x+api.hud.badge.w<api.hud.labels.pause.x,"run details sit beside the controls")
     assert(not api.set_economy("alpha",false),"active profile editing is guarded")
     api.request("pauza");local elapsed=api.status().elapsed;h.advance(3)
     assert(api.status().elapsed==elapsed,"paused time is excluded")
@@ -86,6 +160,12 @@ do
     h.saved.profiles.alpha.name=string.rep("Żółć",40)
     h.width=320;api.request("start");h.advance(2.1)
     assert(api.hud.labels.badge.html:find("00:00:02",1,true),"long terrain names cannot truncate the clock")
+    for _,width in ipairs({320,500,700,1000}) do
+        h.width=width;h.emit("sysWindowResizeEvent")
+        local terrain=api.hud.labels.badge;local areas=api.hud.labels.areas
+        assert(terrain.x>=areas.x+areas.w and terrain.x+terrain.w<api.hud.labels.pause.x,"inline run details do not overlap menus or controls")
+        assert(terrain.y+terrain.h<=api.hud.root.h and h.border==180,"run details stay within the existing bar")
+    end
     api.stop_all();h.dispose();assert(h.border==180)
 end
 do

@@ -6,6 +6,7 @@ local function esc(v) return tostring(v or ""):gsub("&","&amp;"):gsub("<","&lt;"
 local function short(v,n)
     local chars={};for c in tostring(v or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do chars[#chars+1]=c end
     if #chars<=n then return table.concat(chars) end
+    if n<=1 then return "…" end
     local out={};for i=1,math.max(1,n-1) do out[#out+1]=chars[i] end;return table.concat(out).."…"
 end
 local function clock(n) n=math.max(0,math.floor(tonumber(n) or 0));return string.format("%02d:%02d:%02d",math.floor(n/3600),math.floor(n%3600/60),n%60) end
@@ -65,7 +66,10 @@ function H.new(ctx,patrol,tactics,stop)
         if self.destroyed then return end
         if not available() then return false end
         self.shown=true;save()
-        self.menu=self.menu==name and nil or name;self.page=1
+        -- An `and nil or name` expression cannot close a Lua menu.
+        if self.menu==name or (self.menu and self.anchor==name) then self.menu=nil else self.menu=name end
+        self.page=1
+        if name=="areas" then self.nearby=nil end
         if name=="party" or name=="tactics" or name=="areas" or name=="settings" then self.anchor=name end
         if name~="member" and name~="roles" and name~="targets" then self.selected=nil end
         self:render()
@@ -133,22 +137,36 @@ function H.new(ctx,patrol,tactics,stop)
             end
             add("Stan: "..ts.phase,nil,P.muted)
             note=ts.detail
-        elseif self.menu=="areas" then
-            title="Expowiska i auto-zarobek"
-            local profiles={};for key,v in pairs(snap.profiles) do profiles[#profiles+1]={key=key,value=v} end
-            table.sort(profiles,function(a,b) return a.value.name<b.value.name end)
+        elseif self.menu=="areas" or self.menu=="allareas" then
+            local all=self.menu=="allareas"
+            title=all and "Wszystkie expowiska" or "Najbliższe expowiska"
+            local profiles={}
+            if all then
+                for key,v in pairs(snap.profiles) do profiles[#profiles+1]={key=key,value=v} end
+                table.sort(profiles,function(a,b)
+                    if a.value.name~=b.value.name then return a.value.name<b.value.name end
+                    return a.key<b.key
+                end)
+            else
+                if not self.nearby then self.nearby=patrol.nearest_profiles(3) end
+                for _,near in ipairs(self.nearby) do
+                    if snap.profiles[near.key] then profiles[#profiles+1]={key=near.key,value=snap.profiles[near.key],cost=near.cost} end
+                end
+            end
             for _,entry in ipairs(profiles) do
                 local key,name=entry.key,entry.value.name
-                add((st.selected==key and "● " or "○ ")..name.." · "..#entry.value.route.." lok.",function()
+                add((st.selected==key and "● " or "○ ")..name.." · "..#entry.value.route.." lok."..(entry.cost and " · "..entry.cost.." kr." or ""),function()
                     if st.started then ctx.log.warn("Zatrzymaj AutoEXP przed zmianą terenu.") else request("wybierz",name) end
                 end)
                 local earn=entry.value.economy and entry.value.economy.enabled
-                add(name.." · Zarobek: "..(earn and "WŁ." or "WYŁ."),function() patrol.set_economy(key,not earn);self:render() end,earn and P.mint or P.muted)
+                items[#items].economy={enabled=earn,fn=function() patrol.set_economy(key,not earn);self:render() end}
             end
-            if #profiles==0 then add("Mapuj nowe expowisko…",function() prefill("mapuj ") end) end
-            add(st.started and (st.paused and "▶ Wznów AutoEXP" or "Ⅱ Wstrzymaj AutoEXP") or "▶ Uruchom AutoEXP",function() request(st.started and (st.paused and "wznow" or "pauza") or "start") end,P.mint)
-            add("■ Zatrzymaj automatykę",stop,P.rose)
-            note="Teren zmienisz po STOP; auto-zarobek również w pauzie."
+            if #profiles==0 then add(all and "Brak zapisanych terenów." or "Brak osiągalnych terenów na mapie.",nil,P.muted) end
+            if not all then
+                add("Wszystkie expowiska…",function() self.menu="allareas";self.page=1;self:render() end,P.lavender)
+                add(st.started and (st.paused and "▶ Wznów AutoEXP" or "Ⅱ Wstrzymaj AutoEXP") or "▶ Uruchom AutoEXP",function() request(st.started and (st.paused and "wznow" or "pauza") or "start") end,P.mint)
+            end
+            note="Kliknij teren, aby wybrać. Zarobek przełączysz obok nazwy."
         elseif self.menu=="settings" then
             title="Ustawienia ChimeraXP"
             for _,entry in ipairs({{"combat","Walka i cele"},{"safety","Schronienie i powrót"},{"loot","Łupy"},{"trade","Auto-zarobek"},{"profiles","Zarządzanie terenami"},{"session","Sesja i komunikaty"}}) do
@@ -214,7 +232,7 @@ function H.new(ctx,patrol,tactics,stop)
     local function draw()
         if self.destroyed then return end
         if not self.shown then
-            if self.root then self.root:hide();self.overlay:hide();self.badge:hide() end
+            if self.root then self.root:hide();self.overlay:hide();if self.catalog then self.catalog:hide() end end
             release();return
         end
         if not available() then return end
@@ -224,84 +242,100 @@ function H.new(ctx,patrol,tactics,stop)
             ctx.log.warn("Inny dodatek zmienił górny margines. HUD ChimeraXP ukryty; /exp hud on przywraca pasek.")
             patrol.pause("Konflikt układu HUD: przejmij sterowanie.")
             tactics.stop("Konflikt układu HUD.")
-            if self.root then self.root:hide();self.overlay:hide();self.badge:hide() end
+            if self.root then self.root:hide();self.overlay:hide();if self.catalog then self.catalog:hide() end end
             release();return
         end
         if not self.root then
             before=border()
             self.root=Geyser.Container:new({name=prefix.."bar",x=0,y=0,width="100%",height=height})
             self.overlay=Geyser.Container:new({name=prefix.."overlay",x=0,y=height,width=w,height=1})
-            self.badge=Geyser.Container:new({name=prefix.."run",x=8,y=height+12,width=math.max(1,math.min(420,w-16)),height=29})
         end
         local snap=patrol.snapshot();local st=snap.status;local ts=tactics.status();local rows=tactics.rows()
         if type(setBorderTop)=="function" then
             if not owned then before=border() end
             -- The border reserves console space; it is not a Geyser y offset.
-            owned=math.max(before or 0,height+(st.started and 49 or 0))
+            owned=math.max(before or 0,height)
             if border()~=owned then setBorderTop(owned) end
         end
         self.root:move(0,0);self.root:resize(w,height)
         self.used={}
         widget("background",self.root,0,0,w,height,"",P.text,P.bg)
-        local small=w<500;local cw=settings.large and 36 or 32
+        local small=w<500;local tight=st.started and w<700;local cw=settings.large and 36 or 32
         cw=math.min(cw,math.max(3,math.floor(w*.09)))
         local right=w-8-cw*3;local y=5;local bh=height-10
-        local widths=small and {83,84,58} or {128,132,104}
+        local widths=tight and {28,40,44} or small and {83,90,72} or {128,110,120}
         local scale=math.min(1,math.max(0.01,(right-20)/(widths[1]+widths[2]+widths[3])))
         local x=8
-        local function nav(key,text,tint,width)
+        local function nav(key,text,tint,width,indicator)
             width=math.max(1,math.floor(width*scale))
-            widget(key,self.root,x,y,width,bh,text,tint,self.menu and self.anchor==key and P.raised or P.bg,function() self:open(key) end)
+            local html=indicator and "<font color='"..indicator.."'>●</font> <font color='"..P.text.."'>"..esc(text).."</font>" or nil
+            widget(key,self.root,x,y,width,bh,text,tint,self.menu and self.anchor==key and P.raised or P.bg,function() self:open(key) end,html)
             x=x+width+4
         end
-        nav("party",small and "Drużyna ▾" or "Drużyna i role ▾",P.text,widths[1])
-        nav("tactics",small and "Taktyka ▾" or "Taktyka "..(ts.on and "AUTO" or "WYŁ.").." ▾",ts.on and P.mint or P.muted,widths[2])
-        nav("areas",small and "EXP ▾" or "Expowiska ▾",P.text,widths[3])
-        widget("pause",self.root,right,y,cw-3,bh,st.paused and "▶" or "Ⅱ",P.muted,P.bg,function() request(st.paused and "wznow" or "pauza") end)
+        local xpcolor=not st.started and P.muted or st.paused and P.yellow or P.mint
+        local tacticscolor=not ts.on and P.muted or (st.started and st.paused or ts.phase=="WSTRZYMANA") and P.yellow or P.mint
+        nav("party",tight and "D ▾" or small and "Drużyna ▾" or "Drużyna i role ▾",P.text,widths[1])
+        nav("tactics",tight and "T ▾" or "Taktyka ▾",P.text,widths[2],tacticscolor)
+        nav("areas",small and "EXP ▾" or "Expowiska ▾",P.text,widths[3],xpcolor)
+        widget("pause",self.root,right,y,cw-3,bh,(not st.started or st.paused) and "▶" or "Ⅱ",P.muted,P.bg,function() request(not st.started and "start" or st.paused and "wznow" or "pauza") end)
         widget("stop",self.root,right+cw,y,cw-3,bh,"■",P.rose,"#392A35",stop)
         widget("settings",self.root,right+cw*2,y,cw-3,bh,"⚙",P.muted,self.menu and self.anchor=="settings" and P.raised or P.bg,function() self:open("settings") end)
         if st.started then
             local name=snap.profile and snap.profile.name or "Brak terenu"
             local earn=snap.profile and snap.profile.economy and snap.profile.economy.enabled
-            local lead=st.paused and "Ⅱ PAUZA" or st.dry and "TEST" or "● AutoEXP"
-            local suffix=earn and not small and " · Zarobek" or ""
+            local suffix=earn and w>=900 and " · Zarobek" or ""
             local charwidth=settings.large and 8 or 7
             local _,namechars=name:gsub("[%z\1-\127\194-\244][\128-\191]*","")
-            local width=math.max(1,math.min(w-16,(namechars+#lead+#suffix+17)*charwidth))
-            local clipped=short(name,math.max(1,math.floor(width/charwidth)-#lead-#suffix-17))
+            local width=math.max(1,math.min(right-x-8,(namechars+#suffix+13)*charwidth))
+            local clipped=short(name,math.max(1,math.floor(width/charwidth)-#suffix-13))
             local tint=st.paused and P.yellow or P.mint
-            local html="<font color='"..tint.."'>"..esc(lead).."</font><font color='"..P.text.."'> · "..esc(clipped).." · </font><font face='Consolas' color='"..tint.."'>"..clock(st.elapsed).."</font><font color='"..P.muted.."'>"..esc(suffix).."</font>"
-            self.badge:move(8,height+12);self.badge:resize(width,29)
-            widget("badge",self.badge,0,0,width,29,"",tint,st.paused and "#302B24" or "#202D2B",function() self:open("session") end,html)
-            self.badge:show()
-        else self.badge:hide() end
+            local html="<font color='"..P.text.."'>"..esc(clipped).." · </font><font face='Consolas' color='"..tint.."'>"..clock(st.elapsed).."</font><font color='"..P.muted.."'>"..esc(suffix).."</font>"
+            widget("badge",self.root,right-width-8,y,width,bh,"",tint,P.bg,function() self:open("session") end,html)
+            self.badge=self.labels.badge.widget
+        end
         if self.menu then
             local items,title,note=items_for(snap,rows,ts)
-            local mw=math.max(1,math.min(470,w-16));local rowh=settings.large and 32 or 27
+            local catalog=self.menu=="allareas"
+            local mw=math.max(1,math.min(catalog and 700 or 540,w-16));local rowh=settings.large and 32 or 27
             local capacity=math.max(1,math.floor((h-height-96)/rowh))
             local pages=math.max(1,math.ceil(#items/capacity));self.page=math.min(self.page,pages)
             local first=(self.page-1)*capacity+1;local last=math.min(#items,first+capacity-1)
             local mh=math.min(math.max(1,h-height-8),64+math.max(0,last-first+1)*rowh+(pages>1 and 27 or 0))
             local anchor=self.labels[self.anchor or "party"]
             local mx=math.max(8,math.min(anchor and anchor.x or 8,w-mw-8))
-            self.overlay:move(mx,height+5);self.overlay:resize(mw,mh)
-            widget("menu_bg",self.overlay,0,0,mw,mh,"",P.text,P.panel)
-            widget("menu_title",self.overlay,8,3,mw-42,25,title,P.lavender,P.panel)
-            widget("menu_close",self.overlay,mw-30,3,23,25,"×",P.muted,P.panel,function() self.menu=nil;self:render() end)
+            if catalog and not self.catalog then self.catalog=Geyser.Container:new({name=prefix.."catalog",x=0,y=0,width=mw,height=mh}) end
+            local panel=catalog and self.catalog or self.overlay
+            if catalog then self.overlay:hide();mx=math.max(8,math.floor((w-mw)/2)) elseif self.catalog then self.catalog:hide() end
+            panel:move(mx,catalog and math.max(height+8,math.floor((h-mh)/2)) or height+5);panel:resize(mw,mh)
+            local function menu_widget(key,xx,yy,ww,hh,text,tint,bg,fn)
+                widget((catalog and "catalog_" or "")..key,panel,xx,yy,ww,hh,text,tint,bg,fn)
+            end
+            menu_widget("menu_bg",0,0,mw,mh,"",P.text,P.panel)
+            menu_widget("menu_title",8,3,mw-42,25,title,P.lavender,P.panel)
+            menu_widget("menu_close",mw-30,3,23,25,"×",P.muted,P.panel,function() self.menu=nil;self:render() end)
             local yy=31
             for index=first,last do
                 local item=items[index];local fn=item.fn
-                if yy+rowh<=mh then widget("item"..(index-first+1),self.overlay,8,yy,mw-16,rowh-3,short(item.text,math.max(1,math.floor((mw-22)/6))),item.tint,P.raised,fn);yy=yy+rowh end
+                if yy+rowh<=mh then
+                    local key="item"..(index-first+1)
+                    local ew=item.economy and (settings.large and 124 or 110) or 0
+                    local mainw=mw-16-(ew>0 and ew+3 or 0)
+                    menu_widget(key,8,yy,mainw,rowh-3,short(item.text,math.max(1,math.floor((mainw-8)/(settings.large and 8 or 7)))),item.tint,P.raised,fn)
+                    if item.economy then
+                        menu_widget(key.."_economy",mw-8-ew,yy,ew,rowh-3,"Zarobek: "..(item.economy.enabled and "WŁ." or "WYŁ."),item.economy.enabled and P.mint or P.muted,P.raised,item.economy.fn)
+                    end
+                    yy=yy+rowh
+                end
             end
             if pages>1 and yy+26<=mh then
-                widget("previous",self.overlay,8,yy,30,24,"‹",P.text,nil,function() self.page=math.max(1,self.page-1);self:render() end)
-                widget("page",self.overlay,42,yy,mw-84,24,self.page.." / "..pages,P.muted,P.panel)
-                widget("next",self.overlay,mw-38,yy,30,24,"›",P.text,nil,function() self.page=math.min(pages,self.page+1);self:render() end)
+                menu_widget("previous",8,yy,30,24,"‹",P.text,nil,function() self.page=math.max(1,self.page-1);self:render() end)
+                menu_widget("page",42,yy,mw-84,24,self.page.." / "..pages,P.muted,P.panel)
+                menu_widget("next",mw-38,yy,30,24,"›",P.text,nil,function() self.page=math.min(pages,self.page+1);self:render() end)
                 yy=yy+27
             end
-            if yy+25<=mh then widget("note",self.overlay,8,yy,mw-16,24,short(note or "",math.max(1,math.floor((mw-22)/5.5))),P.muted,P.panel) end
-            self.overlay:show();if type(self.overlay.raiseAll)=="function" then self.overlay:raiseAll() end
-        else self.overlay:hide() end
+            if yy+25<=mh then menu_widget("note",8,yy,mw-16,24,short(note or "",math.max(1,math.floor((mw-22)/5.5))),P.muted,P.panel) end
+            panel:show();if type(panel.raiseAll)=="function" then panel:raiseAll() end
+        else self.overlay:hide();if self.catalog then self.catalog:hide() end end
         for key,item in pairs(self.labels) do if not self.used[key] and type(item.widget.hide)=="function" then item.widget:hide() end end
         self.root:show()
     end
@@ -315,10 +349,11 @@ function H.new(ctx,patrol,tactics,stop)
     ctx:on("sysWindowResizeEvent",function() self:render() end)
     ctx:on("chimera.group.state",function() self:render() end)
     ctx:on("chimera.room.entities",function() self:render() end)
+    ctx:on("chimera.room.changed",function() self.nearby=nil;self:render() end)
     ctx:cleanup(function()
         self.destroyed=true;release()
         for _,item in pairs(self.labels) do pcall(function() if item.widget.delete then item.widget:delete() elseif type(deleteLabel)=="function" then deleteLabel(item.widget.name) end end) end
-        for _,container in ipairs({self.root,self.overlay,self.badge}) do if container then pcall(function() container:hide();if container.delete then container:delete() end end) end end
+        for _,container in ipairs({self.root,self.overlay,self.catalog}) do if container then pcall(function() container:hide();if container.delete then container:delete() end end) end end
     end)
     self:render()
     return self
