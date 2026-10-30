@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.3** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.5** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy automatyczne Lua 5.1/5.4; zachowanie serwerowych komend i wygląd Qt/Geyser wymagają jeszcze próby w działającym Mudlecie.
 
@@ -73,9 +73,11 @@ Przebudowany wykonawca:
 - oddziela wysłanie, potwierdzenie w GMCP i brak wyniku;
 - zachowuje lokalne odstępy manewrów i ograniczenie odwracania świeżego przydziału;
 - odrzuca wyłączonych Supportów jako automatycznie wybierany punkt odniesienia dla tanka;
-- oddaje kanał postaci po ręcznym manewrze i kanały pachołków po zewnętrznym parozkazie;
+- oddaje kanał postaci po ręcznym manewrze; ręczny rozkaz pachołka wstrzymuje odpowiednie działanie na 15 s, bez wyłączania jego automatyki;
 - rozkazy graczom uzależnia od prowadzenia; rozkazy zbiorowe są domyślnie wyłączone;
 - nie uruchamia AUTO po rozłączeniu, przeładowaniu ani imporcie ustawień.
+
+Pachołki z zadaniem Automatycznie wyrównują swój cel do aktualnego wrogiego celu postaci, jeżeli już walczą z innym przeciwnikiem. Ochrona i osłony mają wyższy priorytet. Ręczny rozkaz ataku chwilowo wstrzymuje zmianę celu danego pachołka, ale pozostawia możliwość osłony; ręczna osłona nie blokuje wsparcia celu. Gdy adresata nie da się ustalić, przerwa obejmuje oba pachołki. Rozkazy dotyczące ekwipunku lub stanu nie wyłączają automatyki. Wspólny atak całej drużyny wymaga prowadzenia oraz włączenia „Rozkazy graczom” i „Rozkazy zbiorowe”; obejmuje tylko już walczących, gotowych uczestników.
 
 „Wycofanie w szyku” to manewr w bieżącej lokacji, a „powrót do schronienia” to osobna operacja ruchu XP. Rola nie jest pomiarem pancerza ani obrażeń. Zasady nadal opierają się na procentach HP, liczbie napastników i zadeklarowanej polityce; szczegóły i ograniczenia opisuje [projekt reworku](docs/REWORK.md).
 

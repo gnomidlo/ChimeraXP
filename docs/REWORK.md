@@ -27,9 +27,13 @@ Patrol wybiera cel i trasę. Taktyka podczas aktywnej wyprawy może działać ty
 
 To celowo mały koordynator zakresów działania, a nie ogólny menedżer wszystkich skryptów Mudleta. Nie przechwytuje `_G.send`. Obce automaty muszą być wyłączone, gdy wykryty konflikt uniemożliwia zachowanie jednego właściciela ruchu lub celu.
 
-Taktyka ma jedną próbę w toku. Zbiorowa komenda nadal może objąć kilka osób, ale rezerwuje odpowiednie lokalne kanały. Brak potwierdzenia nie oznacza sukcesu. Wygaśnięcie oczekiwania nie zeruje odstępu manewru. Zewnętrzny manewr postaci wyłącza jej kanał, zewnętrzny parozkaz wyłącza oba kanały pachołków; ponowne zezwolenie ustawia się w menu jednostki.
+Taktyka ma jedną próbę w toku. Zbiorowa komenda nadal może objąć kilka osób, ale rezerwuje odpowiednie lokalne kanały. Brak potwierdzenia nie oznacza sukcesu. Wygaśnięcie oczekiwania nie zeruje odstępu manewru. Zewnętrzny manewr postaci wyłącza jej kanał; ponowne zezwolenie ustawia się w menu jednostki. Ręczne rozkazy pachołków nie wyłączają ich kanałów: wprowadzają 15 s przerwy dla osłony albo koncentracji celu. Adresat jest rozpoznawany po bieżącym ID lub jednoznacznej nazwie; nierozpoznany adresat blokuje chwilowo oba pachołki. Rozkaz zbiorowy rezerwuje również wspólny kanał rozkazów. Polecenia ekwipunku i stanu nie tworzą blokady taktycznej. Własne rozkazy wykonawcy nie są rozpoznawane jako ręczne.
+
+W zadaniu Automatycznie pachołek już walczący z innym wrogim NPC wspiera aktualny cel postaci przez `parozkaz ID wesprzyj`. Nie rozpoczyna to walki bezczynnego pachołka; jawne zadanie Wspieraj mój cel zachowuje dotychczasową zgodę na rozpoczęcie wsparcia. Osłony wyprzedzają koncentrację. Wymagane są bieżące dane PvE, zdrowie i gotowość uczestników. Wspólny atak drużyny nadal wymaga opcji `team_orders` i `team_broadcast`, prowadzenia i gotowości wszystkich adresatów; gdy nie jest dozwolony, bezpieczne wsparcie pojedynczego pachołka pozostaje dostępne. Potwierdzenie koncentracji pochodzi z relacji walki, a nie z samego wysłania rozkazu.
 
 ## Dane i stan
+
+Po zakończeniu walki brak przeciwnika nie dowodzi pozostawienia ciała. W trybie zarobkowym liczymy fizyczne ciała. Odpowiedź „Nie widzisz tu niczego takiego.” jest traktowana jako zero wyłącznie podczas aktywnego oczekiwania na własne `policz ciala`, w tej samej lokacji. Po odejściu przeciwnika bez ciała nie wykonujemy `wez ... z N. ciala`; standardowe odkładanie uszkodzonego sprzętu i oczekiwanie na wagę pozostają częścią zakończenia cyklu. Brak odpowiedzi przez 5 s nadal pauzuje automat.
 
 - `snapshot()` zwraca kopię profili, wybranego profilu, sesji i logu. Widok nie otrzymuje mutowalnych tabel silnika.
 - `request(name, arg)` wywołuje zarejestrowaną operację patrolu i respektuje jej walidację; stare aliasy pozostają obsługiwane.
