@@ -2,6 +2,16 @@
 
 **0.7.0-beta.5** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
+## Szybka instalacja w Mudlecie
+
+W profilu z zainstalowaną oficjalną Chimerą **5.x** wklej do linii poleceń Mudleta:
+
+```lua
+lua installPackage("https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/packages/ChimeraXP.xml")
+```
+
+Po zakończeniu pobierania wykonaj `/przeladuj`, a następnie `/exp`, aby otworzyć menu expowisk. Pakiet pobiera aktualną wersję z gałęzi `main` i sprawdza aktualizacje przy uruchomieniu profilu. Ręcznie sprawdzisz je poleceniem `/exp aktualizuj`.
+
 Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy automatyczne Lua 5.1/5.4; zachowanie serwerowych komend i wygląd Qt/Geyser wymagają jeszcze próby w działającym Mudlecie.
 
 ## Zwięzły interfejs
@@ -22,9 +32,7 @@ Ponowne kliknięcie zakładki zamyka jej menu. Kółka przy Taktyce i Expowiskac
 
 ## Instalacja i aktualizacja
 
-Z pobranego repozytorium uruchom `install.cmd`, wybierz katalog profilu Mudleta, a następnie w Mudlecie wykonaj `/przeladuj`.
-
-Publiczny bootstrap znajduje się w `packages/ChimeraXP.xml`; po importowaniu pobiera aktualne wydanie z gałęzi `main`. **Przed scaleniem gałęzi rework do main bootstrap online nadal instaluje dotychczasową wersję.** Do testowania pull requestu użyj instalacji lokalnej z jego plików.
+Najprościej użyć komendy z sekcji „Szybka instalacja w Mudlecie” powyżej — bez pobierania repozytorium. Alternatywnie z pobranego repozytorium uruchom `install.cmd`, wybierz katalog profilu Mudleta, a następnie w Mudlecie wykonaj `/przeladuj`.
 
 Zachowano jednoplikowy format instalacji. Kod z `src/chimeraxp/` jest łączony przez `build.py` w samowystarczalny `plugins/chimera_autoexp/init.lua`; instalator nie musi pobierać dodatkowych modułów. `manifest.json` zawiera SHA-256 tego pliku.
 
@@ -32,7 +40,7 @@ Przed migracją:
 
 1. Zatrzymaj `/exp stop` oraz `/tng off` i wykonaj kopię profilu Mudleta.
 2. Wyłącz stary instalator XML AutoExp. Wyłącz oddzielną wtyczkę Tacticus NG, przenosząc jej katalog poza `chimera_wtyczki`; pozostaw zapisane ustawienia. Samo zamknięcie okna nie wyłącza wtyczki.
-3. Zainstaluj nowe ChimeraXP lokalnie i wykonaj `/przeladuj`.
+3. Zainstaluj ChimeraXP powyższą komendą lub lokalnym instalatorem i wykonaj `/przeladuj`.
 4. Sprawdź role w Drużyna i role, profil terenu, schronienie i ustawienia handlu. Dopiero potem włącz wybrane automaty.
 
 Nie usuwamy automatycznie obcych katalogów ani poprzednich ustawień. Aktywny stary Tacticus blokuje uruchomienie nowej automatyki. Ustawienia Tacticus NG są kopiowane do konfiguracji ChimeraXP tylko przy pierwszym uruchomieniu, jeżeli oficjalny magazyn udostępnia poprzedni zapis. Stan AUTO nie jest importowany.
