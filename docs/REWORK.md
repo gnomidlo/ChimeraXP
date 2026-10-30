@@ -33,6 +33,8 @@ W zadaniu Automatycznie pachołek już walczący z innym wrogim NPC wspiera aktu
 
 ## Dane i stan
 
+Po zakończeniu walki brak przeciwnika nie dowodzi pozostawienia ciała. W trybie zarobkowym liczymy fizyczne ciała. Odpowiedź „Nie widzisz tu niczego takiego.” jest traktowana jako zero wyłącznie podczas aktywnego oczekiwania na własne `policz ciala`, w tej samej lokacji. Po odejściu przeciwnika bez ciała nie wykonujemy `wez ... z N. ciala`; standardowe odkładanie uszkodzonego sprzętu i oczekiwanie na wagę pozostają częścią zakończenia cyklu. Brak odpowiedzi przez 5 s nadal pauzuje automat.
+
 - `snapshot()` zwraca kopię profili, wybranego profilu, sesji i logu. Widok nie otrzymuje mutowalnych tabel silnika.
 - `request(name, arg)` wywołuje zarejestrowaną operację patrolu i respektuje jej walidację; stare aliasy pozostają obsługiwane.
 - `set_economy(key, enabled)` zmienia tylko dany profil, gdy wyprawa jest zatrzymana lub w pauzie.

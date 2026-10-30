@@ -1,5 +1,11 @@
 # Zmiany
 
+## 0.7.0-beta.5 — przeciwnik odszedł bez pozostawienia ciała
+
+- Odpowiedź „Nie widzisz tu niczego takiego.” na własne `policz ciala` oznacza zero ciał; po standardowym sprzątaniu automat kontynuuje patrol zamiast pauzować po 5 s.
+- Obsługa działa wyłącznie podczas oczekiwania na liczbę ciał w bieżącej lokacji, przy aktywnej i niewstrzymanej wyprawie. Nie zmienia już potwierdzonej liczby ciał ani nie wznawia automatu po STOP.
+- Brak odpowiedzi nadal powoduje pauzę; testy obejmują odejście przeciwnika, wznowienie patrolu, odpowiedzi niepowiązane, duplikaty, zmianę lokacji i STOP.
+
 ## 0.7.0-beta.4 — koncentracja celu i ręczne rozkazy
 
 - Pachołki w zadaniu Automatycznie wyrównują cel do postaci, gdy już walczą z innym wrogim NPC. Osłony zachowują wyższy priorytet.
