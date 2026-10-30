@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.3",
+    version = "0.7.0-beta.4",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1433,7 +1433,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.3 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.4 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1559,7 +1559,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.3"},
+                {"Wersja", "0.7.0-beta.4"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},

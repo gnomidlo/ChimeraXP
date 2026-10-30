@@ -88,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.3",
+    version = "0.7.0-beta.4",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1437,7 +1437,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.3 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.4 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1563,7 +1563,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.3"},
+                {"Wersja", "0.7.0-beta.4"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -2676,9 +2676,14 @@ function M.plan(s,c,enabled,blocked,focus)
                 end
             elseif task=="self" then cover(ch,actor,me,95,"Pachołek "..i..": ochrona postaci.",false)
             elseif task=="protect" and s.members[p.target_id] and (not p.target_name or s.members[p.target_id].name==p.target_name) then cover(ch,actor,p.target_id,95,"Pachołek "..i..": ochrona wskazanej osoby.",false)
-            elseif task=="support" and not unavailable(ch,"support") then
+            end
+            if (p.task=="auto" or task=="support") and not focus and not unavailable(ch,"support") then
                 local target=s.targets[me]
-                if target and s.enemies[target] and s.targets[actor]~=target and s.minions[actor].hp>=M.policy(s,c,actor).min_hp then
+                if target and s.enemies[target] and s.enemies[target].relation=="hostile"
+                    and s.targets[actor]~=target and not s.minions[actor].casting and not s.members[me].casting
+                    and ready_member(s.members[me]) and s.members[me].hp>=M.policy(s,c,me).min_hp
+                    and (p.task=="support" or (s.targets[actor] and s.enemies[s.targets[actor]]))
+                    and s.minions[actor].hp>=M.policy(s,c,actor).min_hp then
                     out[#out+1]={channel=ch,actor=actor,enemy=target,kind="support",priority=40,room=s.room,
                         reason="Pachołek "..i..": wsparcie celu postaci."}
                 end
@@ -2733,7 +2738,7 @@ function M.plan(s,c,enabled,blocked,focus)
                     recipients=recipients,before_targets=enemies,reason="Drużyna: wspólna osłona "..s.members[protected].name.."."}
             end
         end
-        local target=s.targets[me];local recipients={};local safe=target and s.enemies[target] and s.enemies[target].relation=="hostile"
+        local target=s.targets[me];local recipients={};local safe=not unavailable(4,"support") and target and s.enemies[target] and s.enemies[target].relation=="hostile"
         local mismatch=false
         for _,id in ipairs(ordered(s.members)) do
             local m=s.members[id]
@@ -2741,12 +2746,12 @@ function M.plan(s,c,enabled,blocked,focus)
             if id~=me then
                 recipients[#recipients+1]=id
                 -- Only align units already fighting; do not start combat for idle companions.
-                if not s.targets[id] then safe=false end
+                if not s.targets[id] or not s.enemies[s.targets[id]] then safe=false end
                 if s.targets[id]~=target then mismatch=true end
             end
         end
-        if safe and mismatch and #recipients>1 then
-            out[#out+1]={channel=4,actor=me,enemy=target,kind="team_attack",priority=35,room=s.room,
+        if safe and mismatch and #recipients>0 then
+            out[#out+1]={channel=4,actor=me,enemy=target,kind="team_attack",priority=45,room=s.room,
                 recipients=recipients,reason="Drużyna: wspólny cel walki."}
         end
     end
@@ -2803,6 +2808,33 @@ function M.confirmed(d,s)
     local target=d.kind=="retreat" and d.protected or d.actor
     for _,enemy in ipairs(d.before_targets or {}) do if s.targets[enemy]==target then return true end end
     return false
+end
+-- Interpret outgoing game commands, never persisted IDs or UI row numbers.
+-- Unknown/omitted recipients conservatively lock both retainers, not disable them.
+function M.manual(command,s,c)
+    local text=tostring(command or ""):lower():gsub("^%s+",""):gsub("%s+$","")
+    local verb,rest=text:match("^(%S+)%s*(.*)$")
+    local kinds={zaslon="cover",zaslonic="cover",wycofaj="cover",przelam="cover",
+        wesprzyj="support",wesprzec="support",zabij="support",zaatakuj="support",zaatakowac="support"}
+    if verb=="parozkaz" or verb=="rozkaz" then
+        local recipient,action=rest:match("^(%S+)%s+(%S+)")
+        local first=rest:match("^(%S+)")
+        local kind=kinds[first] or kinds[action]
+        if not kind then return nil end -- inventory/status and other non-combat orders
+        if kinds[first] then recipient=nil end
+        local channels={}
+        if verb=="rozkaz" then channels[4]=true end
+        local found={}
+        for i,p in ipairs(c.minions) do
+            local m=s and s.minions[p.id]
+            if m and recipient and (p.id:lower()==recipient or m.name:lower()==recipient) then found[#found+1]=i+1 end
+        end
+        if #found==1 then channels[found[1]]=true
+        elseif verb=="parozkaz" or recipient=="druzynie" or not s then channels[2]=true;channels[3]=true
+        elseif not (recipient and s.members[recipient]) then channels[2]=true;channels[3]=true end
+        return {kind=kind,channels=channels}
+    end
+    if kinds[verb]=="support" then return {kind="support",channels={[2]=true,[3]=true,[4]=true}} end
 end
 return M
 end
@@ -2918,6 +2950,8 @@ function T.new(ctx,M,integration,patrol,changed)
                 if candidate then
                     p.id,p.name=candidate.id,candidate.name;used[p.id]=true
                     S.blocked[i+1]=math.max(S.blocked[i+1],now()+15);dirty=true
+                    S.support[i+1]=math.max(S.support[i+1],now()+15)
+                    if S.pending and S.pending.channel==i+1 then S.pending=nil end
                 end
             end
         end
@@ -3049,7 +3083,7 @@ function T.new(ctx,M,integration,patrol,changed)
         end
         if t<S.barrier then return end
         local blocked={S.blocked[1]>t,{cover=S.blocked[2]>t,support=S.support[2]>t},
-            {cover=S.blocked[3]>t,support=S.support[3]>t},S.blocked[4]>t}
+            {cover=S.blocked[3]>t,support=S.support[3]>t},{cover=S.blocked[4]>t,support=S.blocked[4]>t or S.support[4]>t}}
         if S.ambiguous then
             for i,pet in ipairs(config.minions) do
                 local confirmed=config.confirmed_minions[i]
@@ -3111,11 +3145,29 @@ function T.new(ctx,M,integration,patrol,changed)
     ctx:on("sysDataSendRequest",function(_,command)
         if S.sending then return end
         local text=tostring(command or ""):lower():gsub("^%s+","")
-        if text:match("^parozkaz%s") then
-            S.enabled[2]=false;S.enabled[3]=false;S.blocked[2]=now()+15;S.blocked[3]=now()+15
-            if S.pending and (S.pending.channel==2 or S.pending.channel==3) then S.pending=nil end
-            phase("RĘCZNIE","Zewnętrzny rozkaz: kanały pachołków wyłączone.")
-        elseif text:match("^rozkaz%s") then S.blocked[4]=math.max(S.blocked[4],now()+15)
+        local manual=M.manual(command,snapshot(),config)
+        if manual then
+            local t=now()
+            for ch in pairs(manual.channels) do
+                local locks=manual.kind=="support" and S.support or S.blocked
+                locks[ch]=math.max(locks[ch] or 0,t+15)
+            end
+            -- Team orders share a server-facing cadence regardless of maneuver type.
+            if manual.channels[4] then S.blocked[4]=math.max(S.blocked[4],t+15) end
+            local pending=S.pending
+            if pending then
+                local same=(pending.kind=="support" or pending.kind=="team_attack")== (manual.kind=="support")
+                local affected=manual.channels[pending.channel]
+                if pending.channel==4 then
+                    for i,p in ipairs(config.minions) do
+                        for _,id in ipairs(pending.recipients or {}) do
+                            if p.id==id and manual.channels[i+1] then affected=true end
+                        end
+                    end
+                end
+                if same and affected then S.pending=nil end
+            end
+            phase("RĘCZNIE","Ręczny rozkaz: odpowiedni manewr wstrzymany na 15 s.")
         elseif text:match("^zaslon%s") or text:match("^wycofaj%s") or text:match("^przelam%s") then
             S.enabled[1]=false;S.blocked[1]=now()+8
             if S.pending and S.pending.channel==1 then S.pending=nil end

@@ -1,5 +1,14 @@
 # Zmiany
 
+## 0.7.0-beta.4 — koncentracja celu i ręczne rozkazy
+
+- Pachołki w zadaniu Automatycznie wyrównują cel do postaci, gdy już walczą z innym wrogim NPC. Osłony zachowują wyższy priorytet.
+- Ręczny parozkaz nie wyłącza automatyki pachołków. Rozpoznany adresat dostaje 15 s przerwy na odpowiedni rodzaj działania: atak/wsparcie albo osłonę. Przy niejednoznacznym adresacie przerwa obejmuje oba pachołki.
+- Polecenia stanu i ekwipunku nie blokują taktyki; zmiana celu nie odbiera możliwości osłony, a ręczna osłona nie blokuje koncentracji celu.
+- Wspólny atak drużyny (po włączeniu rozkazów zbiorowych) wyprzedza osobne wsparcia pachołków. Gotowość, aktualny cel PvE i ręczne blokady pozostają wymagane.
+- Zmiana ID pachołka unieważnia starą próbę i nakłada przerwę także na koncentrację celu.
+- Nowe regresje obejmują potwierdzenia celu, brak powtórnych rozkazów, priorytet ochrony, zakres ręcznych poleceń, wznowienie po 15 s, zmianę tożsamości i STOP.
+
 ## 0.7.0-beta.3 — jeden rząd i krótkie menu expowisk
 
 - Nazwa terenu, czas i zarobek mieszczą się w pasku obok przycisków sterowania; bez dodatkowego rzędu i marginesu konsoli.

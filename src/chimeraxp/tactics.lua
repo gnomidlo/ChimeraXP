@@ -41,6 +41,8 @@ function T.new(ctx,M,integration,patrol,changed)
                 if candidate then
                     p.id,p.name=candidate.id,candidate.name;used[p.id]=true
                     S.blocked[i+1]=math.max(S.blocked[i+1],now()+15);dirty=true
+                    S.support[i+1]=math.max(S.support[i+1],now()+15)
+                    if S.pending and S.pending.channel==i+1 then S.pending=nil end
                 end
             end
         end
@@ -172,7 +174,7 @@ function T.new(ctx,M,integration,patrol,changed)
         end
         if t<S.barrier then return end
         local blocked={S.blocked[1]>t,{cover=S.blocked[2]>t,support=S.support[2]>t},
-            {cover=S.blocked[3]>t,support=S.support[3]>t},S.blocked[4]>t}
+            {cover=S.blocked[3]>t,support=S.support[3]>t},{cover=S.blocked[4]>t,support=S.blocked[4]>t or S.support[4]>t}}
         if S.ambiguous then
             for i,pet in ipairs(config.minions) do
                 local confirmed=config.confirmed_minions[i]
@@ -234,11 +236,29 @@ function T.new(ctx,M,integration,patrol,changed)
     ctx:on("sysDataSendRequest",function(_,command)
         if S.sending then return end
         local text=tostring(command or ""):lower():gsub("^%s+","")
-        if text:match("^parozkaz%s") then
-            S.enabled[2]=false;S.enabled[3]=false;S.blocked[2]=now()+15;S.blocked[3]=now()+15
-            if S.pending and (S.pending.channel==2 or S.pending.channel==3) then S.pending=nil end
-            phase("RĘCZNIE","Zewnętrzny rozkaz: kanały pachołków wyłączone.")
-        elseif text:match("^rozkaz%s") then S.blocked[4]=math.max(S.blocked[4],now()+15)
+        local manual=M.manual(command,snapshot(),config)
+        if manual then
+            local t=now()
+            for ch in pairs(manual.channels) do
+                local locks=manual.kind=="support" and S.support or S.blocked
+                locks[ch]=math.max(locks[ch] or 0,t+15)
+            end
+            -- Team orders share a server-facing cadence regardless of maneuver type.
+            if manual.channels[4] then S.blocked[4]=math.max(S.blocked[4],t+15) end
+            local pending=S.pending
+            if pending then
+                local same=(pending.kind=="support" or pending.kind=="team_attack")== (manual.kind=="support")
+                local affected=manual.channels[pending.channel]
+                if pending.channel==4 then
+                    for i,p in ipairs(config.minions) do
+                        for _,id in ipairs(pending.recipients or {}) do
+                            if p.id==id and manual.channels[i+1] then affected=true end
+                        end
+                    end
+                end
+                if same and affected then S.pending=nil end
+            end
+            phase("RĘCZNIE","Ręczny rozkaz: odpowiedni manewr wstrzymany na 15 s.")
         elseif text:match("^zaslon%s") or text:match("^wycofaj%s") or text:match("^przelam%s") then
             S.enabled[1]=false;S.blocked[1]=now()+8
             if S.pending and S.pending.channel==1 then S.pending=nil end
