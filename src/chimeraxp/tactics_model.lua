@@ -388,7 +388,9 @@ function M.plan(s,c,enabled,blocked,focus)
             end
         end
         if safe and mismatch and #recipients>0 then
-            out[#out+1]={channel=4,actor=me,enemy=target,kind="team_attack",priority=45,room=s.room,
+            -- Do not let routine balancing spend the shared 15s team-order slot
+            -- before idle members join. Explicit/emergency protection stays higher.
+            out[#out+1]={channel=4,actor=me,enemy=target,kind="team_attack",priority=98,room=s.room,
                 recipients=recipients,reason="Drużyna: wspólny cel walki."}
         end
     end

@@ -1,5 +1,13 @@
 # Zmiany
 
+## 0.7.0-beta.7 — szybsza koncentracja drużyny
+
+- Koncentracja ma pierwszeństwo przed zwykłym równoważeniem osłon, aby rutynowa osłona nie zajmowała najpierw wspólnego odstępu rozkazów. Pilna i priorytetowa ochrona nadal wygrywa.
+- Nowe ID pachołka wprowadza tylko 1 s stabilizacji celu zamiast 15 s; zachowujemy istniejące ręczne blokady i odstępy po wysłanych poleceniach. Blokada osłon pozostaje niezależna.
+- Kontrola po GMCP i co 0,5 s pozostaje aktywna przez całą walkę. Rozkaz drużynowy jest ponawiany najwcześniej po 15 s, tylko jeśli cele nadal się różnią lub ktoś nie atakuje. Po włączeniu AUTO nadal obowiązuje początkowa bariera 5 s i komplet świeżych danych.
+- Gdy nikt nie wykonuje manewru, `/exp taktyka status` i menu Taktyka wskazują osoby bez wspólnego celu oraz blokadę rozkazów, wymagane ustawienia lub brak przywództwa.
+- Regresje odtwarzają oba zrzuty GMCP użytkownika: wspólny cel całej drużyny oraz bezczynną Chasstanę. Sprawdzają zmianę ID, regularną kontrolę bez nowego zdarzenia GMCP w chwili upływu cooldownu i pierwszeństwo pilnej ochrony.
+
 ## 0.7.0-beta.6 — wspólny atak i wycofanie
 
 - Przy włączonych AUTO, Rozkazach graczom i Rozkazach zbiorowych lider wydaje `rozkaz druzynie zaatakowac ID` również wtedy, gdy ktoś jeszcze nie atakuje. Cel to aktualny wrogi NPC atakowany przez lidera. Odstęp rozkazów drużynie: 15 s. Zgodny cel wszystkich kończy ponawianie.

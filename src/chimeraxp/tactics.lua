@@ -41,7 +41,9 @@ function T.new(ctx,M,integration,patrol,changed)
                 if candidate then
                     p.id,p.name=candidate.id,candidate.name;used[p.id]=true
                     S.blocked[i+1]=math.max(S.blocked[i+1],now()+15);dirty=true
-                    S.support[i+1]=math.max(S.support[i+1],now()+15)
+                    -- Discovery is not an attack attempt. Keep existing manual/support
+                    -- locks, but do not impose the formation cooldown on target alignment.
+                    S.support[i+1]=math.max(S.support[i+1],now()+1)
                     if S.pending and S.pending.channel==i+1 then S.pending=nil end
                 end
             end
@@ -187,6 +189,23 @@ function T.new(ctx,M,integration,patrol,changed)
             local detail=S.ambiguous and "Niejednoznaczne pachołki: wymagane jawne przypisanie do P1/P2."
                 or config.team_orders and s.leader~=s.self_id and "Rozkazy graczom czekają: nie prowadzisz drużyny."
                 or "Nie potrzeba zmiany szyku."
+            local target=s.targets[s.self_id]
+            local missing={}
+            if target and s.enemies[target] then
+                for id,member in pairs(s.members) do
+                    if id~=s.self_id and s.targets[id]~=target then missing[#missing+1]=member.name end
+                end
+            end
+            if #missing>0 then
+                table.sort(missing)
+                local wait=math.ceil(math.max(0,S.blocked[4]-t,S.support[4]-t))
+                local why=not config.team_orders and "włącz Rozkazy graczom"
+                    or not config.team_broadcast and "włącz Rozkazy zbiorowe"
+                    or s.leader~=s.self_id and "nie prowadzisz drużyny"
+                    or wait>0 and ("odnowienie/ręczna blokada: "..wait.." s")
+                    or "sprawdź udział jednostek, rezerwę i blokady pachołków"
+                detail="Inny cel lub brak ataku: "..table.concat(missing,", ").."; "..why.."."
+            end
             phase("AUTO",detail);return
         end
         for _,enemy in ipairs(d.before_targets or {}) do
