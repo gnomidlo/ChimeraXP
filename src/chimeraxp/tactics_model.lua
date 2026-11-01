@@ -286,7 +286,13 @@ function M.plan(s,c,enabled,blocked,focus)
         if c.retreat and count(s,me)>0 then
             for _,id in ipairs(ordered(s.members)) do
                 -- In this beta we conservatively assume retreat can transfer ALL attackers.
-                if id~=me and can_take(s,id,count(s,me),c) then
+                local recipient=s.members[id]
+                local eligible=M.policy(s,c,id).role~="support" and recipient.hp and recipient.hp>=math.max(70,M.policy(s,c,id).min_hp)
+                    and not recipient.casting
+                for slot,pet in ipairs(c.minions) do
+                    if pet.id==id and (not enabled[slot+1] or pet.task=="reserve") then eligible=false end
+                end
+                if id~=me and eligible and can_take(s,id,count(s,me),c) then
                     local accept=c.role=="support" or (c.role=="asekuracja" and count(s,me)>1)
                         or (c.role=="standard" and gain(s,me,id,count(s,me))>=0.18)
                         or (c.role=="offtank" and id==tank_id and count(s,me)>count(s,id)+1)
@@ -374,11 +380,10 @@ function M.plan(s,c,enabled,blocked,focus)
         local mismatch=false
         for _,id in ipairs(ordered(s.members)) do
             local m=s.members[id]
-            if not available_for_broadcast(id,false) or not ready_member(m) or m.hp<math.max(50,M.policy(s,c,id).min_hp) or m.casting then safe=false end
+            if not available_for_broadcast(id,false) then safe=false end
             if id~=me then
                 recipients[#recipients+1]=id
-                -- Only align units already fighting; do not start combat for idle companions.
-                if not s.targets[id] or not s.enemies[s.targets[id]] then safe=false end
+                -- Join idle companions to the leader's existing fight as well as align targets.
                 if s.targets[id]~=target then mismatch=true end
             end
         end

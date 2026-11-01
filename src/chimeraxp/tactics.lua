@@ -15,7 +15,7 @@ function T.new(ctx,M,integration,patrol,changed)
     if not persisted then config.team_broadcast=false end
     local S={on=false,phase="WYŁĄCZONA",detail="Automatyka po uruchomieniu jest wyłączona.",
         enabled={true,true,true,true},received={},blocked={0,0,0,0},support={0,0,0,0},
-        last={},transfers={},pending=nil,barrier=0,destroyed=false,sending=false}
+        retreat_until=0,last={},transfers={},pending=nil,barrier=0,destroyed=false,sending=false}
     local E={}
     local function now() return type(getEpoch)=="function" and getEpoch() or os.time() end
     local function notify() if not S.destroyed and changed then changed() end end
@@ -201,7 +201,8 @@ function T.new(ctx,M,integration,patrol,changed)
         if not command then phase("BLOKADA","Nie można zbudować poprawnego rozkazu.");return end
         d.sent_at=t;S.pending=d
         if d.kind=="support" then S.support[d.channel]=t+4
-        else S.blocked[d.channel]=t+(d.channel==1 and 8 or 15) end
+        else S.blocked[d.channel]=t+(d.channel==1 and d.kind~="retreat" and 8 or 15) end
+        if d.kind=="retreat" then S.retreat_until=t+15 end
         if d.kind=="team_cover" or d.kind=="team_attack" then
             for i,p in ipairs(config.minions) do
                 for _,id in ipairs(d.recipients or {}) do if p.id==id then
@@ -260,17 +261,19 @@ function T.new(ctx,M,integration,patrol,changed)
             end
             phase("RĘCZNIE","Ręczny rozkaz: odpowiedni manewr wstrzymany na 15 s.")
         elseif text:match("^zaslon%s") or text:match("^wycofaj%s") or text:match("^przelam%s") then
-            S.enabled[1]=false;S.blocked[1]=now()+8
+            S.enabled[1]=false
+            if text:match("^wycofaj%s") then S.retreat_until=math.max(S.retreat_until,now()+15) end
+            S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8)
             if S.pending and S.pending.channel==1 then S.pending=nil end
             phase("RĘCZNIE","Ręczny manewr: kanał postaci wyłączony.")
         end
     end)
     if type(ctx.trigger_exact)=="function" then
         for _,text in ipairs({"Jestes gotowa do zmiany w szyku.","Jestes gotowy do zmiany w szyku."}) do
-            ctx:trigger_exact(text,function() S.blocked[1]=0;schedule() end)
+            ctx:trigger_exact(text,function() S.blocked[1]=S.retreat_until;schedule() end)
         end
         ctx:trigger_exact("Musisz chwile odpoczac po ostatniej zmianie w szyku.",function()
-            S.blocked[1]=now()+8;if S.pending and S.pending.channel==1 then S.pending=nil end
+            S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8);if S.pending and S.pending.channel==1 then S.pending=nil end
             phase("ODNOWIENIE","MUD odmówił manewru; czekam na gotowość.")
         end)
         ctx:trigger_exact("Komu i jaki rozkaz chcesz wydac?",function()
