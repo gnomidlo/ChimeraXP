@@ -114,8 +114,8 @@ do
     end
     h.fresh();h.advance(.2);assert(#h.sent==1,"mixed old/new IDs block commands")
     h.p.combat.relations[2].attacker="e9-new"
-    h.fresh();h.advance(14);assert(#h.sent==1,"new identity waits before support")
-    h.fresh();h.advance(2);assert(h.sent[2]=="parozkaz e9-new wesprzyj","only current ID is sent")
+    h.fresh();h.advance(.2);assert(#h.sent==1,"new identity observes existing support cadence")
+    h.fresh();h.advance(4);assert(h.sent[2]=="parozkaz e9-new wesprzyj","only current ID is sent without a new 15s formation delay")
     h.dispose()
 end
 print("PASS focus: both planners, safety gates, manual scope and timed runtime arbitration")
