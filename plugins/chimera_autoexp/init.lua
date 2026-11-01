@@ -88,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.5",
+    version = "0.7.0-beta.6",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1442,7 +1442,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.5 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.6 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1568,7 +1568,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.5"},
+                {"Wersja", "0.7.0-beta.6"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -2659,7 +2659,13 @@ function M.plan(s,c,enabled,blocked,focus)
         if c.retreat and count(s,me)>0 then
             for _,id in ipairs(ordered(s.members)) do
                 -- In this beta we conservatively assume retreat can transfer ALL attackers.
-                if id~=me and can_take(s,id,count(s,me),c) then
+                local recipient=s.members[id]
+                local eligible=M.policy(s,c,id).role~="support" and recipient.hp and recipient.hp>=math.max(70,M.policy(s,c,id).min_hp)
+                    and not recipient.casting
+                for slot,pet in ipairs(c.minions) do
+                    if pet.id==id and (not enabled[slot+1] or pet.task=="reserve") then eligible=false end
+                end
+                if id~=me and eligible and can_take(s,id,count(s,me),c) then
                     local accept=c.role=="support" or (c.role=="asekuracja" and count(s,me)>1)
                         or (c.role=="standard" and gain(s,me,id,count(s,me))>=0.18)
                         or (c.role=="offtank" and id==tank_id and count(s,me)>count(s,id)+1)
@@ -2747,11 +2753,10 @@ function M.plan(s,c,enabled,blocked,focus)
         local mismatch=false
         for _,id in ipairs(ordered(s.members)) do
             local m=s.members[id]
-            if not available_for_broadcast(id,false) or not ready_member(m) or m.hp<math.max(50,M.policy(s,c,id).min_hp) or m.casting then safe=false end
+            if not available_for_broadcast(id,false) then safe=false end
             if id~=me then
                 recipients[#recipients+1]=id
-                -- Only align units already fighting; do not start combat for idle companions.
-                if not s.targets[id] or not s.enemies[s.targets[id]] then safe=false end
+                -- Join idle companions to the leader's existing fight as well as align targets.
                 if s.targets[id]~=target then mismatch=true end
             end
         end
@@ -2929,7 +2934,7 @@ function T.new(ctx,M,integration,patrol,changed)
     if not persisted then config.team_broadcast=false end
     local S={on=false,phase="WYŁĄCZONA",detail="Automatyka po uruchomieniu jest wyłączona.",
         enabled={true,true,true,true},received={},blocked={0,0,0,0},support={0,0,0,0},
-        last={},transfers={},pending=nil,barrier=0,destroyed=false,sending=false}
+        retreat_until=0,last={},transfers={},pending=nil,barrier=0,destroyed=false,sending=false}
     local E={}
     local function now() return type(getEpoch)=="function" and getEpoch() or os.time() end
     local function notify() if not S.destroyed and changed then changed() end end
@@ -3115,7 +3120,8 @@ function T.new(ctx,M,integration,patrol,changed)
         if not command then phase("BLOKADA","Nie można zbudować poprawnego rozkazu.");return end
         d.sent_at=t;S.pending=d
         if d.kind=="support" then S.support[d.channel]=t+4
-        else S.blocked[d.channel]=t+(d.channel==1 and 8 or 15) end
+        else S.blocked[d.channel]=t+(d.channel==1 and d.kind~="retreat" and 8 or 15) end
+        if d.kind=="retreat" then S.retreat_until=t+15 end
         if d.kind=="team_cover" or d.kind=="team_attack" then
             for i,p in ipairs(config.minions) do
                 for _,id in ipairs(d.recipients or {}) do if p.id==id then
@@ -3174,17 +3180,19 @@ function T.new(ctx,M,integration,patrol,changed)
             end
             phase("RĘCZNIE","Ręczny rozkaz: odpowiedni manewr wstrzymany na 15 s.")
         elseif text:match("^zaslon%s") or text:match("^wycofaj%s") or text:match("^przelam%s") then
-            S.enabled[1]=false;S.blocked[1]=now()+8
+            S.enabled[1]=false
+            if text:match("^wycofaj%s") then S.retreat_until=math.max(S.retreat_until,now()+15) end
+            S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8)
             if S.pending and S.pending.channel==1 then S.pending=nil end
             phase("RĘCZNIE","Ręczny manewr: kanał postaci wyłączony.")
         end
     end)
     if type(ctx.trigger_exact)=="function" then
         for _,text in ipairs({"Jestes gotowa do zmiany w szyku.","Jestes gotowy do zmiany w szyku."}) do
-            ctx:trigger_exact(text,function() S.blocked[1]=0;schedule() end)
+            ctx:trigger_exact(text,function() S.blocked[1]=S.retreat_until;schedule() end)
         end
         ctx:trigger_exact("Musisz chwile odpoczac po ostatniej zmianie w szyku.",function()
-            S.blocked[1]=now()+8;if S.pending and S.pending.channel==1 then S.pending=nil end
+            S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8);if S.pending and S.pending.channel==1 then S.pending=nil end
             phase("ODNOWIENIE","MUD odmówił manewru; czekam na gotowość.")
         end)
         ctx:trigger_exact("Komu i jaki rozkaz chcesz wydac?",function()

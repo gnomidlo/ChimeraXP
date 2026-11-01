@@ -31,7 +31,7 @@ for _,M in ipairs(models) do
     assert(plan().kind=="team_attack","one safe broadcast outranks serial supports")
     assert(M.command(plan(),assert(M.snapshot(h.gmcp)))=="rozkaz druzynie zaatakowac enemy1")
     h.p.combat.relations[5]=nil
-    assert(plan().kind=="support","idle teammate blocks broadcast but not safe retainer alignment")
+    assert(plan().kind=="team_attack","idle teammate joins the leader's existing fight")
     h.p.combat.relations[5]={attacker="friend",defender="enemy2"}
     assert(plan({[4]={support=true}}).kind=="support","team focus hold is respected")
     local s=assert(M.snapshot(h.gmcp))

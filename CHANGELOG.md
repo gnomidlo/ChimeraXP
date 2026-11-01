@@ -1,5 +1,13 @@
 # Zmiany
 
+## 0.7.0-beta.6 — wspólny atak i wycofanie
+
+- Przy włączonych AUTO, Rozkazach graczom i Rozkazach zbiorowych lider wydaje `rozkaz druzynie zaatakowac ID` również wtedy, gdy ktoś jeszcze nie atakuje. Cel to aktualny wrogi NPC atakowany przez lidera. Odstęp rozkazów drużynie: 15 s. Zgodny cel wszystkich kończy ponawianie.
+- Samo niskie HP, ogłuszenie lub rzucanie czaru członka nie blokuje rozkazu koncentracji całej drużyny. Pozostają wymagane świeże GMCP, obecność, zgoda na automatykę i brak rezerwy/ręcznej blokady. Osłony mają pierwszeństwo.
+- Wycofanie `wycofaj sie za ID` ma pełne 15 s od próby; komunikat gotowości zasłony nie skraca tej blokady. Nieudana próba nadal zużywa odstęp.
+- Odbiorca wycofania musi mieć co najmniej 70% HP lub wyższy próg swojego profilu, nie być Supportem, ogłuszonym, rzucającym czar ani pachołkiem w rezerwie lub z wyłączonym udziałem. Nadal sprawdzany jest limit po przejęciu wszystkich napastników.
+- HUD i ustawienia zachowane. Testy obejmują bezczynnych członków, zgodne cele, odnowienie, STOP, zdrowie i role odbiorców.
+
 ## 0.7.0-beta.5 — przeciwnik odszedł bez pozostawienia ciała
 
 - Odpowiedź „Nie widzisz tu niczego takiego.” na własne `policz ciala` oznacza zero ciał; po standardowym sprzątaniu automat kontynuuje patrol zamiast pauzować po 5 s.

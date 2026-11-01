@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.5** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.6** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Szybka instalacja w Mudlecie
 
@@ -13,6 +13,14 @@ lua installPackage("https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/pa
 Po zakończeniu pobierania wykonaj `/przeladuj`, a następnie `/exp`, aby otworzyć menu expowisk. Pakiet pobiera aktualną wersję z gałęzi `main` i sprawdza aktualizacje przy uruchomieniu profilu. Ręcznie sprawdzisz je poleceniem `/exp aktualizuj`.
 
 Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy automatyczne Lua 5.1/5.4; zachowanie serwerowych komend i wygląd Qt/Geyser wymagają jeszcze próby w działającym Mudlecie.
+
+## 0.7.0-beta.6 — wspólny atak i wycofanie
+
+- Przy włączonych AUTO, Rozkazach graczom i Rozkazach zbiorowych lider wydaje `rozkaz druzynie zaatakowac ID` również wtedy, gdy ktoś jeszcze nie atakuje. Cel to aktualny wrogi NPC atakowany przez lidera. Odstęp rozkazów drużynie: 15 s. Zgodny cel wszystkich kończy ponawianie.
+- Samo niskie HP, ogłuszenie lub rzucanie czaru członka nie blokuje rozkazu koncentracji całej drużyny. Pozostają wymagane świeże GMCP, obecność, zgoda na automatykę i brak rezerwy/ręcznej blokady. Osłony mają pierwszeństwo.
+- Wycofanie `wycofaj sie za ID` ma pełne 15 s od próby; komunikat gotowości zasłony nie skraca tej blokady. Nieudana próba nadal zużywa odstęp.
+- Odbiorca wycofania musi mieć co najmniej 70% HP lub wyższy próg swojego profilu, nie być Supportem, ogłuszonym, rzucającym czar ani pachołkiem w rezerwie lub z wyłączonym udziałem. Nadal sprawdzany jest limit po przejęciu wszystkich napastników.
+- HUD i ustawienia zachowane. Testy obejmują bezczynnych członków, zgodne cele, odnowienie, STOP, zdrowie i role odbiorców.
 
 ## Zwięzły interfejs
 
