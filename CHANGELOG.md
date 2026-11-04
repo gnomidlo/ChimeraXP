@@ -1,5 +1,11 @@
 # Zmiany
 
+## 0.7.0-beta.9 — podnoszenie łupów z ziemi
+
+- Po policzeniu ciał automat najpierw wysyła po jednym `wez KATEGORIA` dla listy łupów profilu, np. `wez bronie`, `wez zbroje`, `wez kamienie`. Następnie zbiera te kategorie z kolejnych ponumerowanych ciał.
+- Podnoszenie z ziemi działa także przy potwierdzonym braku ciał. Liczenie poprzedza podnoszenie, aby odpowiedź o braku przedmiotu na ziemi nie została uznana za wynik liczenia.
+- Kolejka zachowuje tempo, STOP, kontrolę lokacji i obsługę błędów wysyłania. Lista jest kopiowana na początku zbierania; odłożenie uszkodzonego sprzętu następuje po wszystkich próbach zbierania.
+
 ## 0.7.0-beta.8 — sprzedaż według listy łupów
 
 - Sklep sprzedaje wyłącznie kategorie wpisane na liście łupów aktywnego profilu, w tej samej kolejności: np. `sprzedaj bronie`, `sprzedaj zbroje`, `sprzedaj kamienie`. Jedna kategoria oznacza jedną komendę, bez dodatkowej sprzedaży zbroi.

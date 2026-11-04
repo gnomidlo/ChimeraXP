@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.8",
+    version = "0.7.0-beta.9",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -623,8 +623,21 @@ return {
             loot_timer = nil
             if loot_run ~= run or not started or paused then return end
             if room_id() ~= run.origin then
-                pause("Lupy: pokoj zmienil sie podczas zbierania z cial")
+                pause("Lupy: pokoj zmienil sie podczas zbierania")
                 return
+            end
+            if run.phase == "GROUND" then
+                local item=run.list[run.item]
+                if item then
+                    run.item=run.item+1
+                    local command="wez "..item
+                    note("AutoExp LUP: "..command)
+                    local ok,err=pcall(ctx.send,ctx,command)
+                    if not ok then pause("Lupy: blad podnoszenia z ziemi: "..tostring(err));return end
+                    loot_timer=ctx:timer(economy_command_delay(),function() next_counted_loot(run) end)
+                    return
+                end
+                run.phase,run.item="TAKING",1
             end
             if run.phase == "TAKING" and run.corpse > run.count then
                 -- Discard untradeable broken gear before reading encumbrance.
@@ -677,7 +690,7 @@ return {
             if not run or run.phase ~= "COUNTING" or not started or paused
                 or room_id() ~= run.origin then return end
             if loot_timer then ctx:cancel(loot_timer); loot_timer = nil end
-            run.count, run.corpse, run.item, run.phase = count, 1, 1, "TAKING"
+            run.count, run.corpse, run.item, run.phase = count, 1, 1, "GROUND"
             note("AutoExp LUP: policzono " .. count .. " cial.")
             next_counted_loot(run)
         end
@@ -701,7 +714,11 @@ return {
         ctx:trigger([[^Nie widzisz tu niczego takiego\.$]],
             function() counted_corpses(0) end)
         local function begin_counted_loot(p, r)
-            local run = {origin=r.id, list=p.loot, phase="COUNTING"}
+            local list=unique_names(p.loot)
+            for _,item in ipairs(list) do
+                if #item>80 or item:find("[;%c]") then pause("Lupy: nieprawidlowa kategoria");return end
+            end
+            local run = {origin=r.id, list=list, phase="COUNTING"}
             loot_run = run
             announce("COUNT_CORPSES")
             loot_timer = ctx:timer(5, function()
@@ -1438,7 +1455,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.8 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.9 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1564,7 +1581,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.8"},
+                {"Wersja", "0.7.0-beta.9"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1589,7 +1606,7 @@ return {
             ctx.log.info("/exp import (jednorazowo ze starej bazy, tylko gdy w nowej brak profili)")
             ctx.log.info("/exp aktualizuj (pobierz najnowsza ChimeraXP z publicznego GitHuba)")
             ctx.log.info("/exp lup dodaj TEKST | lup usun TEKST | lup lista | zarobek prog 75 | zarobek diagnoza | zarobek trasa")
-            ctx.log.info("Lupy: po walce policz ciala, wez TEKST z 1./2. ciala; nastepnie odloz zlamane bronie i zniszczone zbroje")
+            ctx.log.info("Lupy: po walce policz ciala, wez TEKST z ziemi, potem wez TEKST z 1./2. ciala; nastepnie odloz zlamane bronie i zniszczone zbroje")
             ctx.log.info("/exp zarobek wlacz | zarobek wylacz | zarobek kurs (REALNY sklep-bank-powrot)")
             ctx.log.info("/exp zarobek tempo 0.7 (odstep polecen lupow, sprzedazy i banku: 0.3-3 s)")
             ctx.log.info("Sprzedaz: po jednej komendzie sprzedaj KATEGORIA z listy lupow profilu; wem i wlm to globalne aliasy.")

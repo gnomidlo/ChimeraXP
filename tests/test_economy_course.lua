@@ -143,11 +143,12 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
     local expected={}
     if two_corpses then
       expected={
+        "wez bronie", "wez zbroje",
         "wez bronie z 1. ciala", "wez zbroje z 1. ciala",
         "wez bronie z 2. ciala", "wez zbroje z 2. ciala"
       }
     else
-      expected={"wez bronie z 1. ciala"}
+      expected={"wez bronie", "wez bronie z 1. ciala"}
     end
     for index,text in ipairs(expected) do
       assert(sent[index+2]==text, "corpse/item sequence wrong at step "..index)
