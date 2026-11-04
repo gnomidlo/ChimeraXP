@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.8** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.9** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Szybka instalacja w Mudlecie
 
@@ -110,6 +110,8 @@ Pachołki z zadaniem Automatycznie wyrównują swój cel do aktualnego wrogiego 
 Przed startem i wznowieniem oraz podczas ewaluacji patrolu sprawdzane są znane konflikty: stary Tacticus, oficjalny bot, autopościg, autowsparcie, hooki przed/po ruchu i po walce. Zbieranie oficjalne blokuje profil, który sam zbiera łupy w trybie zarobkowym. Ustawień oficjalnej paczki nie przełączamy potajemnie.
 
 STOP obejmuje wykonawców ChimeraXP i jego ruch. Nie cofa polecenia już wysłanego do serwera ani nie zatrzymuje dowolnego obcego skryptu lub serwerowej automatyki. Przy konflikcie właścicieli górnego marginesu HUD oddaje przestrzeń, pauzuje patrol i wyłącza taktykę; nie zeruje marginesu innego dodatku.
+
+**Zbieranie łupów:** po policzeniu ciał automat wysyła kolejno `wez KATEGORIA` dla całej listy łupów (podnoszenie z ziemi), następnie zbiera z ponumerowanych ciał. Przy zerowej liczbie ciał pozostaje samo podnoszenie z ziemi. Każda komenda zachowuje ustawiony odstęp.
 
 **Auto-zarobek:** sprzedaż używa listy łupów aktywnego profilu. Dla `bronie`, `zbroje`, `kamienie` wysyła kolejno `sprzedaj bronie`, `sprzedaj zbroje`, `sprzedaj kamienie`, z ustawionym odstępem. Sprzedaż obejmuje niesione przedmioty tych kategorii. Po ostatniej komendzie kurs prowadzi do banku; pusta lista nie rozpoczyna kursu.
 
