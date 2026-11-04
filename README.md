@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.9** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.10** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Szybka instalacja w Mudlecie
 
@@ -29,6 +29,13 @@ Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy aut
 - Wycofanie `wycofaj sie za ID` ma pełne 15 s od próby; komunikat gotowości zasłony nie skraca tej blokady. Nieudana próba nadal zużywa odstęp.
 - Odbiorca wycofania musi mieć co najmniej 70% HP lub wyższy próg swojego profilu, nie być Supportem, ogłuszonym, rzucającym czar ani pachołkiem w rezerwie lub z wyłączonym udziałem. Nadal sprawdzany jest limit po przejęciu wszystkich napastników.
 - HUD i ustawienia zachowane. Testy obejmują bezczynnych członków, zgodne cele, odnowienie, STOP, zdrowie i role odbiorców.
+
+## 0.7.0-beta.10 — kolejność celów i odpoczynek po odmowie ruchu
+
+- Cele wybierane są według kolejności wpisów NPC, nie kolejności Entities. Wszystkie dostępne gobliny poprzedzają goblinki, a te smoki. Przy nakładających się fragmentach nazw wygrywa najdłuższy pasujący wpis (goblinka nie trafia do kategorii goblin). Trwająca walka nie jest przerywana, a unikanie NPC i limity nadal obowiązują.
+- Komunikat `Jestes tak zmeczona/zmeczony, ze nie mozesz isc w tym kierunku.` podczas własnego ruchu wstrzymuje patrol, ucieczkę, awaryjny odwrót i przejście handlowe. Siły są liczone jako `100 − Char.Vitals.fatigue`.
+- Wznowienie wymaga nowego odczytu Vitals po odmowie oraz minimum 30% sił poza walką albo 10% w walce. Jest też minimalne 2 s oczekiwania; brak danych nie pozwala ruszyć. Próg jest oceniany ponownie przy zmianie walki.
+- Odmowa ze zmęczenia nie zużywa limitu niepotwierdzonych prób. Zachowujemy kierunek awaryjnego/handlowego kroku i cel zwykłego chodzika. STOP i pauza anulują oczekiwanie, a późniejsze GMCP nie uruchamia automatu.
 
 ## Zwięzły interfejs
 

@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.9",
+    version = "0.7.0-beta.10",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -173,6 +173,7 @@ return {
         local last_group = nil
         local external_walk = false
         local evaluate
+        local fatigue_rest = nil
         -- Economy mode is opt-in. Session callbacks are explicitly cancellable.
         local economy_run, economy_timer, process_economy, begin_economy
         local loot_run, loot_timer = nil, nil
@@ -306,7 +307,7 @@ return {
         local function target_info(p, group_ids)
             if not ready_entities() then return nil, nil end
             local entities = gmcp_api.entities().entities
-            local found, count = nil, 0
+            local found, count, best_rank = nil, 0, math.huge
             for _, e in ipairs(entities) do
                 local id = e.id and tostring(e.id) or nil
                 local friendly = bool(e.self) or e.relation == "self"
@@ -320,9 +321,18 @@ return {
                     and contains(e.name, p.targets)
                     and not contains(e.name, p.avoid) then
                     count = count + 1
-                    if not found and id and valid_id(id)
+                    -- Resolve overlapping names (goblin / goblinka) by the
+                    -- most specific matching entry, then use its list position.
+                    local rank,length=math.huge,0
+                    for index,pattern in ipairs(p.targets) do
+                        pattern=normalized(pattern)
+                        if normalized(e.name):find(pattern,1,true) and #pattern>length then
+                            rank,length=index,#pattern
+                        end
+                    end
+                    if rank<best_rank and id and valid_id(id)
                         and not attacked_in_room[id] then
-                        found = e
+                        found,best_rank = e,rank
                     end
                 end
             end
@@ -560,6 +570,7 @@ return {
             end)
         end
         local function halt(reason)
+            fatigue_rest=nil
             expected_manual = nil
             if pending then ctx:cancel(pending); pending = nil end
             cancel_economy_timers()
@@ -579,6 +590,7 @@ return {
         end
         local function pause(reason)
             if not started or paused then return end
+            fatigue_rest=nil
             expected_manual = nil
             paused = true
             phase = "PAUSED"
@@ -959,6 +971,22 @@ return {
                 (weakest and weakest.hp <= p.rules.retreatHP)
             local active, foreign = combat_status(group_ids)
             if active then engaged_here = true end
+            if fatigue_rest then
+                local rest=fatigue_rest
+                local fatigue=tonumber((gmcp_api.vitals() or {}).fatigue)
+                local strength=fatigue and fatigue>=0 and fatigue<=100 and 100-fatigue or nil
+                local threshold=active==true and 10 or 30
+                if not rest.fresh or active==nil or not strength or strength<threshold or os.time()<rest.until_at then
+                    announce("REST_FATIGUE")
+                    last_reason="Odpoczynek: sily "..tostring(strength or "?").."%, wymagane "..threshold.."%."
+                    return
+                end
+                fatigue_rest=nil;announce(rest.phase)
+                note("AutoExp: odzyskano sily; ponawiam ocene ruchu.")
+                if rest.move and not active and not danger and not economy_run and not emergency and not escape then
+                    move_to(rest.move.id,rest.move.purpose);return
+                end
+            end
             -- When low HP forces retreat while in combat, safety takes
             -- precedence over ordinary avoided-NPC routing and attacking.
             if emergency or (danger and active) then
@@ -1285,7 +1313,10 @@ return {
                 if started and not paused then queue(0) end
             end
         end)
-        ctx:on("chimera.char.vitals", function() queue(0) end)
+        ctx:on("chimera.char.vitals", function()
+            if fatigue_rest then fatigue_rest.fresh=true end
+            queue(0)
+        end)
         ctx:on("chimera.combat.state", function() queue(0) end)
         ctx:on("chimera.group.state", function(packet)
             local ids = {}
@@ -1344,6 +1375,34 @@ return {
             end
         end)
         ctx:on("chimera.session.end", function() halt("Rozlaczono - automat zatrzymany") end)
+        ctx:trigger([[^Jestes tak zmeczon[ay], ze nie mozesz isc w tym kierunku\.$]],function()
+            if not started or paused or dry or fatigue_rest then return end
+            local step=expected_manual
+            local own_step=step and step.room==room_id() and os.time()-step.time<=5
+            if not state.owns_walk and not own_step then return end
+            fatigue_rest={fresh=false,until_at=os.time()+2,phase=phase,move=move}
+            if state.owns_walk then
+                stop_ours=true;walker.stop("AutoExp: odpoczynek po odmowie ruchu");stop_ours=false
+                state.owns_walk=false;move=nil
+            end
+            -- An explicit refusal is not an unconfirmed movement attempt.
+            if emergency and emergency.step then
+                emergency.tries=math.max(0,emergency.tries-1);emergency.step.sent_at=-math.huge
+            end
+            if economy_run and economy_run.direct_step then
+                economy_run.direct_step.tries=math.max(0,economy_run.direct_step.tries-1)
+                economy_run.direct_step.sent_at=-math.huge
+            end
+            if escape and own_step then
+                escape.sent_at=nil;escape.tries=math.max(0,escape.tries-1);escape.tried[step.direction]=nil
+                if hazard_chain then hazard_chain.steps=math.max(0,hazard_chain.steps-1) end
+                local history=skip_exit_history[room_id()]
+                if history then history[step.direction]=math.max(0,(history[step.direction] or 0)-1) end
+            end
+            expected_manual=nil
+            announce("REST_FATIGUE");note("AutoExp: odmowa ruchu ze zmeczenia; czekam na sily.","warn")
+            queue(0)
+        end)
         ctx:on("chimera.step.manual", function(manual)
             if not started or paused then return end
             local direction = type(manual) == "table" and manual.direction or nil
@@ -1455,7 +1514,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.9 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.10 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1581,7 +1640,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.9"},
+                {"Wersja", "0.7.0-beta.10"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},

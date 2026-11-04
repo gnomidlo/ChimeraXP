@@ -2,7 +2,7 @@
 -- Native walker stops on 'atak'; AutoExp uses verified single GMCP exits,
 -- then returns to walker after the fight ends, without initiating attacks.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function trial(combat_remains, blocked_step)
+local function trial(combat_remains, blocked_step, exhausted)
     local old_time=os.time
     local now=100
     os.time=function() return now end
@@ -134,6 +134,19 @@ local function trial(combat_remains, blocked_step)
     -- Simulate walker stop event preceding GMCP Combat update.
     advance(0)
     assert(sent[1]=="e","after walker attack stop, send a verified east step")
+    if exhausted then
+        world.combat={self_active=1,relations={{attacker="gnoll",defender="me"}}}
+        for _,t in ipairs(triggers) do
+            if t.pattern==[[^Jestes tak zmeczon[ay], ze nie mozesz isc w tym kierunku\.$]] then t.fn() end
+        end
+        advance(10);world.vitals.fatigue=91
+        emit("chimera.char.vitals",world.vitals);advance(0)
+        assert(#sent==1 and not api.status().paused,"trade waits through movement timeout")
+        world.vitals.fatigue=90;emit("chimera.char.vitals",world.vitals);advance(0)
+        assert(sent[2]=="e","trade retries its original step at 10 percent strength")
+        commands["exp stop"]();os.time=old_time
+        print("PASS fatigue during commercial combat transit");return
+    end
     assert(not api.status().paused,"attack must not pause the merchant course")
     if blocked_step then
         -- Room.Info never changes: two retried steps and then fail-closed.
@@ -201,3 +214,4 @@ end
 trial(false)
 trial(true)
 trial(false,true)
+trial(true,false,true)
