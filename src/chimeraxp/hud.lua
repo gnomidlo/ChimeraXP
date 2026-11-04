@@ -215,7 +215,7 @@ function H.new(ctx,patrol,tactics,stop)
             add("Zmień tempo operacji…",function() prefill("zarobek tempo ") end)
             add("Sprawdź trasę sklep → bank → powrót",function() request("zarobek trasa") end)
             add("Diagnostyka handlu",function() request("zarobek diagnoza") end)
-            note="Sprzedaż obejmuje bronie i zbroje. Zachowaj prywatne wyposażenie poza zakresem sprzedaży."
+            note="Sprzedaż według listy łupów profilu: "..table.concat(p and p.loot or {},", ")..". Obejmuje niesione przedmioty tych kategorii."
         elseif self.menu=="session" then
             title="Sesja wyprawy"
             add("Teren: "..(p and p.name or "brak"));add("Czas działania: "..clock(st.elapsed))
