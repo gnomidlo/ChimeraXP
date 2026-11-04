@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.7** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.8** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Szybka instalacja w Mudlecie
 
@@ -111,7 +111,7 @@ Przed startem i wznowieniem oraz podczas ewaluacji patrolu sprawdzane są znane 
 
 STOP obejmuje wykonawców ChimeraXP i jego ruch. Nie cofa polecenia już wysłanego do serwera ani nie zatrzymuje dowolnego obcego skryptu lub serwerowej automatyki. Przy konflikcie właścicieli górnego marginesu HUD oddaje przestrzeń, pauzuje patrol i wyłącza taktykę; nie zeruje marginesu innego dodatku.
 
-**Auto-zarobek:** zachowano istniejące komendy `sprzedaj bronie` i `sprzedaj zbroje`. Mogą objąć prywatne wyposażenie. Włączenie tej opcji zgłasza ostrzeżenie; przed użyciem trzeba zweryfikować zakres sprzedaży i konfigurację pojemników. Gra nie dostarcza tu ogólnego, potwierdzonego mechanizmu automatycznej selekcji prywatnych przedmiotów.
+**Auto-zarobek:** sprzedaż używa listy łupów aktywnego profilu. Dla `bronie`, `zbroje`, `kamienie` wysyła kolejno `sprzedaj bronie`, `sprzedaj zbroje`, `sprzedaj kamienie`, z ustawionym odstępem. Sprzedaż obejmuje niesione przedmioty tych kategorii. Po ostatniej komendzie kurs prowadzi do banku; pusta lista nie rozpoczyna kursu.
 
 ## Rozwój i sprawdzenie
 

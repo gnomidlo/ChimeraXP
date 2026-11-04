@@ -1,6 +1,6 @@
 -- Real shop/bank economy state machine: mock GMCP + walker, no live game.
 local P=assert(loadfile("plugins/chimera_autoexp/init.lua"))()
-local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance, two_corpses, count_timeout, cancel_discard)
+local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no_encumbrance, two_corpses, count_timeout, cancel_discard, selected_loot, expected_sales)
   local clock=100
   local oldtime=os.time
   os.time=function() return clock end
@@ -21,7 +21,7 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
   end
   expandAlias=function(command,send) sent[#sent+1]="ALIAS:"..command end
   local profile={name="Test",route={"home"},targets={"goblin"},avoid={},
-     loot={"bronie"},safeRoom="home",rules={retreatHP=35,returnHP=85,
+     loot=selected_loot or {"bronie"},safeRoom="home",rules={retreatHP=35,returnHP=85,
        maxEnemies=3,syncWait=4,attackWait=3,lootGrace=7,
        minRoomRevisit=60,escapeWait=4,escapeMaxTries=3,
        economyLoadThreshold=75}}
@@ -186,12 +186,16 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
   else
     commands["exp zarobek kurs"]()
     advance(0)
+    if selected_loot and (#selected_loot==0 or expected_sales==false) then
+      assert(api.status().phase=="OFF" and #moves==0 and #sent==0,"empty or invalid loot list must not sell or start a trip")
+      os.time=oldtime;return
+    end
     assert(moves[#moves]==2 and #sent==0,"manual trade starts with shop walk")
   end
   travel("shop")
-  assert(sent[base+1]=="sprzedaj bronie","weapons first")
+  assert(sent[base+1]=="sprzedaj "..(expected_sales and expected_sales[1] or "bronie"),"first configured category first")
   if cancel_in_shop then
-    commands["exp stop"]()
+    if cancel_in_shop=="leave" then data.room={id="home",exits={}} else commands["exp stop"]() end
     advance(10)
     assert(#sent==base+1 and #moves==1,
         "stopping during shop sale cancels all future commands and travel")
@@ -199,12 +203,16 @@ local function scenario(confirm, automatic, configured_delay, cancel_in_shop, no
     print("PASS economy fast cancellation")
     return
   end
-  advance(delay*0.5)
-  assert(#sent==base+1,"armor command must not overlap weapons command")
-  advance(delay*0.5+0.001)
-  assert(sent[base+2]=="sprzedaj zbroje","armors second")
-  advance(delay+0.001)
-  assert(moves[#moves]==3,"must travel to bank immediately after configured delay")
+  local sales=expected_sales or (two_corpses and {"bronie","zbroje"} or {"bronie"})
+  for index=1,#sales do
+    assert(sent[base+index]=="sprzedaj "..sales[index],"sell only selected category in configured order")
+    advance(delay*0.5)
+    assert(#sent==base+index,"sales must respect command pacing")
+    advance(delay*0.5+0.001)
+  end
+  assert(#sent==base+#sales,"one command per category; no unselected armor sale")
+  assert(moves[#moves]==3,"bank follows final sale and its grace interval")
+  base=base+#sales-2 -- remaining assertions use offsets from the historical two-sale trip
   travel("bank")
   assert(sent[base+3]=="ALIAS:wem","deposit alias")
   advance(delay*0.5)
@@ -257,3 +265,11 @@ scenario(true,true,nil,false,false,true)
 scenario(true,true,nil,false,false,false,true)
 scenario(true,true,nil,false,false,true,false,true)
 
+
+scenario(true,false,nil,false,false,false,false,false,{"bronie","zbroje","kamienie"},{"bronie","zbroje","kamienie"})
+scenario(true,false,nil,false,false,false,false,false,{"kamienie"},{"kamienie"})
+scenario(true,false,nil,false,false,false,false,false,{"bronie"," BRONIE ","kamienie"},{"bronie","kamienie"})
+scenario(true,false,nil,false,false,false,false,false,{})
+scenario(true,false,nil,false,false,false,false,false,{"bronie;zabij kogos"},false)
+scenario(true,false,nil,true,false,false,false,false,{"bronie","zbroje","kamienie"})
+scenario(true,false,nil,"leave",false,false,false,false,{"bronie","zbroje","kamienie"})

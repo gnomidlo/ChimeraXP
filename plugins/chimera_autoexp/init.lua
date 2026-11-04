@@ -88,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.7",
+    version = "0.7.0-beta.8",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1442,7 +1442,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.7 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.8 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1568,7 +1568,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.7"},
+                {"Wersja", "0.7.0-beta.8"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1596,7 +1596,7 @@ return {
             ctx.log.info("Lupy: po walce policz ciala, wez TEKST z 1./2. ciala; nastepnie odloz zlamane bronie i zniszczone zbroje")
             ctx.log.info("/exp zarobek wlacz | zarobek wylacz | zarobek kurs (REALNY sklep-bank-powrot)")
             ctx.log.info("/exp zarobek tempo 0.7 (odstep polecen lupow, sprzedazy i banku: 0.3-3 s)")
-            ctx.log.info("UWAGA: sprzedaj bronie/zbroje obejmuje niesione przedmioty; wem i wlm to globalne aliasy.")
+            ctx.log.info("Sprzedaz: po jednej komendzie sprzedaj KATEGORIA z listy lupow profilu; wem i wlm to globalne aliasy.")
         end)
         command("aktualizuj", nil, function()
             local updater = rawget(_G, "chimera_xp_updater")
@@ -1865,23 +1865,26 @@ return {
                 end
             end
         end
+        local function economy_sell_next(run)
+            if economy_run~=run or not started or paused then return end
+            if room_id()~=run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
+            local category=run.sales[run.sale_index]
+            if not category then
+                note("AutoExp: wyslano sprzedaz kategorii lupow: "..table.concat(run.sales,", ").." (bez potwierdzenia serwera).", "warn")
+                economy_travel(run,"TO_BANK",run.bank.hash)
+                return
+            end
+            if not economy_do_send(run,"sprzedaj "..category) then return end
+            run.sale_index=run.sale_index+1
+            economy_delay(run,"SALE_LOOT",economy_command_delay(),function() economy_sell_next(run) end)
+        end
         process_economy=function(r, active)
             local run=economy_run
             if not run or state.owns_walk then return end
             if run.stage=="TO_SHOP" then
                 if not economy_continue_route(run, r, active, run.shop.hash) then return end
-                run.stage="SALE_WEAPONS"
-                if not economy_do_send(run, "sprzedaj bronie") then return end
-                economy_delay(run,"SALE_WEAPONS",economy_command_delay(),function()
-                    if room_id() ~= run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
-                    run.stage="SALE_ARMOR"
-                    if not economy_do_send(run,"sprzedaj zbroje") then return end
-                    economy_delay(run,"SALE_ARMOR",economy_command_delay(),function()
-                        if room_id() ~= run.shop.hash then pause("Opuszczono sklep w czasie handlu");return end
-                        note("AutoExp: wyslano obie sprzedaze (brak niezawodnych potwierdzen serwera).", "warn")
-                        economy_travel(run,"TO_BANK",run.bank.hash)
-                    end)
-                end)
+                run.stage="SALE_LOOT";run.sale_index=1
+                economy_sell_next(run)
             elseif run.stage=="TO_BANK" then
                 if not economy_continue_route(run, r, active, run.bank.hash) then return end
                 run.stage="BANK_WEM"
@@ -1938,6 +1941,13 @@ return {
                 pause("Zarobek: kurs odmowiony z powodu walki lub HP")
                 return false
             end
+            local sales=unique_names(profile().loot)
+            if #sales==0 then pause("Zarobek: brak kategorii lupow do sprzedazy");return false end
+            for _,category in ipairs(sales) do
+                if #category>80 or category:find("[;%c]") then
+                    pause("Zarobek: nieprawidlowa kategoria lupow");return false
+                end
+            end
             local shops,err=economy_candidates("sklep")
             if not shops then pause("Zarobek: "..err);return false end
             local shop=economy_nearest(current,shops)
@@ -1950,7 +1960,7 @@ return {
                 pause("Zarobek: nie ma potwierdzonej drogi bank -> miejsce expa")
                 return false
             end
-            local run={origin=r.id,shop=shop,bank=bank,
+            local run={origin=r.id,shop=shop,bank=bank,sales=sales,
                        stage="TO_SHOP",test_only=test_only}
             economy_run=run
             pending_attack,post_combat_at,escape=nil,nil,nil
@@ -1982,7 +1992,7 @@ return {
             p.economy=p.economy or {}
             p.economy.enabled=true
             remember()
-            note("EXP+ZAROBEK WLACZONY. UWAGA: 'sprzedaj bronie/zbroje' moze sprzedac tez PRYWATNE przedmioty!", "warn")
+            note("EXP+ZAROBEK WLACZONY. Sprzedaz obejmuje niesione przedmioty kategorii z listy lupow profilu.", "warn")
         end)
         command("zarobek wylacz",nil,function()
             if not allowed_config() then return end
@@ -2000,7 +2010,7 @@ return {
                 note("Najpierw /exp stop i zatrzymaj zewnetrzny chodzik.", "warn")
                 return
             end
-            note("TEST REALNY: sprzedaje WSZYSTKIE niesione bronie i zbroje! /exp stop przerwie kurs.", "warn")
+            note("TEST REALNY: sprzedaje niesione przedmioty kategorii z listy lupow profilu. /exp stop przerwie kurs.", "warn")
             start(false)
             if not started then
                 note("Nie udalo sie zainicjowac probnego kursu.", "warn")
@@ -2360,7 +2370,7 @@ return {
                 local p=areas[key]
                 if not p then return false end
                 p.economy=p.economy or {}; p.economy.enabled=value==true
-                if value then note("Auto-zarobek sprzedaje bronie i zbroje; może objąć prywatne wyposażenie. Sprawdź je przed startem.","warn") end
+                if value then note("Auto-zarobek sprzedaje kategorie z listy łupów profilu; obejmuje niesione przedmioty tych kategorii.","warn") end
                 remember(); ui_refresh(); return true
             end,
             stop=function(reason) if not destroyed then halt(reason or "STOP"); ui_refresh() end end,
@@ -3460,7 +3470,7 @@ function H.new(ctx,patrol,tactics,stop)
             add("Zmień tempo operacji…",function() prefill("zarobek tempo ") end)
             add("Sprawdź trasę sklep → bank → powrót",function() request("zarobek trasa") end)
             add("Diagnostyka handlu",function() request("zarobek diagnoza") end)
-            note="Sprzedaż obejmuje bronie i zbroje. Zachowaj prywatne wyposażenie poza zakresem sprzedaży."
+            note="Sprzedaż według listy łupów profilu: "..table.concat(p and p.loot or {},", ")..". Obejmuje niesione przedmioty tych kategorii."
         elseif self.menu=="session" then
             title="Sesja wyprawy"
             add("Teren: "..(p and p.name or "brak"));add("Czas działania: "..clock(st.elapsed))

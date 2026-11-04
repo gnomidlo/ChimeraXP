@@ -1,5 +1,12 @@
 # Zmiany
 
+## 0.7.0-beta.8 — sprzedaż według listy łupów
+
+- Sklep sprzedaje wyłącznie kategorie wpisane na liście łupów aktywnego profilu, w tej samej kolejności: np. `sprzedaj bronie`, `sprzedaj zbroje`, `sprzedaj kamienie`. Jedna kategoria oznacza jedną komendę, bez dodatkowej sprzedaży zbroi.
+- Lista na dany kurs jest kopiowana przy jego rozpoczęciu; powtórzone wpisy są usuwane niezależnie od wielkości liter. Pusta lub nieprawidłowa lista zatrzymuje kurs przed podróżą.
+- Każda sprzedaż zachowuje ustawione tempo. Bank następuje po ostatniej komendzie i jej odstępie; STOP oraz opuszczenie sklepu przerywają kolejkę. Wysłanie komendy nie stanowi potwierdzenia sprzedaży przez sklep.
+- Menu i komunikaty opisują wybrane kategorie zamiast stałej pary bronie/zbroje. Zbieranie korzysta z dotychczasowej listy łupów.
+
 ## 0.7.0-beta.7 — szybsza koncentracja drużyny
 
 - Koncentracja ma pierwszeństwo przed zwykłym równoważeniem osłon, aby rutynowa osłona nie zajmowała najpierw wspólnego odstępu rozkazów. Pilna i priorytetowa ochrona nadal wygrywa.

@@ -43,7 +43,7 @@ local function trial(combat_remains, blocked_step)
             if key=="selected" then return "test" end
             if key=="profiles" then return {test={name="test",
                 route={"home","cross","shop"},targets={"gnoll"},avoid={},
-                loot={"bronie"},safeRoom="home",rules={
+                loot={"bronie","zbroje"},safeRoom="home",rules={
                 maxEnemies=1,retreatHP=35,returnHP=85,attackWait=3,
                 lootGrace=7,minRoomRevisit=60,syncWait=4,escapeWait=4,
                 economyCommandDelay=0.7}}} end
