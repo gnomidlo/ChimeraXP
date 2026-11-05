@@ -1,5 +1,11 @@
 # Zmiany
 
+## 0.7.0-beta.15 — odwrót przez nazwane wyjścia
+
+- Awaryjny odwrót obsługuje wyjścia GMCP takie jak `wyjscie`, także bez znanego identyfikatora celu (`false`). Nadal wysyła pojedynczy krok i czeka na potwierdzenie zmiany pokoju. Nie zgaduje wyjść, których nie ma w GMCP.
+- Komunikat odwrotu nie przypisuje każdej przyczyny do niskiego HP.
+- Regresje: jedyne nazwane wyjście ze znanym i nieznanym celem, brak duplikatów oraz dotarcie do schronienia.
+
 ## 0.7.0-beta.14 — sprzedaż kamieni
 
 - Kategoria `kamienie` wysyła cztery komendy sprzedaży z normalnym odstępem, pozostałe kategorie jedną. Bank następuje po czwartej komendzie i jej odstępie. STOP i opuszczenie sklepu anulują pozostałe próby.
