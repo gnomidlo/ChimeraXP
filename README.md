@@ -1,6 +1,10 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.11** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.12** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+
+## Beta.12 — powrót do saferoom
+
+Po pierwszym omijaniu kolejna przeszkoda uruchamia powrót do saferoom, regenerację i ponowienie patrolu. Słaby agresor w schronieniu nie powoduje ucieczki. Powrót wymaga zakończenia walki, progów HP, minimum 30% sił i przerwy 30–150 s. Brak drogi powoduje alarm i nadzorowane ponawianie co 30 s. Ręczna pauza i STOP pozostają nadrzędne. Limit dotyczy celów XP, a cudze walki są nadal omijane.
 
 ## Szybka instalacja w Mudlecie
 

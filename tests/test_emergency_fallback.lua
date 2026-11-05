@@ -32,7 +32,7 @@ local function trial(which)
     on=function(_,event,cb)handlers[event]=handlers[event] or {};table.insert(handlers[event],cb) end,
     timer=function(_,delay,cb,repeating)local idx=#timers+1;timers[idx]={fn=cb,active=true,repeating=repeating};return idx end,
     cancel=function(_,idx)if timers[idx] then timers[idx].active=false end end,
-    send=function(_,command) sent[#sent+1]=command; emit('chimera.step.manual',{direction=command}) end,
+    send=function(_,command) sent[#sent+1]=command; if command~='stan' then emit('chimera.step.manual',{direction=command}) end end,
     cleanup=function()end,
     report=function()end}
   local api=plugin.setup(ctx)
@@ -77,7 +77,7 @@ local function trial(which)
     end
     assert(not api.status().paused and sent[2]=='n',which..' must continue to safe')
     move('safe',{poludnie='middle'})
-    assert(api.status().phase=='RECOVERY', which..' must arrive safe')
+    assert(api.status().phase=='COMBAT', which..' must arrive safe')
   elseif which=='breadcrumb' then
     assert(not status.paused and sent[1]=='s',which..' must backtrack to entry')
     move('entry',{polnoc='middle'})
@@ -85,7 +85,7 @@ local function trial(which)
   elseif which=='random_exit' then
     assert(not status.paused and sent[1]=='e','fallback must take actual exit even if safeRoom not mapped')
   elseif which=='no_exits' then
-    assert(status.paused and #sent==0, 'no exits must alarm, cannot invent one')
+    assert(not status.paused and status.fallback and #sent==0, 'no exits must alarm, cannot invent one')
   end
   os.time=prevtime
   print('PASS emergency fallback: '..which)

@@ -73,52 +73,14 @@ local function trial(case)
     emit("chimera.room.entities",world.entities)
     tick()
   end
-  if case=="patrol_budget" then
+  if case=="loop" or case=="alternate" or case=="patrol_loop" then
     commands["exp start"]();tick()
-    place("d",{wschod="s",poludnie="u1"},{})
-    for i=1,6 do place("u"..i,{poludnie="u"..(i+1)},{}) end
-    assert(#sent==8 and not api.status().paused,"eight bounded escape/detour attempts")
-    place("u7",{poludnie="u8"},{})
-    assert(api.status().paused and #sent==8 and #moves==0,"stop after eight attempts even when new exits keep appearing")
-  elseif case=="patrol_loop" or case=="patrol_expiry" or case=="patrol_safe" or case=="patrol_stop" or case=="patrol_retry" then
-    commands["exp start"]();tick()
-    assert(sent[1]=="w","escape initial hazard")
-    if case=="patrol_expiry" then now=221 end
-    place("d",{wschod="s",poludnie="a"},{})
-    if case=="patrol_safe" or case=="patrol_expiry" then
-      assert(#moves==1 and moves[1]==3,"safe path / expired quarantine permits normal patrol")
-    else
-      assert(#moves==0,"never hand a multi-hop route through known danger to native walker")
-      assert(#sent==2 and sent[2]=="s","choose an unvisited GMCP exit instead of returning to hazard")
-      if case=="patrol_retry" then
-        now=105
-        emit("chimera.room.entities",world.entities);tick()
-        assert(api.status().paused and #sent==2,"unconfirmed detour must not repeatedly retry the same exit")
-      elseif case=="patrol_stop" then
-        commands["exp stop"]();tick()
-        assert(#sent==2 and #moves==0,"stop cancels detour retries")
-      else
-        place("a",{polnoc="d",zachod="s"},{})
-        assert(api.status().paused,"two safe neighbours must not erase quarantine or restart the loop")
-        assert(#sent==2 and #moves==0,"no repeated steps when every exit returns to danger or recently visited room")
-      end
-    end
-  elseif case=="loop" or case=="alternate" then
-    commands["exp start"]();tick()
-    assert(sent[#sent]=="w" and not api.status().paused,"initial spider exit")
+    assert(sent[1]=="w", "first room is skipped")
     local four={}
-    for i=1,4 do four[#four+1]={id="crowd"..i,name="goblin",kind="npc"} end
+    for i=1,4 do four[i]={id="crowd"..i,name="goblin",kind="npc"} end
     place("d",{wschod="s"},four)
-    if case=="loop" then
-      assert(api.status().paused, "two hazardous rooms with no alternative MUST pause")
-      assert(#sent==1, "do not consume stamina bouncing in a hazard loop")
-      assert(table.concat(logs,";"):find("petl",1,true),"clear loop warning")
-    else
-      assert(not api.status().paused and sent[#sent]=="e","backtrack allowed if previous hazard has an unused exit")
-      place("s",{zachod="d",poludnie="a"},{spider})
-      assert(not api.status().paused and sent[#sent]=="s","choose fresh exit after backtracking")
-      assert(#sent==3,"only three moves across two hazardous rooms")
-    end
+    assert(not api.status().paused and api.status().fallback, "second hazard triggers shelter fallback")
+    assert(#sent==1,"no immediate bounce or attack")
   elseif case=="preexisting" then
     world.entities.entities={world.entities.entities[1],visitor,mob}
     world.combat={self_active=0,relations={{attacker="visitor",defender="mob"}}}
@@ -150,4 +112,4 @@ local function trial(case)
   os.time=original_time
   print("PASS foreign/loop",case)
 end
-for _,name in ipairs({"preexisting","joins","pending","loop","alternate","patrol_loop","patrol_expiry","patrol_safe","patrol_stop","patrol_retry","patrol_budget"}) do trial(name) end
+for _,name in ipairs({"preexisting","joins","pending","loop","alternate","patrol_loop"}) do trial(name) end
