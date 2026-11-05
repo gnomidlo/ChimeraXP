@@ -1,5 +1,12 @@
 # Zmiany
 
+## 0.7.0-beta.13 — priorytety podczas trwającej walki
+
+- Ponowny wybór celu według listy również podczas walki: przybycie wyższego priorytetu i śmierć przeciwnika nie wymagają zakończenia całej walki. Aktualny przeciwnik jest zachowany w obrębie tego samego priorytetu.
+- Jedna oczekująca komenda ataku; brak potwierdzenia zmiany celu uruchamia powrót do saferoom.
+- Przekroczenie limitu celów XP podczas walki uruchamia bezpośrednio powrót do saferoom. NPC spoza listy nadal nie zwiększają licznika.
+- Testy obejmują yuan-ti przed ettinami, automatycznie wybraną goblinkę, stabilne cele, przybycia i wzrost do pięciu ettinów przy limicie trzech.
+
 ## 0.7.0-beta.12 — saferoom i ponowienie patrolu
 
 - Pierwsza niebezpieczna lokacja jest omijana. Kolejna przeszkoda lub brak obejścia uruchamia powrót do saferoom zamiast pauzy. Odwrót używa pojedynczych kroków GMCP; brak drogi lub potwierdzenia uruchamia alarm i ponowną próbę po 30 s.
