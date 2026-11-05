@@ -111,27 +111,9 @@ local function scenario(kind)
     end
     assert(not api.status().paused and api.status().phase=='AVOID_ESCAPE',kind..': first hazard should be skipped')
     assert(sent[#sent]=='w','first escape should prefer route neighbour (deep forest)')
-    -- A safe dead end must not restart a walker route THROUGH the hazard.
-    -- After the user returns/resumes, fresh local GMCP is still authoritative.
     place('d',{wschod='s'}, {})
-    assert(api.status().paused,kind..': dead end must pause instead of returning to danger')
-    assert(#walker_moves==0,kind..': block intermediate hazardous room too')
-    if kind=='spider' then
-        world.combat={self_active=1,relations={{attacker='spider',defender='me'}}}
-        emit('chimera.walk.stopped',{reason='atak'})
-        place('s',{zachod='d',['polnocny-wschod']='a',poludnie='c'},{spider})
-        commands['exp wznow']();tick()
-        assert(not api.status().paused,'resuming in spider room must still escape')
-        assert(sent[#sent]=='s','second visit must choose an alternative exit, not return to dead end: '..tostring(sent[#sent]))
-        assert(not table.concat(sent,';'):find('zabij',1,true),'never attack avoided NPC')
-    else
-        emit('chimera.walk.stopped',{reason='atak'})
-        world.combat={self_active=0,relations={}}
-        place('s',{zachod='d',['polnocny-wschod']='a',poludnie='c'},{goblin})
-        commands['exp wznow']();tick()
-        assert(not api.status().paused,'return with fewer NPC must resume without waiting')
-        assert(sent[#sent]=='zabij goblin','a room with lower NPC count must immediately be eligible for fighting')
-    end
+    assert(not api.status().paused and api.status().fallback, 'dead end initiates shelter fallback')
+    assert(#walker_moves==0,'do not resume patrol through hazard')
     commands['exp stop']()
     os.time = previous_time
     print('PASS dynamic skip room '..kind)

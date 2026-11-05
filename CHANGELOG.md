@@ -1,5 +1,13 @@
 # Zmiany
 
+## 0.7.0-beta.12 — saferoom i ponowienie patrolu
+
+- Pierwsza niebezpieczna lokacja jest omijana. Kolejna przeszkoda lub brak obejścia uruchamia powrót do saferoom zamiast pauzy. Odwrót używa pojedynczych kroków GMCP; brak drogi lub potwierdzenia uruchamia alarm i ponowną próbę po 30 s.
+- Saferoom jest zaufanym schronieniem: słaby agresor nie powoduje dalszej ucieczki, a taktyka może działać podczas walki. Po walce wymagane są HP powrotu całej obserwowanej drużyny, co najmniej 30% sił oraz dane Entities. Komenda stan odświeża kondycję co 5 s.
+- Po regeneracji przerwa wynosi 30 s, rośnie o 30 s przy kolejnych powrotach, maksymalnie do 150 s na wyprawę. Pamięć zagrożeń pozostaje aktywna. STOP i ręczna pauza anulują procedurę.
+- Niepotwierdzony atak na żywy cel o wyższym priorytecie prowadzi do saferoom zamiast pomijania go na rzecz kolejnego typu NPC. Limit nadal liczy wyłącznie cele XP; omijanie cudzych walk zachowane.
+- Testy symulowane Lua 5.1/5.4; wymagana próba w żywym Mudlecie.
+
 ## 0.7.0-beta.11 — ochrona przed krążeniem między lokacjami
 
 - Niebezpieczny pokój jest zapamiętywany przez 120 s. Patrol sprawdza także pokoje pośrednie całej trasy chodzika; dwa spokojne pokoje ani rozpoczęcie innej walki nie kasują tej pamięci. Świeże, poprawne dane GMCP z danego pokoju mogą usunąć jego blokadę wcześniej.
