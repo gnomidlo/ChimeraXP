@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.10** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.11** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Szybka instalacja w Mudlecie
 
@@ -29,6 +29,13 @@ Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy aut
 - Wycofanie `wycofaj sie za ID` ma pełne 15 s od próby; komunikat gotowości zasłony nie skraca tej blokady. Nieudana próba nadal zużywa odstęp.
 - Odbiorca wycofania musi mieć co najmniej 70% HP lub wyższy próg swojego profilu, nie być Supportem, ogłuszonym, rzucającym czar ani pachołkiem w rezerwie lub z wyłączonym udziałem. Nadal sprawdzany jest limit po przejęciu wszystkich napastników.
 - HUD i ustawienia zachowane. Testy obejmują bezczynnych członków, zgodne cele, odnowienie, STOP, zdrowie i role odbiorców.
+
+## 0.7.0-beta.11 — ochrona przed krążeniem między lokacjami
+
+- Niebezpieczny pokój jest zapamiętywany przez 120 s. Patrol sprawdza także pokoje pośrednie całej trasy chodzika; dwa spokojne pokoje ani rozpoczęcie innej walki nie kasują tej pamięci. Świeże, poprawne dane GMCP z danego pokoju mogą usunąć jego blokadę wcześniej.
+- Przy ucieczce preferowane są przejścia do nieodwiedzonych ostatnio pokoi. Gdy wszystkie trasy patrolu prowadzą przez zapamiętane zagrożenie, automat próbuje nowego wyjścia z GMCP, również poza zapisaną trasą. Nie jest to potwierdzenie bezpieczeństwa nieznanego pokoju — po wejściu ponownie ocenia NPC.
+- Obejście i ucieczka mają wspólny limit 8 prób ruchu. Brak nowego przejścia powoduje pauzę i alarm zamiast powrotów między sąsiednimi pokojami. Ze spokojnej ślepej uliczki automat nie wraca sam w znane zagrożenie; potrzebne jest przejęcie sterowania lub wznowienie po zmianie warunków.
+- Pamięć dotyczy bieżącego uruchomienia i identyfikatorów lokacji, nie zmiennych ID NPC. Krytyczny odwrót, odpoczynek po zmęczeniu i własność kroków zachowują dotychczasowe zabezpieczenia.
 
 ## 0.7.0-beta.10 — kolejność celów i odpoczynek po odmowie ruchu
 
