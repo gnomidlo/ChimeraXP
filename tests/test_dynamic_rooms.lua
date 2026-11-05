@@ -1,4 +1,4 @@
--- Dynamic NPC occupancy: no time-based room bans, only skip current encounter.
+-- Dynamic NPC occupancy: temporary quarantine, cleared by fresh local observation.
 local P = assert(loadfile('plugins/chimera_autoexp/init.lua'))()
 local function scenario(kind)
     local handlers, commands, timers, sent, walker_moves, log = {}, {}, {}, {}, {}, {}
@@ -111,22 +111,24 @@ local function scenario(kind)
     end
     assert(not api.status().paused and api.status().phase=='AVOID_ESCAPE',kind..': first hazard should be skipped')
     assert(sent[#sent]=='w','first escape should prefer route neighbour (deep forest)')
-    -- The room reached is a dead end. The only route to continue is THROUGH
-    -- the previously unsafe room (it must remain valid for the mapper).
+    -- A safe dead end must not restart a walker route THROUGH the hazard.
+    -- After the user returns/resumes, fresh local GMCP is still authoritative.
     place('d',{wschod='s'}, {})
-    assert(not api.status().paused,kind..': dead end must not pause')
-    assert(walker_moves[#walker_moves]==map.c,kind..': getPath via skipped room must still work')
+    assert(api.status().paused,kind..': dead end must pause instead of returning to danger')
+    assert(#walker_moves==0,kind..': block intermediate hazardous room too')
     if kind=='spider' then
         world.combat={self_active=1,relations={{attacker='spider',defender='me'}}}
         emit('chimera.walk.stopped',{reason='atak'})
         place('s',{zachod='d',['polnocny-wschod']='a',poludnie='c'},{spider})
-        assert(not api.status().paused,'revisiting spider room must still escape')
+        commands['exp wznow']();tick()
+        assert(not api.status().paused,'resuming in spider room must still escape')
         assert(sent[#sent]=='s','second visit must choose an alternative exit, not return to dead end: '..tostring(sent[#sent]))
         assert(not table.concat(sent,';'):find('zabij',1,true),'never attack avoided NPC')
     else
         emit('chimera.walk.stopped',{reason='atak'})
         world.combat={self_active=0,relations={}}
         place('s',{zachod='d',['polnocny-wschod']='a',poludnie='c'},{goblin})
+        commands['exp wznow']();tick()
         assert(not api.status().paused,'return with fewer NPC must resume without waiting')
         assert(sent[#sent]=='zabij goblin','a room with lower NPC count must immediately be eligible for fighting')
     end

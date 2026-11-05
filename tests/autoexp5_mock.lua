@@ -197,8 +197,9 @@ emit("chimera.room.changed",{id="r1",how="reczny"})
 emit("chimera.room.entities",world.entities)
 emit("chimera.combat.state",world.combat)
 tick()
-assert(not api.status().paused, "successful escape must not be confused with manual movement")
-assert(#moves==moves_before+1 and moves[#moves]==2, "transit through previously avoided spider room must remain possible")
+assert(api.status().paused, "only exit returns to a quarantined room: stop instead of restarting patrol")
+assert(not table.concat(messages,";"):find("Wykryto ruch reczny",1,true), "owned escape is not manual movement")
+assert(#moves==moves_before, "do not route patrol back through the spider room")
 cmd("exp stop")
 -- Even if attacked BEFORE starting patrol, escape without attacking spider.
 world.room={id="r2",exits={polnoc="r1",poludnie="r3"}};world.current=2
@@ -235,7 +236,7 @@ emit("chimera.room.changed",{id="r2",how="chodzik"})
 emit("chimera.room.entities",world.entities)
 emit("chimera.combat.state",world.combat)
 tick()
-assert(not api.status().paused and sent[#sent]=="n", "escape even after walker stopped on attack")
+assert(not api.status().paused and sent[#sent]=="s", "escape after walker stopped on attack prefers unvisited room over immediate backtrack")
 cmd("exp stop")
 -- A retreat in progress must not restart whenever fresh vitals arrive.
 world.room={id="r1"};world.current=1
