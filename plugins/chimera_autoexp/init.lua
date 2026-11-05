@@ -88,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.12",
+    version = "0.7.0-beta.13",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -338,6 +338,14 @@ return {
             if not ready_entities() then return nil, nil end
             local entities = gmcp_api.entities().entities
             local found, count, best_rank = nil, 0, math.huge
+            local me = me_and_group()
+            local current
+            local combat = gmcp_api.combat() or {}
+            for _, rel in ipairs(combat.relations or {}) do
+                if me and tostring(rel.attacker) == tostring(me.id) then
+                    current = tostring(rel.defender)
+                end
+            end
             for _, e in ipairs(entities) do
                 local id = e.id and tostring(e.id) or nil
                 local friendly = bool(e.self) or e.relation == "self"
@@ -360,12 +368,12 @@ return {
                             rank,length=index,#pattern
                         end
                     end
-                    if rank<best_rank and id and valid_id(id) then
+                    if id and valid_id(id) and (rank<best_rank or (rank==best_rank and id==current)) then
                         found,best_rank = e,rank
                     end
                 end
             end
-            return found, count
+            return found, count, current
         end
         -- NPCs on the NEXT room are not known from GMCP. On spotting an
         -- avoided NPC in our current room, leave immediately without issuing
@@ -1174,7 +1182,7 @@ return {
                 end
                 return
             end
-            local target, npc_count = target_info(p, group_ids)
+            local target, npc_count, current_target = target_info(p, group_ids)
             local skip_reason = nil
             if npc_count > p.rules.maxEnemies then
                 skip_reason = "zbyt wiele celow EXP (" .. npc_count .. "/" ..
@@ -1184,6 +1192,10 @@ return {
                 -- Leave only foreign fights met on arrival. A later outsider
                 -- joining our ongoing combat must never trigger an escape.
                 skip_reason = "obcy gracz walczy z NPC"
+            end
+            if skip_reason and active then
+                begin_fallback(skip_reason)
+                return
             end
             if skip_reason then
                 escape_avoided(p, r, skip_reason)
@@ -1197,9 +1209,22 @@ return {
                 hazard_chain, skip_exit_history = nil, {}
             end
             if active then
-                pending_attack = nil
                 post_combat_at = nil
                 announce("COMBAT")
+                if target and tostring(target.id) ~= current_target then
+                    -- One outstanding attack; never flood commands on GMCP bursts.
+                    if pending_attack and os.time() - pending_attack.since < p.rules.attackWait then return end
+                    if pending_attack and tostring(pending_attack.id) == tostring(target.id) then
+                        begin_fallback("Brak potwierdzenia zmiany priorytetowego celu")
+                        return
+                    end
+                    if dry then return end
+                    pending_attack = {id=target.id, room=r.id, since=os.time()}
+                    local ok, err = pcall(ctx.send, ctx, "zabij " .. target.id, true)
+                    if not ok then begin_fallback("Blad zmiany celu: " .. tostring(err)) end
+                else
+                    pending_attack = nil
+                end
                 return
             end
             if phase == "COMBAT" then
@@ -1635,7 +1660,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.12 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.13 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1761,7 +1786,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.12"},
+                {"Wersja", "0.7.0-beta.13"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
