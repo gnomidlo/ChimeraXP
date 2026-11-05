@@ -88,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.13",
+    version = "0.7.0-beta.14",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1660,7 +1660,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.13 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.14 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1786,7 +1786,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.13"},
+                {"Wersja", "0.7.0-beta.14"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -1814,7 +1814,7 @@ return {
             ctx.log.info("Lupy: po walce policz ciala, wez TEKST z ziemi, potem wez TEKST z 1./2. ciala; nastepnie odloz zlamane bronie i zniszczone zbroje")
             ctx.log.info("/exp zarobek wlacz | zarobek wylacz | zarobek kurs (REALNY sklep-bank-powrot)")
             ctx.log.info("/exp zarobek tempo 0.7 (odstep polecen lupow, sprzedazy i banku: 0.3-3 s)")
-            ctx.log.info("Sprzedaz: po jednej komendzie sprzedaj KATEGORIA z listy lupow profilu; wem i wlm to globalne aliasy.")
+            ctx.log.info("Sprzedaz: sprzedaj KATEGORIA z listy lupow profilu; kamienie cztery razy, pozostale raz; wem i wlm to globalne aliasy.")
         end)
         command("aktualizuj", nil, function()
             local updater = rawget(_G, "chimera_xp_updater")
@@ -2093,7 +2093,12 @@ return {
                 return
             end
             if not economy_do_send(run,"sprzedaj "..category) then return end
-            run.sale_index=run.sale_index+1
+            run.sale_repeat=(run.sale_repeat or 0)+1
+            local repeats=normalized(category)=="kamienie" and 4 or 1
+            if run.sale_repeat>=repeats then
+                run.sale_index=run.sale_index+1
+                run.sale_repeat=0
+            end
             economy_delay(run,"SALE_LOOT",economy_command_delay(),function() economy_sell_next(run) end)
         end
         process_economy=function(r, active)

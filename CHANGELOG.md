@@ -1,5 +1,9 @@
 # Zmiany
 
+## 0.7.0-beta.14 — sprzedaż kamieni
+
+- Kategoria `kamienie` wysyła cztery komendy sprzedaży z normalnym odstępem, pozostałe kategorie jedną. Bank następuje po czwartej komendzie i jej odstępie. STOP i opuszczenie sklepu anulują pozostałe próby.
+
 ## 0.7.0-beta.13 — priorytety podczas trwającej walki
 
 - Ponowny wybór celu według listy również podczas walki: przybycie wyższego priorytetu i śmierć przeciwnika nie wymagają zakończenia całej walki. Aktualny przeciwnik jest zachowany w obrębie tego samego priorytetu.

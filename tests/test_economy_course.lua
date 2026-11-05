@@ -267,10 +267,13 @@ scenario(true,true,nil,false,false,false,true)
 scenario(true,true,nil,false,false,true,false,true)
 
 
-scenario(true,false,nil,false,false,false,false,false,{"bronie","zbroje","kamienie"},{"bronie","zbroje","kamienie"})
-scenario(true,false,nil,false,false,false,false,false,{"kamienie"},{"kamienie"})
-scenario(true,false,nil,false,false,false,false,false,{"bronie"," BRONIE ","kamienie"},{"bronie","kamienie"})
+scenario(true,false,nil,false,false,false,false,false,{"bronie","zbroje","kamienie"},{"bronie","zbroje","kamienie","kamienie","kamienie","kamienie"})
+scenario(true,false,nil,false,false,false,false,false,{"kamienie"},{"kamienie","kamienie","kamienie","kamienie"})
+scenario(true,false,nil,false,false,false,false,false,{"bronie"," BRONIE ","kamienie"},{"bronie","kamienie","kamienie","kamienie","kamienie"})
 scenario(true,false,nil,false,false,false,false,false,{})
 scenario(true,false,nil,false,false,false,false,false,{"bronie;zabij kogos"},false)
 scenario(true,false,nil,true,false,false,false,false,{"bronie","zbroje","kamienie"})
 scenario(true,false,nil,"leave",false,false,false,false,{"bronie","zbroje","kamienie"})
+
+scenario(true,false,nil,true,false,false,false,false,{"kamienie"},{"kamienie"})
+scenario(true,false,nil,"leave",false,false,false,false,{"kamienie"},{"kamienie"})
