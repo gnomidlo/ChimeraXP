@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.14",
+    version = "0.7.0-beta.15",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -416,6 +416,10 @@ return {
             if not ok then expected_manual = nil end
             return ok, err
         end
+        local function exit_command(direction)
+            if type(direction) ~= "string" or direction == "" or direction:find("[;%c]") then return nil end
+            return EXIT_COMMANDS[direction] or direction
+        end
         local function known_step_toward(r, target)
             -- BFS through exits observed in previously visited rooms. Unlike
             -- the Mudlet map, this needs no saved mapper rooms/coordinates.
@@ -430,7 +434,7 @@ return {
                 if type(links) == "table" then
                     local options = {}
                     for direction, dest in pairs(links) do
-                        local command = EXIT_COMMANDS[direction]
+                        local command = exit_command(direction)
                         if command and valid_id(dest) and not seen[dest] then
                             options[#options + 1] = { command = command, id = dest }
                         end
@@ -471,7 +475,7 @@ return {
                         and getRoomHashByID(path[1]) or nil
                     if valid_id(next_id) then
                         for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
-                            local command = EXIT_COMMANDS[direction]
+                            local command = exit_command(direction)
                             if command and hash == next_id then return command, hash, "mapper" end
                         end
                     end
@@ -483,7 +487,7 @@ return {
             if trail[#trail] == r.id and #trail >= 2 then
                 local previous = trail[#trail - 1]
                 for direction, hash in pairs(type(r.exits) == "table" and r.exits or {}) do
-                    local command = EXIT_COMMANDS[direction]
+                    local command = exit_command(direction)
                     if command and hash == previous then return command, hash, "cofanie" end
                 end
             end
@@ -493,15 +497,15 @@ return {
             -- Avoid known dangerous rooms and loops; never invent an exit.
             local options = {}
             for direction, id in pairs(type(r.exits) == "table" and r.exits or {}) do
-                local command = EXIT_COMMANDS[direction]
-                if command and valid_id(id) then
+                local command = exit_command(direction)
+                if command and (valid_id(id) or id == false) then
                     local n = emergency and emergency.visits[id] or 0
                     options[#options + 1] = {command=command, id=id, visits=n or 0}
                 end
             end
             table.sort(options, function(a,b)
                 if a.visits ~= b.visits then return a.visits < b.visits end
-                if a.id ~= b.id then return a.id < b.id end
+                if a.id ~= b.id then return tostring(a.id) < tostring(b.id) end
                 return a.command < b.command
             end)
             if #options > 0 then return options[1].command, options[1].id, "wyjscie GMCP" end
@@ -922,7 +926,7 @@ return {
                 emergency = { destination = p.safeRoom, tries = 0, steps = 0,
                     fallback_steps = 0, visits = { [r.id] = 1 }, warned_fallback = false }
                 pending_attack, post_combat_at, escape = nil, nil, nil
-                note("AutoExp: ALARM HP! Awaryjny odwrot do bezpiecznej lokacji, krok po kroku.", "warn")
+                note("AutoExp: Awaryjny odwrot do bezpiecznej lokacji, krok po kroku.", "warn")
             end
             if emergency.step and emergency.step.origin == r.id then
                 if now - emergency.step.sent_at <
@@ -1397,7 +1401,7 @@ return {
             local was_escaping = escape and r and r.id ~= escape.origin
             local was_emergency = emergency and emergency.step and r
                 and r.id ~= emergency.step.origin
-            if was_emergency and r.id ~= emergency.step.destination then
+            if was_emergency and valid_id(emergency.step.destination) and r.id ~= emergency.step.destination then
                 -- A server teleport or stale mapper link is NOT grounds to
                 -- abandon a lifesaving retreat. Use actual confirmed GMCP.
                 note("AutoExp ALARM: trafilem do innego pokoju niz planowano; przeliczam odwrot z GMCP!", "warn")
@@ -1656,7 +1660,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.14 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.15 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1782,7 +1786,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.14"},
+                {"Wersja", "0.7.0-beta.15"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -2373,7 +2377,7 @@ return {
             end
             local command, next_id, source = emergency_step(p, r)
             if command then
-                note("AutoExp TEST ODWROTU: " .. command .. " -> " .. next_id ..
+                note("AutoExp TEST ODWROTU: " .. command .. " -> " .. tostring(next_id or "nieznany cel") ..
                     " (" .. source .. "); nie wyslano ruchu" ..
                     ((source == "mapper" or source == "GMCP") and "" or
                     ". UWAGA: to tylko awaryjne wyjscie, nie potwierdzona trasa do schronienia!"),

@@ -60,6 +60,8 @@ local function trial(which)
     emit('chimera.room.changed',{id='middle',exits={poludnie='entry'}})
   elseif which=='random_exit' then
     world.room={id='entry',exits={wschod='other'}}
+  elseif which=='named' or which=='unknown_named' then
+    world.room={id='entry',exits={wyjscie=which=='named' and 'safe' or false}}
   elseif which=='no_exits' then
     world.room={id='entry',exits={}}
   end
@@ -84,10 +86,16 @@ local function trial(which)
     assert(not api.status().paused,'not pause immediately on reaching previous room')
   elseif which=='random_exit' then
     assert(not status.paused and sent[1]=='e','fallback must take actual exit even if safeRoom not mapped')
+  elseif which=='named' or which=='unknown_named' then
+    assert(sent[1]=='wyjscie' and not status.paused, 'named exit must be sent')
+    emit('chimera.combat.state',world.combat);tick()
+    assert(#sent==1,'wait for confirmation without duplicate exit')
+    move('safe',{})
+    assert(api.status().phase=='COMBAT' and not api.status().paused,'confirmed named exit reaches shelter')
   elseif which=='no_exits' then
     assert(not status.paused and status.fallback and #sent==0, 'no exits must alarm, cannot invent one')
   end
   os.time=prevtime
   print('PASS emergency fallback: '..which)
 end
-for _,what in ipairs({'known_graph','unmapped_safe','unexpected_location','breadcrumb','random_exit','no_exits'}) do trial(what) end
+for _,what in ipairs({'known_graph','unmapped_safe','unexpected_location','breadcrumb','random_exit','named','unknown_named','no_exits'}) do trial(what) end
