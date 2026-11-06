@@ -3,6 +3,12 @@ local P=dofile('plugins/chimera_autoexp/init.lua')
 local TIRED=[[^Jestes tak zmeczon[ay], ze nie mozesz isc w tym kierunku\.$]]
 local function fixture(avoid,empty)
     local h=new()
+    h.polls=0
+    local send=h.ctx.send
+    h.ctx.send=function(ctx,cmd,...)
+        if cmd=='stan' then h.polls=h.polls+1;return end
+        return send(ctx,cmd,...)
+    end
     h.p.vitals={hp=100,fatigue=0,encumbrance=0}
     h.p.room.exits={polnoc='safe'}
     for _,m in ipairs(h.p.group.members)do m.hp=m.maxhp end
@@ -39,6 +45,7 @@ do
     assert(h.sent[1]=='n')
     h.triggers[TIRED]();h.advance(10)
     assert(#h.sent==1 and not h.api.status().paused,'stale full stamina must not retry')
+    assert(h.polls>=2 and h.polls<=3,'bounded stamina refresh during rest')
     strength(h,29);assert(#h.sent==1)
     strength(h,nil);assert(#h.sent==1,'missing stamina never authorizes movement')
     strength(h,30);assert(h.sent[2]=='n','resume same exit when rested')

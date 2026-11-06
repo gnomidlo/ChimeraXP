@@ -84,7 +84,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.15",
+    version = "0.7.0-beta.16",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -118,7 +118,6 @@ return {
         local session = {elapsed=0, xp=0}
         local ui_refresh = function() if not destroyed and hooks.changed then hooks.changed() end end
         local started, paused, dry = false, false, false
-            fallback, fallback_count = nil, 0
         local function session_clock()
             if started and not paused and not dry then
                 session.elapsed = session.elapsed + 1
@@ -1055,6 +1054,11 @@ return {
             if active then engaged_here = true end
             if fatigue_rest then
                 local rest=fatigue_rest
+                if not rest.poll_at or os.time() >= rest.poll_at then
+                    rest.poll_at = os.time() + 5
+                    pcall(ctx.send, ctx, "stan", true)
+                    if not started or paused or fatigue_rest ~= rest then return end
+                end
                 local fatigue=tonumber((gmcp_api.vitals() or {}).fatigue)
                 local strength=fatigue and fatigue>=0 and fatigue<=100 and 100-fatigue or nil
                 local threshold=active==true and 10 or 30
@@ -1086,6 +1090,10 @@ return {
                     fallback.poll_at = os.time() + 5
                     pcall(ctx.send, ctx, "stan", true)
                     if not started or paused or not fallback then return end
+                    if not ready_entities() and type(gmcp_api.refresh_entities) == "function" then
+                        pcall(gmcp_api.refresh_entities)
+                        if not started or paused or not fallback then return end
+                    end
                 end
                 emergency = nil
                 -- The configured shelter is trusted, even with a weak aggressor.
@@ -1093,17 +1101,29 @@ return {
                 if active ~= false then
                     fallback.ready_at = nil
                     announce(active and "COMBAT" or "WAIT_COMBAT")
+                    last_reason = active and "Saferoom: GMCP nadal wskazuje walke." or "Saferoom: brak danych walki GMCP."
                     return
                 end
                 local fatigue = tonumber((gmcp_api.vitals() or {}).fatigue)
-                if hp < p.rules.returnHP or (weakest and weakest.hp < p.rules.returnHP)
-                    or not fatigue or fatigue < 0 or fatigue > 70 or not ready_entities() then
+                local reason
+                if hp < p.rules.returnHP then reason="HP postaci "..hp.."%, wymagane "..p.rules.returnHP.."%."
+                elseif weakest and weakest.hp < p.rules.returnHP then reason="HP druzyny: "..weakest.name.." "..weakest.hp.."%, wymagane "..p.rules.returnHP.."%."
+                elseif not fatigue or fatigue < 0 or fatigue > 100 then reason="Brak poprawnych danych zmeczenia GMCP."
+                elseif fatigue > 70 then reason="Sily "..(100-fatigue).."%, wymagane 30%."
+                elseif not ready_entities() then reason="Brak aktualnych istot saferoom; odswiezam GMCP." end
+                if reason then
                     fallback.ready_at = nil
                     announce("RECOVERY")
+                    last_reason="Saferoom: "..reason
                     return
                 end
                 fallback.ready_at = fallback.ready_at or (os.time() + fallback.wait)
-                if os.time() < fallback.ready_at then announce("RECOVERY"); return end
+                if os.time() < fallback.ready_at then
+                    announce("RECOVERY")
+                    last_reason="Saferoom: regeneracja zakonczona; wznowienie za "..(fallback.ready_at-os.time()).." s."
+                    return
+                end
+                note("AutoExp: regeneracja i oczekiwanie zakonczone; wznawiam patrol.")
                 fallback, hazard_chain, escape = nil, nil, nil
                 skip_exit_history = {}
                 announce("READY")
@@ -1660,7 +1680,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.15 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.16 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1786,7 +1806,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.15"},
+                {"Wersja", "0.7.0-beta.16"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},

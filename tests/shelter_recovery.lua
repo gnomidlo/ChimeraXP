@@ -73,3 +73,24 @@ do
  h.dispose()
 end
 print('PASS shelter recovery, retry, STOP, priority failure and unlisted aggressor')
+
+do
+ local h=setup();h.p.entities.entities=crowd
+ h.api.request('start');h.advance(.1)
+ h.place('b',{polnoc='safe'},crowd);h.advance(.1)
+ local refreshes=0
+ h.gmcp.refresh_entities=function()
+  refreshes=refreshes+1
+  return true
+ end
+ h.p.room={id='safe',key='safe',exits={poludnie='c'}}
+ h.emit('chimera.room.changed',{id='safe',how='chodzik'})
+ h.advance(6)
+ assert(refreshes>0 and refreshes<=2,'request missing shelter entities with bounded polling')
+ assert(h.api.status().fallback,'do not bypass missing room data')
+ h.p.entities={room='safe',entities={}}
+ h.emit('chimera.room.entities',h.p.entities)
+ h.advance(32)
+ assert(not h.api.status().fallback and #h.moves>0,'fresh snapshot releases fully regenerated shelter')
+ h.dispose()
+end
