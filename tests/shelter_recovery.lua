@@ -2,6 +2,11 @@ local new=dofile('tests/support_harness.lua')
 local P=dofile('plugins/chimera_autoexp/init.lua')
 local function setup()
  local h=new()
+ local send=h.ctx.send
+ h.ctx.send=function(ctx,cmd,...)
+  assert(cmd~='stan','shelter must never poll condition through game commands')
+  return send(ctx,cmd,...)
+ end
  h.p.vitals={hp=100,fatigue=0}
  for _,m in ipairs(h.p.group.members) do m.hp=100 end
  h.p.entities.entities={{id='me',kind='player',relation='self'}}
@@ -73,3 +78,44 @@ do
  h.dispose()
 end
 print('PASS shelter recovery, retry, STOP, priority failure and unlisted aggressor')
+
+do
+ local h=setup();h.p.entities.entities=crowd
+ h.api.request('start');h.advance(.1)
+ h.place('b',{polnoc='safe'},crowd);h.advance(.1)
+ local refreshes=0
+ h.gmcp.refresh_entities=function()
+  refreshes=refreshes+1
+  return true
+ end
+ h.p.room={id='safe',key='safe',exits={poludnie='c'}}
+ h.emit('chimera.room.changed',{id='safe',how='chodzik'})
+ h.advance(6)
+ assert(refreshes>0 and refreshes<=2,'request missing shelter entities with bounded polling')
+ assert(h.api.status().fallback,'do not bypass missing room data')
+ h.p.entities={room='safe',entities={}}
+ h.emit('chimera.room.entities',h.p.entities)
+ h.advance(32)
+ assert(not h.api.status().fallback and #h.moves>0,'fresh snapshot releases fully regenerated shelter')
+ h.dispose()
+end
+
+-- Reported full regeneration: Combat.State has no self_active field.
+do
+ local h=setup();h.p.entities.entities=crowd
+ h.api.request('start');h.advance(.1)
+ h.place('b',{polnoc='safe'},crowd);h.advance(.1)
+ h.p.vitals={hp=100,fatigue=0,mana=100,encumbrance=66}
+ h.p.group={leader='e921aced34b49b424-1',members={
+  {id='e921aced34b49b424-1',self=1,here=1,hp=1999,maxhp=1999,stamina=153,maxstamina=153,name='Xochitl'},
+  {id='e921aced34b49b424-4',self=0,here=1,hp=1940,maxhp=1940,stamina=152,maxstamina=152,name='Vharkana'},
+  {id='e921aced34b49b424-70',self=0,here=1,hp=2020,maxhp=2020,stamina=156,maxstamina=156,name='Isskana'}}}
+ h.p.combat={room='safe',primary='',relations={},covers={{guard='e921aced34b49b424-1',guarded='e921aced34b49b424-70'}}}
+ h.place('safe',{otwor='c'},{
+  {id='e921aced34b49b424-1',kind='player',relation='self',group_role='leader'},
+  {id='e921aced34b49b424-4',kind='npc',relation='ally',group_role='member'},
+  {id='e921aced34b49b424-70',kind='npc',relation='ally',group_role='member'}})
+ h.advance(32)
+ assert(not h.api.status().fallback and #h.moves>0,'reported full recovery resumes with empty primary/relations and no self_active')
+ h.dispose()
+end

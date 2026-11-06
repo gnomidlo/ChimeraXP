@@ -90,6 +90,7 @@ local function trial(combat_remains, blocked_step, exhausted)
         cancel=function(_,id) if timers[id] then timers[id].active=false end end,
         cleanup=function() end,
         send=function(_,cmd)
+            assert(cmd~="stan", "fatigue recovery must use GMCP without stan")
             sent[#sent+1]=cmd
             if cmd=="e" or cmd=="w" then
                 emit("chimera.step.manual",{direction=cmd})

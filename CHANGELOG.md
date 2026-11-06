@@ -1,5 +1,12 @@
 # Zmiany
 
+## 0.7.0-beta.16 — odświeżanie podczas odpoczynku
+
+- Saferoom prosi o brakujące Room.Entities przez oficjalne refresh_entities co 5 s zamiast czekać bez końca przy pełnej regeneracji. Wznowienie nadal wymaga poprawnych danych.
+- Odpoczynek w saferoom i po odmowie ruchu nie wysyła komendy `stan`. Kondycja i siły są oceniane z aktualizacji GMCP; osobne odświeżanie brakujących Room.Entities pozostaje aktywne.
+- Status podaje konkretną blokadę odpoczynku (walka, dane, HP postaci/drużyny, siły) albo czas do wznowienia.
+- Regresja odtwarza pełną regenerację bez pakietu lokacji i automatyczny powrót po jego odświeżeniu.
+
 ## 0.7.0-beta.15 — odwrót przez nazwane wyjścia
 
 - Awaryjny odwrót obsługuje wyjścia GMCP takie jak `wyjscie`, także bez znanego identyfikatora celu (`false`). Nadal wysyła pojedynczy krok i czeka na potwierdzenie zmiany pokoju. Nie zgaduje wyjść, których nie ma w GMCP.
