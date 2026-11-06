@@ -45,7 +45,7 @@ do
     assert(h.sent[1]=='n')
     h.triggers[TIRED]();h.advance(10)
     assert(#h.sent==1 and not h.api.status().paused,'stale full stamina must not retry')
-    assert(h.polls>=2 and h.polls<=3,'bounded stamina refresh during rest')
+    assert(h.polls==0,'rest consumes GMCP without sending stan')
     strength(h,29);assert(#h.sent==1)
     strength(h,nil);assert(#h.sent==1,'missing stamina never authorizes movement')
     strength(h,30);assert(h.sent[2]=='n','resume same exit when rested')

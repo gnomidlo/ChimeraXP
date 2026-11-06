@@ -2,6 +2,11 @@ local new=dofile('tests/support_harness.lua')
 local P=dofile('plugins/chimera_autoexp/init.lua')
 local function setup()
  local h=new()
+ local send=h.ctx.send
+ h.ctx.send=function(ctx,cmd,...)
+  assert(cmd~='stan','shelter must never poll condition through game commands')
+  return send(ctx,cmd,...)
+ end
  h.p.vitals={hp=100,fatigue=0}
  for _,m in ipairs(h.p.group.members) do m.hp=100 end
  h.p.entities.entities={{id='me',kind='player',relation='self'}}

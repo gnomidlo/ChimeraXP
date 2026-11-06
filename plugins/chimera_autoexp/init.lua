@@ -1058,11 +1058,6 @@ return {
             if active then engaged_here = true end
             if fatigue_rest then
                 local rest=fatigue_rest
-                if not rest.poll_at or os.time() >= rest.poll_at then
-                    rest.poll_at = os.time() + 5
-                    pcall(ctx.send, ctx, "stan", true)
-                    if not started or paused or fatigue_rest ~= rest then return end
-                end
                 local fatigue=tonumber((gmcp_api.vitals() or {}).fatigue)
                 local strength=fatigue and fatigue>=0 and fatigue<=100 and 100-fatigue or nil
                 local threshold=active==true and 10 or 30
@@ -1092,8 +1087,6 @@ return {
                 end
                 if not fallback.poll_at or os.time() >= fallback.poll_at then
                     fallback.poll_at = os.time() + 5
-                    pcall(ctx.send, ctx, "stan", true)
-                    if not started or paused or not fallback then return end
                     if not ready_entities() and type(gmcp_api.refresh_entities) == "function" then
                         pcall(gmcp_api.refresh_entities)
                         if not started or paused or not fallback then return end
