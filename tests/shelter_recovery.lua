@@ -99,3 +99,23 @@ do
  assert(not h.api.status().fallback and #h.moves>0,'fresh snapshot releases fully regenerated shelter')
  h.dispose()
 end
+
+-- Reported full regeneration: Combat.State has no self_active field.
+do
+ local h=setup();h.p.entities.entities=crowd
+ h.api.request('start');h.advance(.1)
+ h.place('b',{polnoc='safe'},crowd);h.advance(.1)
+ h.p.vitals={hp=100,fatigue=0,mana=100,encumbrance=66}
+ h.p.group={leader='e921aced34b49b424-1',members={
+  {id='e921aced34b49b424-1',self=1,here=1,hp=1999,maxhp=1999,stamina=153,maxstamina=153,name='Xochitl'},
+  {id='e921aced34b49b424-4',self=0,here=1,hp=1940,maxhp=1940,stamina=152,maxstamina=152,name='Vharkana'},
+  {id='e921aced34b49b424-70',self=0,here=1,hp=2020,maxhp=2020,stamina=156,maxstamina=156,name='Isskana'}}}
+ h.p.combat={room='safe',primary='',relations={},covers={{guard='e921aced34b49b424-1',guarded='e921aced34b49b424-70'}}}
+ h.place('safe',{otwor='c'},{
+  {id='e921aced34b49b424-1',kind='player',relation='self',group_role='leader'},
+  {id='e921aced34b49b424-4',kind='npc',relation='ally',group_role='member'},
+  {id='e921aced34b49b424-70',kind='npc',relation='ally',group_role='member'}})
+ h.advance(32)
+ assert(not h.api.status().fallback and #h.moves>0,'reported full recovery resumes with empty primary/relations and no self_active')
+ h.dispose()
+end
