@@ -3,36 +3,36 @@ local H={}
 -- Obsidian: single palette and explicit control styles shared by every menu.
 -- Icons are Unicode glyphs rendered by Qt, not downloaded images or font files.
 local P={bg="#151922",panel="#1D2430",card="#222B39",raised="#303B4C",line="#343E50",
-    text="#EDF0F5",muted="#A6B0C0",soft="#8291A5",mint="#A8DCC2",
+    text="#F4F6FA",muted="#C2CCDB",soft="#AEBBD0",mint="#A8DCC2",
     lavender="#C7B9E8",rose="#F0A8B8",yellow="#EFD8A6",green="#315746"}
-local ICON={party="♧",shield="◇",attack="⚔",area="⌖",gear="⚙",close="×",
+local ICON={party="☷",shield="◇",attack="⚔",area="⌖",gear="⚙",close="×",
     back="‹",next="›",role="✦",member="◆",npc="◆",player="●",star="★",
     ready="✓",wait="◷",sliders="☷",safety="✚",loot="◇",trade="◆",
     session="◷",map="⌖",reset="↺",play="▶",pause="Ⅱ",stop="■",
     auto="✧",target="◎",support="✚"}
 local STYLES={
-    base={radius=7,pad=4,font=10},
+    base={radius=6,pad=2,font=9},
     bar={radius=0,pad=0,font=10},
-    nav={radius=9,pad=5,font=10,hover=P.raised},
+    nav={radius=7,pad=3,font=9,hover=P.raised},
     toolbar={radius=9,pad=3,font=12,hover=P.raised},
     danger={radius=9,pad=3,font=12,hover="#593440"},
-    panel={radius=16,pad=0,border=P.line},
-    title={radius=0,pad=2,font=12,bold=true},
-    subtitle={radius=0,pad=0,font=9},
-    section={radius=0,pad=2,font=9,bold=true},
-    card={radius=12,pad=4,border=P.line},
-    row={radius=10,pad=6,hover=P.raised},
-    label={radius=0,pad=2},
-    detail={radius=0,pad=2,font=9},
-    icon={radius=10,pad=1,font=15,bold=true},
-    chip={radius=11,pad=2,font=9,bold=true},
-    ["switch-track"]={radius=13,pad=0},
-    ["switch-knob"]={radius=12,pad=0},
+    panel={radius=10,pad=0,border=P.line},
+    title={radius=0,pad=0,font=10,bold=true},
+    subtitle={radius=0,pad=0,font=8},
+    section={radius=0,pad=1,font=8,bold=true},
+    card={radius=8,pad=1,border=P.line},
+    row={radius=8,pad=3,hover=P.raised},
+    label={radius=0,pad=1,font=9},
+    detail={radius=0,pad=1,font=9},
+    icon={radius=7,pad=0,font=11,bold=true},
+    chip={radius=7,pad=1,font=8,bold=true},
+    ["switch-track"]={radius=10,pad=0},
+    ["switch-knob"]={radius=8,pad=0},
     ["slider-track"]={radius=5,pad=0},
     ["slider-hit"]={radius=0,pad=0},
-    ["slider-thumb"]={radius=10,pad=0,border="#DFFBE9"},
-    button={radius=9,pad=3,font=12,hover=P.card},
-    footer={radius=0,pad=2,font=9},
+    ["slider-thumb"]={radius=8,pad=0,border="#DFFBE9"},
+    button={radius=7,pad=1,font=10,hover=P.card},
+    footer={radius=0,pad=1,font=8},
     divider={radius=0,pad=0}
 }
 local function esc(v) return tostring(v or ""):gsub("&","&amp;"):gsub("<","&lt;"):gsub(">","&gt;"):gsub('"',"&quot;") end
@@ -161,7 +161,7 @@ function H.new(ctx,patrol,tactics,stop)
             add("Dodatkowe ustawienia drużyny",function()
                 self.menu="tactics";self.page=1;self:render()
             end,P.lavender,"action",{icon=ICON.gear})
-            note="Kliknij postać, aby wybrać rolę lub zadanie. HP: okno Kondycje."
+            note=""
         elseif self.menu=="member" then
             title=(selected and selected.name or "Postać").." · zachowanie"
             add("Wróć do drużyny",function() self.menu="party";self:render() end,P.muted,"back",{icon=ICON.back})
