@@ -66,6 +66,7 @@ local function normalize_profile(src, name)
         name = trim(name or old.name), route = rooms_from(old.route),
         targets = unique_names(old.targets), avoid = unique_names(old.avoid),
         loot = unique_names(old.loot),
+        partyAttack = bool(old.partyAttack),
         economy = { enabled = type(old.economy) == "table" and bool(old.economy.enabled) },
         safeRoom = valid_id(old.safeRoom) and old.safeRoom or nil,
         rules = {},
@@ -378,6 +379,31 @@ return {
         -- avoided NPC in our current room, leave immediately without issuing
         -- a combat command. During combat the native walker auto-stops, so
         -- this escape uses a single direct room exit (GMCP), not walker.go().
+        -- Issue exactly one party order for each AutoExp attack, never on GMCP refresh.
+        -- Tactics handles formation maneuvers; this command only aligns attack targets.
+        local function attack_target(p, id)
+            if not valid_id(id) then return false, "Niepoprawne ID celu" end
+            local ok, err = pcall(ctx.send, ctx, "zabij " .. id, true)
+            if not ok then return false, tostring(err) end
+            if p.partyAttack and not dry then
+                local group = gmcp_api.group() or {}
+                local me = me_and_group()
+                local members = type(group.members) == "table" and group.members or {}
+                local has_party = false
+                for _, member in ipairs(members) do
+                    if not bool(member.self) and bool(member.here) then has_party = true; break end
+                end
+                -- Never issue a leader-only order as a party member or when solo.
+                if has_party and me and tostring(group.leader) == tostring(me.id) then
+                    local ordered, order_err = pcall(ctx.send, ctx,
+                        "rozkaz druzynie zaatakowac " .. id, true)
+                    if not ordered then
+                        note("AutoExp: nie udalo sie wydac rozkazu druzynie: " .. tostring(order_err), "warn")
+                    end
+                end
+            end
+            return true
+        end
         local function avoided_npc(p, group_ids)
             if not ready_entities() then return nil end
             for _, e in ipairs(gmcp_api.entities().entities) do
@@ -1237,7 +1263,7 @@ return {
                     end
                     if dry then return end
                     pending_attack = {id=target.id, room=r.id, since=os.time()}
-                    local ok, err = pcall(ctx.send, ctx, "zabij " .. target.id, true)
+                    local ok, err = attack_target(p, target.id)
                     if not ok then begin_fallback("Blad zmiany celu: " .. tostring(err)) end
                 else
                     pending_attack = nil
@@ -1303,7 +1329,8 @@ return {
                 hazard_chain, skip_exit_history = nil, {}
                 pending_attack = { id = target.id, room = r.id, since = os.time() }
                 attacked_in_room[target.id] = true
-                ctx:send("zabij " .. target.id, true)
+                local ok, err = attack_target(p, target.id)
+                if not ok then begin_fallback("Blad ataku: " .. tostring(err)); return end
                 queue(0)
                 return
             end
@@ -2531,6 +2558,18 @@ return {
             end
             p.rules.retreatHP, p.rules.returnHP = a, b
             remember(); note("HP: " .. a .. "% / " .. b .. "%")
+        end)
+        command("druzyna", "<on|off>", function(s)
+            if not allowed_config() then return end
+            local p = profile()
+            if not p then note("Wybierz expowisko.", "warn"); return end
+            s = normalized(s)
+            if s ~= "on" and s ~= "off" then
+                note("Uzycie: /exp druzyna on lub /exp druzyna off", "warn"); return
+            end
+            p.partyAttack = s == "on"
+            remember()
+            note("AutoExp: rozkazy ataku druzyny " .. (p.partyAttack and "WLACZONE" or "WYLACZONE"))
         end)
         command("limit", "<liczba>", function(s)
             if not allowed_config() then return end
