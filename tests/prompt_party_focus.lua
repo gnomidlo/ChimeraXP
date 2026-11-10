@@ -42,9 +42,10 @@ do
     h.p.combat.relations={{attacker='me',defender='enemy1'}}
     h.fresh();h.advance(.9);assert(#h.sent==0)
     h.advance(.7);assert(h.sent[1]=='rozkaz druzynie zaatakowac enemy1')
-    h.advance(4);h.fresh();h.advance(5);h.fresh();h.advance(4)
-    assert(#h.sent==1,'0.5s monitoring does not bypass 15s command cadence')
-    h.advance(2);assert(h.sent[2]==h.sent[1],'timer retries without requiring a new GMCP event at the deadline')
+    h.advance(4)
+    assert(h.sent[2]==h.sent[1],'unconfirmed attack retries without formation cooldown')
+    h.fresh();h.advance(5);h.fresh();h.advance(4)
+    assert(#h.sent<=6,'0.5s monitoring must not flood commands between confirmation waits')
     h.dispose()
 end
 do
@@ -57,4 +58,4 @@ do
     assert(plan().kind~='team_attack' and plan().priority>98,'emergency protection remains first')
     h.dispose()
 end
-print('PASS prompt focus: idle Chasstana, new IDs, periodic checks, 15s cadence, emergency priority')
+print('PASS prompt focus: idle Chasstana, new IDs, periodic checks, attack confirmation wait, emergency priority')

@@ -2556,7 +2556,7 @@ return {
             remember(); note("HP: " .. a .. "% / " .. b .. "%")
         end)
         command("druzyna", "<on|off>", function(s)
-            if not allowed_config() then return end
+            -- Safe runtime switch: affects only future attack commands.
             local p = profile()
             if not p then note("Wybierz expowisko.", "warn"); return end
             s = normalized(s)
@@ -2629,6 +2629,10 @@ return {
         end
         return {
             status=status,
+            party_attack_enabled=function()
+                local p=profile()
+                return p and p.partyAttack==true or false
+            end,
             nearest_profiles=function(limit)
                 if destroyed then return {} end
                 return nearest_profiles(math.max(1,math.floor(tonumber(limit) or 3)))
