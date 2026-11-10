@@ -11,14 +11,16 @@ do
     h.p.combat.relations={{attacker="me",defender="enemy1"}}
     h.fresh();h.advance(5.2)
     assert(h.sent[1]=="rozkaz druzynie zaatakowac enemy1","idle party gets collective order")
-    h.advance(9);h.fresh();h.advance(5);assert(#h.sent==1,"no repeat before 15s")
-    h.fresh();h.advance(1.2);assert(h.sent[2]==h.sent[1],"unconfirmed attack retried after cooldown")
+    h.advance(2);assert(#h.sent==1,"one in-flight attack while awaiting GMCP")
+    h.fresh();h.advance(1.5);assert(h.sent[2]==h.sent[1],
+        "unconfirmed attack may retry after confirmation wait, without formation cooldown")
     for _,id in ipairs({"tank","friend","petone","pettwo"}) do
         h.p.combat.relations[#h.p.combat.relations+1]={attacker=id,defender="enemy1"}
     end
-    h.fresh();h.advance(10);h.fresh();h.advance(6);assert(#h.sent==2,"aligned team not spammed")
+    local sent_before=#h.sent
+    h.fresh();h.advance(10);h.fresh();h.advance(6);assert(#h.sent==sent_before,"aligned team not spammed")
     h.p.group.leader="tank";h.p.combat.relations[2].defender="enemy2"
-    h.fresh();h.advance(1);assert(#h.sent==2,"only leader coordinates players")
+    h.fresh();h.advance(1);assert(#h.sent==sent_before,"only leader coordinates players")
     h.dispose()
 end
 local function hp(h,id,value)
@@ -52,4 +54,4 @@ do
     h.api.stop();h.fresh();h.advance(20);assert(#h.sent==2)
     h.dispose()
 end
-print("PASS idle party focus, 15s cadence, safe retreat recipients and readiness isolation")
+print("PASS idle party focus, confirmation wait, safe retreat recipients and readiness isolation")
