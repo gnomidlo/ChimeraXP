@@ -36,12 +36,12 @@ for _,M in ipairs(models) do
     assert(plan({[4]={support=true}}).kind=="support","team focus hold is respected")
     local s=assert(M.snapshot(h.gmcp))
     local d=M.manual("  parozkaz PETONE zabij enemy2",s,c)
-    assert(d.kind=="support" and d.channels[2] and not d.channels[3])
+    assert(not d,"attacks never acquire a maneuver cooldown")
     d=M.manual("parozkaz wesprzyj",s,c);assert(d.channels[2] and d.channels[3])
     d=M.manual("parozkaz old-id zaslon",s,c);assert(d.kind=="cover" and d.channels[2] and d.channels[3])
     assert(not M.manual("parozkaz petone inwentarz",s,c))
-    d=M.manual("rozkaz druzynie zaatakowac enemy2",s,c);assert(d.channels[2] and d.channels[3] and d.channels[4])
-    d=M.manual("zabij enemy2",s,c);assert(d.channels[2] and d.channels[3] and d.channels[4])
+    assert(not M.manual("rozkaz druzynie zaatakowac enemy2",s,c))
+    assert(not M.manual("zabij enemy2",s,c))
     s.minions.petone.name="same";s.minions.pettwo.name="same"
     d=M.manual("parozkaz same wesprzyj",s,c);assert(d.channels[2] and d.channels[3])
     h.dispose()
@@ -78,7 +78,7 @@ do
         {attacker="pettwo",defender="enemy3"}}
     h.emit("sysDataSendRequest","sysDataSendRequest","parozkaz petone zabij enemy2")
     h.fresh();h.advance(.2)
-    assert(h.sent[1]=="parozkaz pettwo wesprzyj","a named manual focus holds only that retainer")
+    assert(h.sent[1]=="parozkaz petone wesprzyj","manual attack does not lock support maneuvers")
     h.dispose()
 end
 do
@@ -101,8 +101,8 @@ do
     local h=fixture()
     h.emit("sysDataSendRequest","sysDataSendRequest","rozkaz druzynie zaatakowac enemy2")
     h.p.combat.relations={{attacker="me",defender="enemy1"},{attacker="petone",defender="enemy2"}}
-    h.fresh();h.advance(14);assert(#h.sent==0,"old GMCP cannot immediately reverse manual focus")
-    h.fresh();h.advance(2);assert(h.sent[1]=="parozkaz petone wesprzyj","automatic reassessment resumes after hold: "..h.api.status().detail)
+    h.fresh();h.advance(.2)
+    assert(h.sent[1]=="parozkaz petone wesprzyj","manual attack has no formation cooldown: "..h.api.status().detail)
     h.dispose()
 end
 do
