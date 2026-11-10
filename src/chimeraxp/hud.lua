@@ -97,7 +97,7 @@ function H.new(ctx,patrol,tactics,stop)
                 local id=r.id
                 local role=ROLES[r.role] or "Automatycznie"
                 local icon=r.self and "★" or r.kind=="npc" and "◆" or "●"
-                add(icon.." "..r.name.."  ·  "..role..(r.enabled and "  ✓" or "  WYŁ."),
+                add(icon.." "..r.name.."  ·  "..role..(r.enabled and "  ✓" or "  WYŁ.")..(r.cooldown and r.cooldown>0 and ("  · "..r.cooldown.." s") or ""),
                     function() self.selected=id;self.menu="member";self.page=1;self:render() end,
                     r.enabled and P.text or P.muted)
             end
