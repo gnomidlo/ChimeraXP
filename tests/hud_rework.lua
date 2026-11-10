@@ -214,7 +214,6 @@ do
     local old=api.snapshot().profile.partyAttack
     api.hud.labels.item2_switch.widget.click()
     assert(api.snapshot().profile.partyAttack~=old,"attack switch uses the existing per-profile command")
-    api.hud:open("party")
     assert(api.hud.labels.item4_state,"party renders a member status chip")
     api.hud.labels.item4.widget.click()
     assert(api.hud.menu=="member","member card opens its details")
