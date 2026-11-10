@@ -480,7 +480,7 @@ function H.new(ctx,patrol,tactics,stop)
                 roles={ICON.role,"WYBIERZ ROLĘ"},
                 targets={ICON.target,"PRIORYTET OCHRONY"},
                 tactics={ICON.shield,"USTAWIENIA OCHRONY"},
-                areas={ICON.area,"WYBIERZ EXPowISKO"},
+                areas={ICON.area,"WYBIERZ EXPOWISKO"},
                 allareas={ICON.area,"KATALOG TERENÓW"},
                 settings={ICON.gear,"PREFERENCJE"},
                 combat={ICON.attack,"CELE I WALKA"},
@@ -596,8 +596,13 @@ function H.new(ctx,patrol,tactics,stop)
                         local ischoice=item.kind=="choice"
                         local isback=item.kind=="back"
                         local tint=item.tint or P.text
+                        local section_icons={
+                            areas=ICON.area,allareas=ICON.map,combat=ICON.attack,
+                            safety=ICON.safety,loot=ICON.loot,trade=ICON.trade,
+                            profiles=ICON.map,session=ICON.session,settings=ICON.gear,
+                        }
                         local symbol=item.icon or (ischoice and ICON.role or isback and ICON.back or
-                            item.kind=="hint" and ICON.auto or ICON.next)
+                            item.kind=="hint" and ICON.auto or section_icons[self.menu] or ICON.next)
                         local hasdetail=ischoice and item.description
                         local selected=item.selected==true
                         menu_widget(key.."_bg",12,yy+3,mw-24,rowh-6,"",
