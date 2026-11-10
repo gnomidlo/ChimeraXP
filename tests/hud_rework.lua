@@ -136,11 +136,11 @@ do
     assert(api.hud.labels.header_icon and api.hud.labels.header_icon.html:find("⚙",1,true),
         "settings menu has a dedicated icon")
     api.hud:open("party")
-    assert(api.hud.labels.item1_switch.css:find("border-radius:10px",1,true),
-        "switch track is a rounded Qt component")
+    assert(api.hud.labels.item1_state.css:find("border-radius:7px",1,true),
+        "toggle uses the compact status-chip style")
     assert(api.hud.overlay.w<=420,"compact party panel never exceeds 420 logical pixels")
-    assert(api.hud.labels.item1_switch.w<=35 and api.hud.labels.item1_knob.w<=14,
-        "toggles use narrow tracks and knobs")
+    assert(api.hud.labels.item1_state.w<=41 and api.hud.labels.item1_state.h<=20,
+        "toggles use small, unobtrusive state badges")
     assert(api.hud.labels.item4_state.h<=22,"member status chip does not dominate the row")
     assert(not api.hud.labels.menu_subtitle or api.hud.labels.menu_subtitle.widget.hidden,
         "duplicate large menu subtitles are removed")
@@ -225,15 +225,31 @@ end
 do
     local h=fixture();local api=h.api
     api.hud:open("party")
-    assert(api.hud.labels.item1_switch and api.hud.labels.item1_knob,
-        "party protection renders a switch with a distinct graphical knob")
-    assert(api.hud.labels.item2_switch,"party attack renders a graphical switch")
+    assert(api.hud.labels.item1_state and api.hud.labels.item2_state,
+        "party controls render state badges")
+    assert(not api.hud.labels.item1_switch and not api.hud.labels.item1_knob,
+        "legacy switch track and knob are not created")
+    assert(api.hud.labels.item1_state.html:find("WYŁ.",1,true),
+        "disabled protection is shown as a gray badge")
+    assert(api.hud.labels.item1_state.css:find("#353F4E",1,true),
+        "disabled badge has the neutral background")
     local was=api.tactics.status().on
-    api.hud.labels.item1_knob.widget.click()
-    assert(api.tactics.status().on~=was,"switch knob toggles the tactic engine")
+    api.hud.labels.item1_state.widget.click()
+    assert(api.tactics.status().on~=was,"badge toggles the tactic engine")
+    assert(api.hud.labels.item1_state.html:find("WŁ.",1,true),
+        "enabled protection is displayed as ON")
+    assert(api.hud.labels.item1_state.css:find("#2C4B3F",1,true),
+        "enabled badge uses the green background")
+    api.hud.labels.item1_state.widget.click()
+    assert(api.tactics.status().on==was,
+        "a second click returns the tactic engine to its previous state")
     local old=api.snapshot().profile.partyAttack
-    api.hud.labels.item2_switch.widget.click()
-    assert(api.snapshot().profile.partyAttack~=old,"attack switch uses the existing per-profile command")
+    api.hud.labels.item2_state.widget.click()
+    assert(api.snapshot().profile.partyAttack~=old,
+        "attack badge uses the existing per-profile command")
+    api.hud.labels.item2_state.widget.click()
+    assert(api.snapshot().profile.partyAttack==old,
+        "attack badge can return to its original state")
     assert(api.hud.labels.item4_state,"party renders a member status chip")
     api.hud.labels.item4.widget.click()
     assert(api.hud.menu=="member","member card opens its details")

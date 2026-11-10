@@ -26,8 +26,7 @@ local STYLES={
     detail={radius=0,pad=1,font=9},
     icon={radius=7,pad=0,font=11,bold=true},
     chip={radius=7,pad=1,font=8,bold=true},
-    ["switch-track"]={radius=10,pad=0},
-    ["switch-knob"]={radius=8,pad=0},
+    -- Toggles use the same lightweight status-chip component as the rest of the HUD.
     ["slider-track"]={radius=5,pad=0},
     ["slider-hit"]={radius=0,pad=0},
     ["slider-thumb"]={radius=8,pad=0,border="#DFFBE9"},
@@ -523,7 +522,7 @@ function H.new(ctx,patrol,tactics,stop)
                     menu_widget(key.."_bg",8,yy+2,mw-16,rh-4,"",P.text,P.card,fn,nil,"card")
                     menu_widget(key.."_icon",16,yy+10,23,23,item.icon or ICON.shield,
                         active and P.mint or P.muted,P.raised,fn,nil,"icon")
-                    local labelw=math.max(1,mw-104)
+                    local labelw=math.max(1,mw-112)
                     local maxchars=math.max(7,math.floor(labelw/6.8))
                     local html="<font color='"..P.text.."'><b>"..esc(short(item.text,maxchars))..
                         "</b></font>"..
@@ -531,12 +530,13 @@ function H.new(ctx,patrol,tactics,stop)
                             esc(short(item.description,maxchars)).."</font>" or "")
                     menu_widget(key,46,yy+5,labelw,rh-10,item.text,
                         P.text,P.card,fn,html,"detail")
-                    local tx=mw-54
-                    menu_widget(key.."_switch",tx,yy+12,35,20,"",
+                    -- A single, subtle status badge replaces the old heavy
+                    -- track-and-knob switch. The whole card and the badge are
+                    -- clickable; only appearance changes, never the API.
+                    menu_widget(key.."_state",mw-59,yy+12,41,20,
+                        active and "WŁ." or "WYŁ.",
                         active and P.mint or P.muted,
-                        active and P.green or "#485465",fn,nil,"switch-track")
-                    menu_widget(key.."_knob",tx+(active and 18 or 3),yy+15,14,14,"",
-                        P.text,active and "#D7F6E6" or "#D2D9E3",fn,nil,"switch-knob")
+                        active and "#2C4B3F" or "#353F4E",fn,nil,"chip")
                 elseif item.kind=="member" then
                     local inactive=not item.active
                     local ready=not inactive and (item.cooldown or 0)<=0
