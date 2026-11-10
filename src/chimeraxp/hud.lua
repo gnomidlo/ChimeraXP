@@ -445,105 +445,202 @@ function H.new(ctx,patrol,tactics,stop)
             local catalog=self.menu=="allareas"
             local decorated=self.menu=="party" or self.menu=="member" or self.menu=="member_advanced"
                 or self.menu=="tactics" or self.menu=="settings"
-            local mw=math.max(1,math.min(catalog and 700 or decorated and 570 or 540,w-16))
-            local rowh=self.menu=="member_advanced" and 94 or decorated and 59 or 36
-            local fixed_height=math.min(h-height-12,catalog and 520 or decorated and 610 or 450)
-            local capacity=math.max(1,math.floor((fixed_height-108)/rowh))
-            local pages=math.max(1,math.ceil(#items/capacity));self.page=math.min(self.page,pages)
-            local first=(self.page-1)*capacity+1;local last=math.min(#items,first+capacity-1)
-            -- Size to content when possible, capped to keep menus on-screen.
-            -- This never modifies the console border (only the overlay container).
-            local mh=math.max(1,math.min(fixed_height,102+math.min(#items,capacity)*rowh
-                +(pages>1 and 28 or 0)))
+            local mw=math.max(1,math.min(catalog and 700 or decorated and 560 or 520,w-16))
+            local rowh=self.menu=="member_advanced" and 94 or decorated and 59 or 40
+            local fixed_height=math.max(1,math.min(h-height-12,catalog and 520 or decorated and 610 or 465))
+            -- Reserve a permanent header, footer and (where required) pagination.
+            local single=math.max(1,math.floor((fixed_height-111)/rowh))
+            local capacity=#items<=single and single or math.max(1,math.floor((fixed_height-146)/rowh))
+            local pages=math.max(1,math.ceil(#items/capacity))
+            self.page=math.min(math.max(1,self.page),pages)
+            local first=(self.page-1)*capacity+1
+            local last=math.min(#items,first+capacity-1)
+            local shown=math.max(0,last-first+1)
+            local mh=math.max(1,math.min(fixed_height,111+shown*rowh+(pages>1 and 32 or 0)))
             local anchor=self.labels[self.anchor or "party"]
             local mx=math.max(8,math.min(anchor and anchor.x or 8,w-mw-8))
-            if catalog and not self.catalog then self.catalog=Geyser.Container:new({name=prefix.."catalog",x=0,y=0,width=mw,height=mh}) end
-            local panel=catalog and self.catalog or self.overlay
-            if catalog then self.overlay:hide();mx=math.max(8,math.floor((w-mw)/2)) elseif self.catalog then self.catalog:hide() end
-            panel:move(mx,catalog and math.max(height+8,math.floor((h-mh)/2)) or height+5);panel:resize(mw,mh)
-            local function menu_widget(key,xx,yy,ww,hh,text,tint,bg,fn,html)
-                widget((catalog and "catalog_" or "")..key,panel,xx,yy,ww,hh,text,tint,bg,fn,html)
+            if catalog and not self.catalog then
+                self.catalog=Geyser.Container:new({name=prefix.."catalog",x=0,y=0,width=mw,height=mh})
             end
-            menu_widget("menu_bg",0,0,mw,mh,"",P.text,P.panel)
-            menu_widget("menu_title",8,3,mw-42,25,title,P.lavender,P.panel)
-            menu_widget("menu_close",mw-30,3,23,25,"×",P.muted,P.panel,function() self.menu=nil;self:render() end)
-            local yy=36
+            local panel=catalog and self.catalog or self.overlay
+            if catalog then
+                self.overlay:hide()
+                mx=math.max(8,math.floor((w-mw)/2))
+            elseif self.catalog then self.catalog:hide() end
+            panel:move(mx,catalog and math.max(height+8,math.floor((h-mh)/2)) or height+5)
+            panel:resize(mw,mh)
+            local function menu_widget(key,xx,yy,ww,hh,text,tint,bg,fn,html,style)
+                widget((catalog and "catalog_" or "")..key,panel,xx,yy,
+                    math.max(1,ww),math.max(1,hh),text,tint,bg,fn,html,style)
+            end
+            local menu_meta={
+                party={ICON.party,"KONFIGURACJA DRUŻYNY"},
+                member={ICON.member,"POSTAĆ I ZACHOWANIE"},
+                member_advanced={ICON.sliders,"BEZPIECZEŃSTWO POSTACI"},
+                roles={ICON.role,"WYBIERZ ROLĘ"},
+                targets={ICON.target,"PRIORYTET OCHRONY"},
+                tactics={ICON.shield,"USTAWIENIA OCHRONY"},
+                areas={ICON.area,"WYBIERZ EXPowISKO"},
+                allareas={ICON.area,"KATALOG TERENÓW"},
+                settings={ICON.gear,"PREFERENCJE"},
+                combat={ICON.attack,"CELE I WALKA"},
+                safety={ICON.safety,"SCHRONIENIE"},
+                loot={ICON.loot,"ZBIERANIE ŁUPÓW"},
+                trade={ICON.trade,"ZAROBEK"},
+                profiles={ICON.map,"ZARZĄDZANIE TERENAMI"},
+                session={ICON.session,"STATUS WYPRAWY"},
+            }
+            local meta=menu_meta[self.menu] or {ICON.gear,"CHIMERAXP"}
+            menu_widget("menu_bg",0,0,mw,mh,"",P.text,P.panel,nil,nil,"panel")
+            menu_widget("header_icon",16,14,34,34,meta[1],P.lavender,P.raised,nil,nil,"icon")
+            menu_widget("menu_title",58,12,mw-108,28,title,P.text,P.panel,nil,
+                "<font color='"..P.text.."'><b>"..esc(short(title,38)).."</b></font>","title")
+            menu_widget("menu_subtitle",59,37,mw-108,17,meta[2],P.soft,P.panel,nil,nil,"subtitle")
+            menu_widget("menu_close",mw-45,15,29,29,ICON.close,P.muted,P.card,
+                function() self.menu=nil;self:render() end,nil,"button")
+            menu_widget("header_line",16,60,mw-32,1,"",P.line,P.line,nil,nil,"divider")
+            local yy=66
             for index=first,last do
-                local item=items[index];local fn=item.fn
-                if yy+rowh<=mh-29 then
+                local item=items[index]
+                local fn=item.fn
+                if yy+rowh<=mh-40 then
                     local key="item"..(index-first+1)
-                    local ew=item.economy and 110 or 0
-                    local mainw=mw-16-(ew>0 and ew+3 or 0)
-                    if item.kind=="toggle" then
+                    local ew=item.economy and 102 or 0
+                    local mainw=mw-24-(ew>0 and ew+6 or 0)
+                    if item.kind=="section" then
+                        menu_widget(key,20,yy+15,mainw-8,24,item.text,P.lavender,P.panel,nil,
+                            "<font color='"..P.lavender.."'><b>"..esc(item.text).."</b></font>","section")
+                    elseif item.kind=="toggle" then
                         local active=item.enabled
-                        local controlw=58
-                        local labelw=math.max(1,mainw-controlw-12)
-                        menu_widget(key,8,yy,labelw,rowh-4,item.text,P.text,P.raised,fn,
-                            "<font color='"..P.text.."'><b>"..esc(item.text).."</b></font>"..
-                            (item.description and "<br><font color='"..P.muted.."'>"..esc(short(item.description,55)).."</font>" or ""))
-                        -- A complete, clickable switch: rounded track and bright knob.
-                        local tx=mw-8-controlw
-                        menu_widget(key.."_switch",tx,yy+9,controlw,28,"",
+                        menu_widget(key.."_bg",12,yy+4,mw-24,rowh-8,"",P.text,P.card,fn,nil,"card")
+                        menu_widget(key.."_icon",21,yy+13,34,34,item.icon or ICON.shield,
+                            active and P.mint or P.soft,P.raised,fn,nil,"icon")
+                        local maxchars=math.max(10,math.floor((mw-165)/7))
+                        local html="<font color='"..P.text.."'><b>"..esc(short(item.text,maxchars)).."</b></font>"
+                            ..(item.description and "<br><font color='"..P.soft.."'>"..
+                                esc(short(item.description,maxchars+7)).."</font>" or "")
+                        menu_widget(key,66,yy+7,mw-157,rowh-12,item.text,P.text,P.card,fn,html,"detail")
+                        local tx=mw-72
+                        menu_widget(key.."_switch",tx,yy+17,48,25,"",
                             active and P.mint or P.muted,
-                            active and "#315746" or "#414758",fn)
-                        menu_widget(key.."_knob",tx+(active and 33 or 5),yy+13,20,20,
-                            "",P.text,active and "#BFEED8" or "#CCD0DA",fn)
+                            active and P.green or "#424A5A",fn,nil,"switch-track")
+                        menu_widget(key.."_knob",tx+(active and 26 or 4),yy+20,19,19,"",
+                            P.text,active and "#D7F6E6" or "#CDD3DE",fn,nil,"switch-knob")
                     elseif item.kind=="member" then
-                        local status=item.active and "GOTOWA" or "WYŁ."
-                        local detail=item.role..(item.cooldown>0 and " · Odnowienie "..item.cooldown.." s" or " · Manewr gotowy")
-                        menu_widget(key,8,yy,mainw-94,rowh-4,item.text,P.text,P.raised,fn,
-                            "<font color='"..P.lavender.."'>"..esc(item.portrait).." </font>"..
-                            "<font color='"..P.text.."'><b>"..esc(short(item.text,34)).."</b></font>"..
-                            "<br><font color='"..P.muted.."'>"..esc(short(detail,48)).."</font>")
-                        menu_widget(key.."_state",mw-100,yy+7,88,29,status.."  ›",
-                            item.active and P.mint or P.muted,P.panel,fn)
-                    elseif item.kind=="section" then
-                        menu_widget(key,8,yy,mainw,rowh-4,item.text,P.lavender,P.panel,nil,
-                            "<font color='"..P.lavender.."'><b>"..esc(item.text).."</b></font>")
+                        local inactive=not item.active
+                        local ready=not inactive and (item.cooldown or 0)<=0
+                        local detail=item.role..(not inactive and item.cooldown>0 and
+                            " · Odnowienie "..item.cooldown.." s" or "")
+                        local status=inactive and "WYŁ." or ready and "GOTOWA" or
+                            tostring(item.cooldown).." s"
+                        local accent=inactive and P.muted or ready and P.mint or P.yellow
+                        menu_widget(key.."_bg",12,yy+4,mw-24,rowh-8,"",P.text,P.card,fn,nil,"card")
+                        menu_widget(key.."_accent",14,yy+13,3,rowh-26,"",accent,accent,nil,nil,"divider")
+                        menu_widget(key.."_icon",23,yy+12,36,36,item.portrait or ICON.member,
+                            P.lavender,P.raised,fn,nil,"icon")
+                        local textw=math.max(1,mw-210)
+                        local html="<font color='"..P.text.."'><b>"..
+                            esc(short(item.text,math.max(7,math.floor(textw/7))))..
+                            "</b></font><br><font color='"..P.soft.."'>"..
+                            esc(short(detail,math.max(8,math.floor(textw/6.5)))).."</font>"
+                        menu_widget(key,67,yy+7,textw,rowh-11,item.text,
+                            inactive and P.muted or P.text,P.card,fn,html,"detail")
+                        menu_widget(key.."_state",mw-128,yy+15,92,28,
+                            (ready and ICON.ready.." " or not inactive and ICON.wait.." " or "")..status,
+                            accent,inactive and P.panel or ready and "#264538" or "#494235",
+                            fn,nil,"chip")
+                        menu_widget(key.."_chevron",mw-34,yy+17,17,23,ICON.next,
+                            P.soft,P.card,fn,nil,"subtitle")
                     elseif item.kind=="slider" then
                         local minimum,maximum,step=item.min,item.max,item.step
-                        local value=item.value
-                        local available_width=math.max(1,mainw-16)
-                        menu_widget(key,8,yy,available_width-82,25,item.text,P.text,P.panel,nil,
-                            "<font color='"..P.text.."'><b>"..esc(item.text).."</b></font>")
-                        menu_widget(key.."_number",mw-98,yy,82,25,tostring(value)..item.unit,
-                            P.mint,P.panel,nil)
-                        local track_x=45;local track_y=yy+32
-                        local track_width=math.max(10,mainw-90)
-                        local ticks=math.floor((maximum-minimum)/step)
-                        local gap=2;local width_tick=math.max(1,math.floor((track_width-gap*ticks)/(ticks+1)))
-                        menu_widget(key.."_minus",9,track_y,28,27,"−",P.text,P.raised,
-                            function() item.change(math.max(minimum,value-step)) end)
-                        for i=0,ticks do
-                            local target=minimum+i*step
-                            local xx=track_x+i*(width_tick+gap)
-                            local color=target<=value and "#315746" or "#394254"
-                            menu_widget(key.."_tick"..i,xx,track_y,math.max(1,math.min(width_tick,mainw-40-xx)),
-                                26,"",P.mint,color,function() item.change(target) end,
-                                target==value and "<font color='#DFFBE9'>●</font>" or "")
+                        local value=math.max(minimum,math.min(maximum,tonumber(item.value) or minimum))
+                        local steps=math.max(1,math.floor((maximum-minimum)/step))
+                        menu_widget(key.."_bg",12,yy+4,mw-24,rowh-8,"",P.text,P.card,nil,nil,"card")
+                        menu_widget(key.."_icon",20,yy+13,30,30,ICON.sliders,
+                            P.lavender,P.raised,nil,nil,"icon")
+                        menu_widget(key,55,yy+11,mw-157,26,item.text,P.text,P.card,nil,
+                            "<font color='"..P.text.."'><b>"..esc(short(item.text,
+                                math.max(8,math.floor((mw-160)/7)))).."</b></font>","label")
+                        menu_widget(key.."_number",mw-94,yy+11,67,28,
+                            tostring(value)..item.unit,P.mint,P.panel,nil,nil,"chip")
+                        local track_x=56
+                        local track_width=math.max(12,mw-112)
+                        local track_y=yy+58
+                        local pct=math.max(0,math.min(1,(value-minimum)/math.max(1,maximum-minimum)))
+                        menu_widget(key.."_track",track_x,track_y,track_width,8,"",
+                            P.muted,"#384254",nil,nil,"slider-track")
+                        if pct>0 then
+                            menu_widget(key.."_fill",track_x,track_y,
+                                math.max(2,math.floor(track_width*pct)),8,"",
+                                P.mint,P.green,nil,nil,"slider-track")
                         end
-                        menu_widget(key.."_plus",mw-43,track_y,28,27,"+",P.text,P.raised,
-                            function() item.change(math.min(maximum,value+step)) end)
+                        -- Transparent hit regions preserve precise click-to-value,
+                        -- including under Qt versions without mouse-drag callbacks.
+                        for i=0,steps do
+                            local target=minimum+i*step
+                            local lx=track_x+math.floor(i*track_width/(steps+1))
+                            local rx=track_x+math.floor((i+1)*track_width/(steps+1))
+                            menu_widget(key.."_tick"..i,lx,track_y-10,
+                                math.max(1,rx-lx),28,"",P.text,"transparent",
+                                function() item.change(target) end,nil,"slider-hit")
+                        end
+                        local knob_x=math.max(track_x,math.min(track_x+track_width-18,
+                            track_x+math.floor(track_width*pct)-9))
+                        menu_widget(key.."_thumb",knob_x,track_y-5,18,18,"",
+                            P.mint,"#E2FAEC",function() item.change(value) end,nil,"slider-thumb")
+                        menu_widget(key.."_minus",19,yy+51,26,25,"−",P.text,P.raised,
+                            function() item.change(math.max(minimum,value-step)) end,nil,"button")
+                        menu_widget(key.."_plus",mw-45,yy+51,26,25,"+",P.text,P.raised,
+                            function() item.change(math.min(maximum,value+step)) end,nil,"button")
                     else
-                        menu_widget(key,8,yy,mainw,rowh-3,
-                            short(item.text,math.max(1,math.floor((mainw-8)/7))),
-                            item.tint,P.raised,fn)
+                        local ischoice=item.kind=="choice"
+                        local isback=item.kind=="back"
+                        local tint=item.tint or P.text
+                        local symbol=item.icon or (ischoice and ICON.role or isback and ICON.back or
+                            item.kind=="hint" and ICON.auto or ICON.next)
+                        local hasdetail=ischoice and item.description
+                        local selected=item.selected==true
+                        menu_widget(key.."_bg",12,yy+3,mw-24,rowh-6,"",
+                            P.text,selected and "#283B3D" or P.card,fn,nil,"card")
+                        menu_widget(key.."_icon",21,yy+8,30,rowh-16,symbol,
+                            selected and P.mint or P.lavender,P.raised,fn,nil,"icon")
+                        local maxchars=math.max(6,math.floor((mainw-52)/7))
+                        local html="<font color='"..tint.."'><b>"..
+                            esc(short(item.text,maxchars)).."</b></font>"..
+                            (hasdetail and "<br><font color='"..P.soft.."'>"..
+                                esc(short(item.description,maxchars)).."</font>" or "")
+                        menu_widget(key,58,yy+4,math.max(1,mainw-70),rowh-8,
+                            item.text,tint,selected and "#283B3D" or P.card,fn,html,
+                            hasdetail and "detail" or "label")
                         if item.economy then
-                            menu_widget(key.."_economy",mw-8-ew,yy,ew,rowh-3,
-                                "Zarobek: "..(item.economy.enabled and "WŁ." or "WYŁ."),
-                                item.economy.enabled and P.mint or P.muted,P.raised,item.economy.fn)
+                            menu_widget(key.."_economy",mw-20-ew,yy+9,ew,rowh-18,
+                                (item.economy.enabled and "● " or "○ ")..
+                                    (item.economy.enabled and "Zarobek ON" or "Zarobek OFF"),
+                                item.economy.enabled and P.mint or P.muted,
+                                P.panel,item.economy.fn,nil,"chip")
+                        elseif selected or fn then
+                            menu_widget(key.."_end",mw-38,yy+9,24,rowh-18,
+                                selected and ICON.ready or (isback and "" or ICON.next),
+                                selected and P.mint or P.soft,P.card,fn,nil,"subtitle")
                         end
                     end
                     yy=yy+rowh
                 end
             end
-            if pages>1 and yy+26<=mh-27 then
-                menu_widget("previous",8,yy,30,24,"‹",P.text,nil,function() self.page=math.max(1,self.page-1);self:render() end)
-                menu_widget("page",42,yy,mw-84,24,self.page.." / "..pages,P.muted,P.panel)
-                menu_widget("next",mw-38,yy,30,24,"›",P.text,nil,function() self.page=math.min(pages,self.page+1);self:render() end)
-                yy=yy+27
+            if pages>1 and yy+28<=mh-38 then
+                menu_widget("previous",16,yy,36,26,ICON.back,P.text,P.card,
+                    function() self.page=math.max(1,self.page-1);self:render() end,nil,"button")
+                menu_widget("page",55,yy,mw-110,26,
+                    "Strona "..self.page.." / "..pages,P.soft,P.panel,nil,nil,"footer")
+                menu_widget("next",mw-52,yy,36,26,ICON.next,P.text,P.card,
+                    function() self.page=math.min(pages,self.page+1);self:render() end,nil,"button")
             end
-            if mh>=55 then menu_widget("note",8,mh-27,mw-16,24,short(note or "",math.max(1,math.floor((mw-22)/5.5))),P.muted,P.panel) end
+            if mh>=70 then
+                menu_widget("footer_line",16,mh-39,mw-32,1,"",P.line,P.line,nil,nil,"divider")
+                menu_widget("note",18,mh-34,mw-36,27,
+                    short(note or "",math.max(1,math.floor((mw-52)/6.5))),
+                    P.soft,P.panel,nil,nil,"footer")
+            end
             panel:show();if type(panel.raiseAll)=="function" then panel:raiseAll() end
         else self.overlay:hide();if self.catalog then self.catalog:hide() end end
         for key,item in pairs(self.labels) do if not self.used[key] and type(item.widget.hide)=="function" then item.widget:hide() end end
