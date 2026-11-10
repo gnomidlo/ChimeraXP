@@ -184,7 +184,11 @@ function T.new(ctx,M,integration,patrol,changed)
                 if not confirmed or confirmed.id~=pet.id or not current or current.name~=confirmed.name then blocked[i+1]=true end
             end
         end
-        local d=M.plan(s,config,S.enabled,blocked)
+        -- AutoExp already issues the initial party attack order when enabled.
+        -- Keep automatic covers, but never duplicate its target alignment.
+        local suppress_attack = xp.started and patrol.party_attack_enabled
+            and patrol.party_attack_enabled()
+        local d=M.plan(s,config,S.enabled,blocked,nil,suppress_attack)
         if not d then
             local detail=S.ambiguous and "Niejednoznaczne pachołki: wymagane jawne przypisanie do P1/P2."
                 or config.team_orders and s.leader~=s.self_id and "Rozkazy graczom czekają: nie prowadzisz drużyny."
@@ -220,13 +224,15 @@ function T.new(ctx,M,integration,patrol,changed)
         if not command then phase("BLOKADA","Nie można zbudować poprawnego rozkazu.");return end
         d.sent_at=t;S.pending=d
         if d.kind=="support" then S.support[d.channel]=t+4
-        else S.blocked[d.channel]=t+(d.channel==1 and d.kind~="retreat" and 8 or 15) end
+        elseif d.kind~="team_attack" then
+            S.blocked[d.channel]=t+(d.channel==1 and d.kind~="retreat" and 8 or 15)
+        end
         if d.kind=="retreat" then S.retreat_until=t+15 end
         if d.kind=="team_cover" or d.kind=="team_attack" then
             for i,p in ipairs(config.minions) do
                 for _,id in ipairs(d.recipients or {}) do if p.id==id then
                     if d.kind=="team_cover" then S.blocked[i+1]=math.max(S.blocked[i+1],t+15)
-                    else S.support[i+1]=math.max(S.support[i+1],t+4) end
+                    end -- Team attacks do not consume the minion formation cooldown.
                 end end
             end
             if d.kind=="team_cover" and d.protected~=s.self_id then S.blocked[1]=math.max(S.blocked[1],t+8) end
@@ -259,12 +265,13 @@ function T.new(ctx,M,integration,patrol,changed)
         local manual=M.manual(command,snapshot(),config)
         if manual then
             local t=now()
+            -- Only formation maneuvers use formation cooldowns. A support
+            -- command has its own short in-flight guard, not a 15s cover lock.
             for ch in pairs(manual.channels) do
                 local locks=manual.kind=="support" and S.support or S.blocked
-                locks[ch]=math.max(locks[ch] or 0,t+15)
+                local duration=manual.kind=="support" and 1 or 15
+                locks[ch]=math.max(locks[ch] or 0,t+duration)
             end
-            -- Team orders share a server-facing cadence regardless of maneuver type.
-            if manual.channels[4] then S.blocked[4]=math.max(S.blocked[4],t+15) end
             local pending=S.pending
             if pending then
                 local same=(pending.kind=="support" or pending.kind=="team_attack")== (manual.kind=="support")
@@ -280,16 +287,21 @@ function T.new(ctx,M,integration,patrol,changed)
             end
             phase("RĘCZNIE","Ręczny rozkaz: odpowiedni manewr wstrzymany na 15 s.")
         elseif text:match("^zaslon%s") or text:match("^wycofaj%s") or text:match("^przelam%s") then
-            S.enabled[1]=false
+            -- Manual commands never disable automation. Let the server
+            -- readiness message clear the maneuver cooldown early.
             if text:match("^wycofaj%s") then S.retreat_until=math.max(S.retreat_until,now()+15) end
             S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8)
             if S.pending and S.pending.channel==1 then S.pending=nil end
-            phase("RĘCZNIE","Ręczny manewr: kanał postaci wyłączony.")
+            phase("RĘCZNIE","Ręczny manewr: czekam na odnowienie, automatyka nadal działa.")
         end
     end)
     if type(ctx.trigger_exact)=="function" then
-        for _,text in ipairs({"Jestes gotowa do zmiany w szyku.","Jestes gotowy do zmiany w szyku."}) do
-            ctx:trigger_exact(text,function() S.blocked[1]=S.retreat_until;schedule() end)
+        for _,text in ipairs({"Jestes gotowa do zmiany w szyku.","Jestes gotowy do zmiany w szyku.",
+            "Jestes gotowa do kolejnej zmiany w szyku.","Jestes gotowy do kolejnej zmiany w szyku."}) do
+            ctx:trigger_exact(text,function()
+                S.blocked[1]=math.min(S.blocked[1],math.max(now(),S.retreat_until))
+                schedule()
+            end)
         end
         ctx:trigger_exact("Musisz chwile odpoczac po ostatniej zmianie w szyku.",function()
             S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8);if S.pending and S.pending.channel==1 then S.pending=nil end
@@ -302,6 +314,25 @@ function T.new(ctx,M,integration,patrol,changed)
             end
         end)
     end
+    -- A minion who regained formation readiness can maneuver immediately.
+    -- Do not clear the wrong minion if names are ambiguous.
+    ctx:trigger([[^(.+) jest gotow[ay] do kolejnej zmiany w szyku\.$]],function()
+        local name=tostring(matches and matches[2] or ""):lower():gsub("^%s+",""):gsub("%s+$","")
+        local channels={}
+        for _,row in ipairs(E.rows()) do
+            if not row.self and row.kind=="npc" and row.name:lower()==name and row.channel<4 then
+                channels[#channels+1]=row.channel
+            end
+        end
+        if #channels==1 then
+            S.blocked[channels[1]]=now()
+            if S.pending and S.pending.channel==channels[1] then S.pending=nil end
+            phase("GOTOWA","Pachołek gotowy do kolejnego manewru.")
+            schedule()
+        elseif #channels>1 then
+            phase("BLOKADA","Niejednoznaczna nazwa pachołka; nie kasuję blokad.")
+        end
+    end)
     ctx:trigger([[^(.+) wciaz lapie rownowage po ostatniej zmianie w szyku\.$]],function()
         local name=tostring(matches and matches[2] or ""):lower():gsub("^%s+",""):gsub("%s+$","")
         local channels={}
