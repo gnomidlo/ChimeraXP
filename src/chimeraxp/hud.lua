@@ -48,7 +48,13 @@ function H.new(ctx,patrol,tactics,stop)
             if item.w~=w or item.h~=h then item.widget:resize(w,h) end
         end
         item.x,item.y,item.w,item.h=x,y,w,h
-        local css="QLabel {background:"..(background or P.panel)..";color:"..(tint or P.text)..";font-family:'Segoe UI';font-size:"..(settings.large and 11 or 9).."pt;border:0;border-radius:3px;padding:2px;}"
+        local radius=key:find("_switch",1,true) and 14 or key:find("_knob",1,true) and 11
+            or key:find("_tick",1,true) and 5 or key:find("_state",1,true) and 9 or 6
+        local pad=(key:find("_switch",1,true) or key:find("_knob",1,true)
+            or key:find("_tick",1,true)) and 0 or 3
+        local css="QLabel {background:"..(background or P.panel)..";color:"..(tint or P.text)
+            ..";font-family:'Segoe UI';font-size:"..(settings.large and 11 or 9)
+            .."pt;border:0;border-radius:"..radius.."px;padding:"..pad.."px;}"
         if fn then css=css.." QLabel:hover {background:"..P.raised..";}" end
         local html=html_override or "<font color='"..(tint or P.text).."'>"..esc(text).."</font>"
         if item.css~=css then item.widget:setStyleSheet(css);item.css=css end
@@ -396,9 +402,12 @@ function H.new(ctx,patrol,tactics,stop)
                             "<font color='"..P.text.."'><b>"..esc(item.text).."</b></font>"..
                             (item.description and "<br><font color='"..P.muted.."'>"..esc(short(item.description,55)).."</font>" or ""))
                         -- A complete, clickable switch: rounded track and bright knob.
-                        menu_widget(key.."_switch",mw-8-controlw,yy+9,controlw,28,
-                            active and "●    " or "    ●",active and P.mint or P.muted,
+                        local tx=mw-8-controlw
+                        menu_widget(key.."_switch",tx,yy+9,controlw,28,"",
+                            active and P.mint or P.muted,
                             active and "#315746" or "#414758",fn)
+                        menu_widget(key.."_knob",tx+(active and 33 or 5),yy+13,20,20,
+                            "",P.text,active and "#BFEED8" or "#CCD0DA",fn)
                     elseif item.kind=="member" then
                         local status=item.active and "GOTOWA" or "WYŁ."
                         local detail=item.role..(item.cooldown>0 and " · Odnowienie "..item.cooldown.." s" or " · Manewr gotowy")
@@ -431,7 +440,7 @@ function H.new(ctx,patrol,tactics,stop)
                             local color=target<=value and "#315746" or "#394254"
                             menu_widget(key.."_tick"..i,xx,track_y,math.max(1,math.min(width_tick,mainw-40-xx)),
                                 26,"",P.mint,color,function() item.change(target) end,
-                                target==value and "<font color='"..P.mint.."'>●</font>" or "")
+                                target==value and "<font color='#DFFBE9'>●</font>" or "")
                         end
                         menu_widget(key.."_plus",mw-43,track_y,28,27,"+",P.text,P.raised,
                             function() item.change(math.min(maximum,value+step)) end)
