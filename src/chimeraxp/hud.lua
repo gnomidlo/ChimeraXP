@@ -522,7 +522,7 @@ function H.new(ctx,patrol,tactics,stop)
                     menu_widget(key.."_bg",8,yy+2,mw-16,rh-4,"",P.text,P.card,fn,nil,"card")
                     menu_widget(key.."_icon",16,yy+10,23,23,item.icon or ICON.shield,
                         active and P.mint or P.muted,P.raised,fn,nil,"icon")
-                    local labelw=math.max(1,mw-104)
+                    local labelw=math.max(1,mw-112)
                     local maxchars=math.max(7,math.floor(labelw/6.8))
                     local html="<font color='"..P.text.."'><b>"..esc(short(item.text,maxchars))..
                         "</b></font>"..
