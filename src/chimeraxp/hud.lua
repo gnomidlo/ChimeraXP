@@ -218,7 +218,7 @@ function H.new(ctx,patrol,tactics,stop)
                         add(ROLES[role] or "Automatycznie",
                             function() tactics.configure(id,"role",role,selected);self.menu="member";self:render() end,
                             P.text,"choice",{selected=selected.role==role,description=desc,
-                                icon=role=="tank" or role=="offtank" and ICON.shield or
+                                icon=(role=="tank" or role=="offtank") and ICON.shield or
                                     role=="support" and ICON.support or role=="asekuracja" and ICON.safety or ICON.attack})
                     end
                 end
@@ -377,39 +377,67 @@ function H.new(ctx,patrol,tactics,stop)
         end
         self.root:move(0,0);self.root:resize(w,height)
         self.used={}
-        widget("background",self.root,0,0,w,height,"",P.text,P.bg)
-        local small=w<500;local tight=st.started and w<700;local cw=32
+        widget("background",self.root,0,0,w,height,"",P.text,P.bg,nil,nil,"bar")
+        local small=w<500
+        local tight=w<390 or (st.started and w<700)
+        local cw=32
         cw=math.min(cw,math.max(3,math.floor(w*.09)))
-        local right=w-8-cw*3;local y=5;local bh=height-10
+        local right=w-8-cw*3
+        local y=5;local bh=height-10
         local widths=tight and {28,40,44} or small and {83,90,72} or {128,110,120}
-        local scale=math.min(1,math.max(0.01,(right-20)/(widths[1]+widths[2]+widths[3])))
+        local scale=math.min(1,math.max(.01,(right-20)/(widths[1]+widths[2]+widths[3])))
         local x=8
-        local function nav(key,text,tint,width,indicator)
+        local function nav(key,symbol,text,width,indicator)
             width=math.max(1,math.floor(width*scale))
-            local html=indicator and "<font color='"..indicator.."'>●</font> <font color='"..P.text.."'>"..esc(text).."</font>" or nil
-            widget(key,self.root,x,y,width,bh,text,tint,self.menu and self.anchor==key and P.raised or P.bg,function() self:open(key) end,html)
+            local selected=self.menu and self.anchor==key
+            local label=tight and symbol or (small and short(text,9) or text)
+            local html="<font color='"..(indicator or P.lavender).."'>"..esc(symbol).."</font>"
+                ..(tight and "" or "  <font color='"..P.text.."'>"..esc(label).."</font>")
+                ..(tight and "" or " <font color='"..P.soft.."'>⌄</font>")
+            widget(key,self.root,x,y,width,bh,label,P.text,
+                selected and P.raised or P.bg,function() self:open(key) end,html,"nav")
             x=x+width+4
         end
         local xpcolor=not st.started and P.muted or st.paused and P.yellow or P.mint
-        local tacticscolor=not ts.on and P.muted or (st.started and st.paused or ts.phase=="WSTRZYMANA") and P.yellow or P.mint
-        nav("party",tight and "D ▾" or small and "Drużyna ▾" or "Drużyna ▾",P.text,widths[1])
-        nav("tactics",tight and "O ▾" or "Ochrona ▾",P.text,widths[2],tacticscolor)
-        nav("areas",small and "EXP ▾" or "Expowiska ▾",P.text,widths[3],xpcolor)
-        widget("pause",self.root,right,y,cw-3,bh,(not st.started or st.paused) and "▶" or "Ⅱ",P.muted,P.bg,function() request(not st.started and "start" or st.paused and "wznow" or "pauza") end)
-        widget("stop",self.root,right+cw,y,cw-3,bh,"■",P.rose,"#392A35",stop)
-        widget("settings",self.root,right+cw*2,y,cw-3,bh,"⚙",P.muted,self.menu and self.anchor=="settings" and P.raised or P.bg,function() self:open("settings") end)
+        local tacticscolor=not ts.on and P.muted or
+            ((st.started and st.paused) or ts.phase=="WSTRZYMANA") and P.yellow or P.mint
+        nav("party",ICON.party,"Drużyna",widths[1],nil)
+        nav("tactics",ICON.shield,"Ochrona",widths[2],tacticscolor)
+        nav("areas",ICON.area,"Expowiska",widths[3],xpcolor)
+        widget("pause",self.root,right,y,cw-3,bh,
+            (not st.started or st.paused) and ICON.play or ICON.pause,
+            st.paused and P.yellow or P.mint,P.card,
+            function() request(not st.started and "start" or st.paused and "wznow" or "pauza") end,nil,"toolbar")
+        widget("stop",self.root,right+cw,y,cw-3,bh,ICON.stop,
+            P.rose,"#382A35",stop,nil,"danger")
+        widget("settings",self.root,right+cw*2,y,cw-3,bh,ICON.gear,
+            P.text,self.menu and self.anchor=="settings" and P.raised or P.bg,
+            function() self:open("settings") end,nil,"toolbar")
         if st.started then
             local name=snap.profile and snap.profile.name or "Brak terenu"
             local earn=snap.profile and snap.profile.economy and snap.profile.economy.enabled
-            local status_label=st.paused and "PAUZA" or st.emergency and "ODWRÓT" or st.phase=="COMBAT" and "WALKA" or st.economy and "HANDEL" or st.phase=="LOOTING" and "ŁUPY" or "PATROL"
-            local suffix=w>=900 and " · "..status_label..(earn and " · Zarobek" or "") or ""
-            local charwidth=7
-            local _,namechars=name:gsub("[%z\1-\127\194-\244][\128-\191]*","")
-            local width=math.max(1,math.min(right-x-8,(namechars+#suffix+13)*charwidth))
-            local clipped=short(name,math.max(1,math.floor(width/charwidth)-#suffix-13))
-            local tint=st.paused and P.yellow or P.mint
-            local html="<font color='"..P.text.."'>"..esc(clipped).." · </font><font face='Consolas' color='"..tint.."'>"..clock(st.elapsed).."</font><font color='"..P.muted.."'>"..esc(suffix).."</font>"
-            widget("badge",self.root,right-width-8,y,width,bh,"",tint,P.bg,function() self:open("session") end,html)
+            local label=st.paused and "PAUZA" or st.emergency and "ODWRÓT" or
+                st.phase=="COMBAT" and "WALKA" or st.economy and "HANDEL" or
+                st.phase=="LOOTING" and "ŁUPY" or "PATROL"
+            local tint=st.paused and P.yellow or st.emergency and P.rose or
+                st.phase=="COMBAT" and P.mint or P.lavender
+            local space=math.max(1,right-x-12)
+            local chipw=w>=850 and space>230 and 82 or 0
+            local badgewidth=math.max(1,space-chipw-(chipw>0 and 8 or 0))
+            local badge_x=right-badgewidth-8
+            if chipw>0 then
+                widget("stage",self.root,badge_x-chipw-8,y+4,chipw,bh-8,
+                    "● "..label,tint,P.card,
+                    function() self:open("session") end,nil,"chip")
+            end
+            local reserved=earn and w>=960 and 13 or 0
+            local clipped=short(name,math.max(1,math.floor((badgewidth-106)/7)-reserved))
+            local html="<font color='"..P.text.."'><b>"..esc(clipped).."</b></font>"
+                .."  <font face='Consolas' color='"..P.mint.."'>"..clock(st.elapsed).."</font>"
+                ..(earn and w>=960 and "<font color='"..P.soft.."'> · zarobek</font>" or "")
+                ..(chipw==0 and " <font color='"..tint.."'>· "..esc(label).."</font>" or "")
+            widget("badge",self.root,badge_x,y,badgewidth,bh,"",tint,P.bg,
+                function() self:open("session") end,html,"nav")
             self.badge=self.labels.badge.widget
         end
         if self.menu then
