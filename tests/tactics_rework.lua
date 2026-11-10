@@ -49,7 +49,8 @@ do
     h.triggers["Jestes gotowa do zmiany w szyku."]();h.fresh();h.advance(0.2)
     assert(#h.sent==2,"readiness can release the local maneuver lock")
     h.emit("sysDataSendRequest","sysDataSendRequest","zaslon friend")
-    h.fresh();h.advance(10);assert(#h.sent==2,"manual command relinquishes player channel")
+    h.fresh();h.advance(10)
+    assert(h.api.rows()[1].enabled and h.api.status().on,"manual maneuver may delay but never disable automation")
     h.dispose()
 end
 do
