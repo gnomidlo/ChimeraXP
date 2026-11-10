@@ -48,7 +48,13 @@ function H.new(ctx,patrol,tactics,stop)
             if item.w~=w or item.h~=h then item.widget:resize(w,h) end
         end
         item.x,item.y,item.w,item.h=x,y,w,h
-        local css="QLabel {background:"..(background or P.panel)..";color:"..(tint or P.text)..";font-family:'Segoe UI';font-size:"..(settings.large and 11 or 9).."pt;border:0;border-radius:3px;padding:2px;}"
+        local radius=key:find("_switch",1,true) and 14 or key:find("_knob",1,true) and 11
+            or key:find("_tick",1,true) and 5 or key:find("_state",1,true) and 9 or 6
+        local pad=(key:find("_switch",1,true) or key:find("_knob",1,true)
+            or key:find("_tick",1,true)) and 0 or 3
+        local css="QLabel {background:"..(background or P.panel)..";color:"..(tint or P.text)
+            ..";font-family:'Segoe UI';font-size:"..(settings.large and 11 or 9)
+            .."pt;border:0;border-radius:"..radius.."px;padding:"..pad.."px;}"
         if fn then css=css.." QLabel:hover {background:"..P.raised..";}" end
         local html=html_override or "<font color='"..(tint or P.text).."'>"..esc(text).."</font>"
         if item.css~=css then item.widget:setStyleSheet(css);item.css=css end
@@ -79,27 +85,39 @@ function H.new(ctx,patrol,tactics,stop)
     local function find_row(rows,id) for _,r in ipairs(rows) do if r.id==id then return r end end end
     local function items_for(snap,rows,ts)
         local items={};local title="ChimeraXP";local note=""
-        local function add(text,fn,tint) items[#items+1]={text=text,fn=fn,tint=tint} end
+        local function add(text,fn,tint,kind,extra)
+            local item={text=text,fn=fn,tint=tint,kind=kind}
+            for key,value in pairs(extra or {}) do item[key]=value end
+            items[#items+1]=item
+        end
+        local function toggle(label,value,fn,description)
+            add(label,fn,P.text,"toggle",{enabled=value==true,description=description})
+        end
+        local function slider(label,value,minimum,maximum,step,fn,unit)
+            add(label,fn,P.text,"slider",{value=value,min=minimum,max=maximum,step=step,
+                change=fn,unit=unit or ""})
+        end
         local selected=find_row(rows,self.selected)
         if (self.menu=="member" or self.menu=="roles" or self.menu=="targets" or self.menu=="member_advanced") and not selected then self.menu="party" end
         local p=snap.profile;local st=snap.status
         if self.menu=="party" then
             title="Drużyna · szybkie ustawienia"
-            add("● Ochrona: "..(ts.on and "WŁĄCZONA" or "WYŁĄCZONA").."  ↻",
-                function() tactics.toggle(not ts.on) end,ts.on and P.mint or P.yellow)
+            toggle("Automatyczna ochrona",ts.on,function() tactics.toggle(not ts.on) end,
+                "Zasłania zagrożonych członków drużyny")
             if p then
-                add("⚔ Wspólny cel: "..(p.partyAttack and "WŁĄCZONY" or "WYŁĄCZONY").."  ↻",
+                toggle("Wspólny cel ataku",p.partyAttack,
                     function() request("druzyna",p.partyAttack and "off" or "on") end,
-                    p.partyAttack and P.mint or P.muted)
+                    "Dowódca wydaje rozkaz ataku podczas expienia")
             else add("⚔ Wspólny cel: wybierz expowisko",nil,P.muted) end
-            add("CZŁONKOWIE DRUŻYNY",nil,P.lavender)
+            add("CZŁONKOWIE DRUŻYNY",nil,P.lavender,"section")
             for _,r in ipairs(rows) do
                 local id=r.id
                 local role=ROLES[r.role] or "Automatycznie"
                 local icon=r.self and "★" or r.kind=="npc" and "◆" or "●"
-                add(icon.." "..r.name.."  ·  "..role..(r.enabled and "  ✓" or "  WYŁ.")..(r.cooldown and r.cooldown>0 and ("  · "..r.cooldown.." s") or ""),
+                add(icon.." "..r.name,
                     function() self.selected=id;self.menu="member";self.page=1;self:render() end,
-                    r.enabled and P.text or P.muted)
+                    r.enabled and P.text or P.muted,"member",
+                    {role=role,active=r.enabled,cooldown=r.cooldown or 0,portrait=icon})
             end
             if #rows==0 then add("Oczekiwanie na aktualny skład GMCP.",nil,P.yellow) end
             add("⚙ Dodatkowe ustawienia drużyny  ›",function()
@@ -111,9 +129,9 @@ function H.new(ctx,patrol,tactics,stop)
             add("‹ Wróć do drużyny",function() self.menu="party";self:render() end,P.muted)
             if selected then
                 local id=selected.id
-                add("Udział w ochronie: "..(selected.enabled and "WŁ." or "WYŁ.").."  ↻",
+                toggle("Automatyczna ochrona tej postaci",selected.enabled,
                     function() tactics.configure(id,"enabled",not selected.enabled,selected) end,
-                    selected.enabled and P.mint or P.yellow)
+                    "Pozostałe postacie zachowują swoje ustawienia")
                 add("Rola: "..(ROLES[selected.role] or "Automatycznie").."  ›",
                     function() self.menu="roles";self.page=1;self:render() end,P.lavender)
                 if selected.slot then
@@ -142,10 +160,10 @@ function H.new(ctx,patrol,tactics,stop)
             add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
             if selected then
                 local id=selected.id
-                add("Minimalne HP do manewru: "..selected.min_hp.."%  +5",
-                    function() tactics.configure(id,"min_hp",selected.min_hp>=100 and (selected.self and 40 or 50) or selected.min_hp+5,selected) end)
-                add("Limit przejmowanych wrogów: "..selected.max_load.."  +1",
-                    function() tactics.configure(id,"max_load",(selected.max_load+1)%6,selected) end)
+                slider("Minimalne HP do manewru",selected.min_hp,selected.self and 40 or 50,100,5,
+                    function(v) tactics.configure(id,"min_hp",v,selected) end,"%")
+                slider("Limit przejmowanych przeciwników",selected.max_load,0,5,1,
+                    function(v) tactics.configure(id,"max_load",v,selected) end,"")
             end
             note="Progi dotyczą manewrów taktycznych, nie poziomu HP na HUD."
         elseif self.menu=="roles" then
@@ -176,15 +194,14 @@ function H.new(ctx,patrol,tactics,stop)
         elseif self.menu=="tactics" then
             title="Drużyna · dodatkowe ustawienia"
             add("‹ Szybkie ustawienia",function() self.menu="party";self:render() end,P.muted)
-            add("Automatyczna ochrona: "..(ts.on and "WŁ." or "WYŁ.").."  ↻",
-                function() tactics.toggle(not ts.on) end,ts.on and P.mint or P.yellow)
+            toggle("Automatyczna ochrona",ts.on,function() tactics.toggle(not ts.on) end,
+                "Reaguje na zagrożenia drużyny")
             for _,entry in ipairs({{"team_orders","Ochrona innych graczy"},
                 {"team_broadcast","Wspólna zasłona drużyny"},
                 {"retreat","Wycofanie za sojusznika"},
                 {"mass","Zasłona kilku wrogów"}}) do
                 local key=entry[1]
-                add(entry[2]..": "..(ts[key] and "WŁ." or "WYŁ.").."  ↻",
-                    function() tactics.option(key,not ts[key]) end)
+                toggle(entry[2],ts[key],function() tactics.option(key,not ts[key]) end)
             end
             add("Stan silnika: "..ts.phase,nil,P.muted)
             note="Zaawansowane opcje zmieniają manewry osłony, nie komendy ataku."
@@ -223,7 +240,7 @@ function H.new(ctx,patrol,tactics,stop)
             for _,entry in ipairs({{"combat","Walka i cele"},{"safety","Schronienie i powrót"},{"loot","Łupy"},{"trade","Auto-zarobek"},{"profiles","Zarządzanie terenami"},{"session","Sesja i komunikaty"}}) do
                 local key=entry[1];add(entry[2].."  ›",function() self.menu=key;self.page=1;self:render() end)
             end
-            add("Większy pasek: "..(settings.large and "WŁ." or "WYŁ."),function()
+            toggle("Większy pasek",settings.large,function()
                 settings.large=not settings.large;height=settings.large and 52 or 44;save();self:render()
             end)
         elseif self.menu=="profiles" then
@@ -348,8 +365,12 @@ function H.new(ctx,patrol,tactics,stop)
         if self.menu then
             local items,title,note=items_for(snap,rows,ts)
             local catalog=self.menu=="allareas"
-            local mw=math.max(1,math.min(catalog and 700 or 540,w-16));local rowh=settings.large and 35 or 30
-            local fixed_height=math.min(h-height-12,catalog and 520 or 410)
+            local decorated=self.menu=="party" or self.menu=="member" or self.menu=="member_advanced"
+                or self.menu=="tactics" or self.menu=="settings"
+            local mw=math.max(1,math.min(catalog and 700 or decorated and 570 or 540,w-16))
+            local rowh=self.menu=="member_advanced" and 76 or decorated and 49
+                or settings.large and 35 or 30
+            local fixed_height=math.min(h-height-12,catalog and 520 or decorated and 510 or 410)
             local capacity=math.max(1,math.floor((fixed_height-91)/rowh))
             local pages=math.max(1,math.ceil(#items/capacity));self.page=math.min(self.page,pages)
             local first=(self.page-1)*capacity+1;local last=math.min(#items,first+capacity-1)
@@ -360,8 +381,8 @@ function H.new(ctx,patrol,tactics,stop)
             local panel=catalog and self.catalog or self.overlay
             if catalog then self.overlay:hide();mx=math.max(8,math.floor((w-mw)/2)) elseif self.catalog then self.catalog:hide() end
             panel:move(mx,catalog and math.max(height+8,math.floor((h-mh)/2)) or height+5);panel:resize(mw,mh)
-            local function menu_widget(key,xx,yy,ww,hh,text,tint,bg,fn)
-                widget((catalog and "catalog_" or "")..key,panel,xx,yy,ww,hh,text,tint,bg,fn)
+            local function menu_widget(key,xx,yy,ww,hh,text,tint,bg,fn,html)
+                widget((catalog and "catalog_" or "")..key,panel,xx,yy,ww,hh,text,tint,bg,fn,html)
             end
             menu_widget("menu_bg",0,0,mw,mh,"",P.text,P.panel)
             menu_widget("menu_title",8,3,mw-42,25,title,P.lavender,P.panel)
@@ -369,13 +390,69 @@ function H.new(ctx,patrol,tactics,stop)
             local yy=36
             for index=first,last do
                 local item=items[index];local fn=item.fn
-                if yy+rowh<=mh then
+                if yy+rowh<=mh-29 then
                     local key="item"..(index-first+1)
                     local ew=item.economy and (settings.large and 124 or 110) or 0
                     local mainw=mw-16-(ew>0 and ew+3 or 0)
-                    menu_widget(key,8,yy,mainw,rowh-3,short(item.text,math.max(1,math.floor((mainw-8)/(settings.large and 8 or 7)))),item.tint,P.raised,fn)
-                    if item.economy then
-                        menu_widget(key.."_economy",mw-8-ew,yy,ew,rowh-3,"Zarobek: "..(item.economy.enabled and "WŁ." or "WYŁ."),item.economy.enabled and P.mint or P.muted,P.raised,item.economy.fn)
+                    if item.kind=="toggle" then
+                        local active=item.enabled
+                        local controlw=58
+                        local labelw=math.max(1,mainw-controlw-12)
+                        menu_widget(key,8,yy,labelw,rowh-4,item.text,P.text,P.raised,fn,
+                            "<font color='"..P.text.."'><b>"..esc(item.text).."</b></font>"..
+                            (item.description and "<br><font color='"..P.muted.."'>"..esc(short(item.description,55)).."</font>" or ""))
+                        -- A complete, clickable switch: rounded track and bright knob.
+                        local tx=mw-8-controlw
+                        menu_widget(key.."_switch",tx,yy+9,controlw,28,"",
+                            active and P.mint or P.muted,
+                            active and "#315746" or "#414758",fn)
+                        menu_widget(key.."_knob",tx+(active and 33 or 5),yy+13,20,20,
+                            "",P.text,active and "#BFEED8" or "#CCD0DA",fn)
+                    elseif item.kind=="member" then
+                        local status=item.active and "GOTOWA" or "WYŁ."
+                        local detail=item.role..(item.cooldown>0 and " · Odnowienie "..item.cooldown.." s" or " · Manewr gotowy")
+                        menu_widget(key,8,yy,mainw-94,rowh-4,item.text,P.text,P.raised,fn,
+                            "<font color='"..P.lavender.."'>"..esc(item.portrait).." </font>"..
+                            "<font color='"..P.text.."'><b>"..esc(short(item.text,34)).."</b></font>"..
+                            "<br><font color='"..P.muted.."'>"..esc(short(detail,48)).."</font>")
+                        menu_widget(key.."_state",mw-100,yy+7,88,29,status.."  ›",
+                            item.active and P.mint or P.muted,P.panel,fn)
+                    elseif item.kind=="section" then
+                        menu_widget(key,8,yy,mainw,rowh-4,item.text,P.lavender,P.panel,nil,
+                            "<font color='"..P.lavender.."'><b>"..esc(item.text).."</b></font>")
+                    elseif item.kind=="slider" then
+                        local minimum,maximum,step=item.min,item.max,item.step
+                        local value=item.value
+                        local available_width=math.max(1,mainw-16)
+                        menu_widget(key,8,yy,available_width-82,25,item.text,P.text,P.panel,nil,
+                            "<font color='"..P.text.."'><b>"..esc(item.text).."</b></font>")
+                        menu_widget(key.."_number",mw-98,yy,82,25,tostring(value)..item.unit,
+                            P.mint,P.panel,nil)
+                        local track_x=45;local track_y=yy+32
+                        local track_width=math.max(10,mainw-90)
+                        local ticks=math.floor((maximum-minimum)/step)
+                        local gap=2;local width_tick=math.max(1,math.floor((track_width-gap*ticks)/(ticks+1)))
+                        menu_widget(key.."_minus",9,track_y,28,27,"−",P.text,P.raised,
+                            function() item.change(math.max(minimum,value-step)) end)
+                        for i=0,ticks do
+                            local target=minimum+i*step
+                            local xx=track_x+i*(width_tick+gap)
+                            local color=target<=value and "#315746" or "#394254"
+                            menu_widget(key.."_tick"..i,xx,track_y,math.max(1,math.min(width_tick,mainw-40-xx)),
+                                26,"",P.mint,color,function() item.change(target) end,
+                                target==value and "<font color='#DFFBE9'>●</font>" or "")
+                        end
+                        menu_widget(key.."_plus",mw-43,track_y,28,27,"+",P.text,P.raised,
+                            function() item.change(math.min(maximum,value+step)) end)
+                    else
+                        menu_widget(key,8,yy,mainw,rowh-3,
+                            short(item.text,math.max(1,math.floor((mainw-8)/(settings.large and 8 or 7)))),
+                            item.tint,P.raised,fn)
+                        if item.economy then
+                            menu_widget(key.."_economy",mw-8-ew,yy,ew,rowh-3,
+                                "Zarobek: "..(item.economy.enabled and "WŁ." or "WYŁ."),
+                                item.economy.enabled and P.mint or P.muted,P.raised,item.economy.fn)
+                        end
                     end
                     yy=yy+rowh
                 end

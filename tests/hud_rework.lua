@@ -201,6 +201,38 @@ do
     assert(api.status().paused,"conflicts enabled during an expedition cause pause")
     h.dispose()
 end
+-- Graphical controls must call the same validated APIs as CLI/menu actions.
+do
+    local h=fixture();local api=h.api
+    api.hud:open("party")
+    assert(api.hud.labels.item1_switch and api.hud.labels.item1_knob,
+        "party protection renders a switch with a distinct graphical knob")
+    assert(api.hud.labels.item2_switch,"party attack renders a graphical switch")
+    local was=api.tactics.status().on
+    api.hud.labels.item1_knob.widget.click()
+    assert(api.tactics.status().on~=was,"switch knob toggles the tactic engine")
+    local old=api.snapshot().profile.partyAttack
+    api.hud.labels.item2_switch.widget.click()
+    assert(api.snapshot().profile.partyAttack~=old,"attack switch uses the existing per-profile command")
+    assert(api.hud.labels.item4_state,"party renders a member status chip")
+    api.hud.labels.item4.widget.click()
+    assert(api.hud.menu=="member","member card opens its details")
+    -- Default member configuration has an advanced section.
+    for key,item in pairs(api.hud.labels) do
+        if item.html and item.html:find("Zaawansowane",1,true) and not item.widget.hidden then
+            item.widget.click();break
+        end
+    end
+    assert(api.hud.menu=="member_advanced","advanced controls accessible from member card")
+    local before=api.tactics.rows()[1].min_hp
+    assert(api.hud.labels.item2_tick0,"HP has a segmented interactive slider")
+    api.hud.labels.item2_plus.widget.click()
+    assert(api.tactics.rows()[1].min_hp==math.min(100,before+5),"HP increment persists through tactics.configure")
+    local load=api.tactics.rows()[1].max_load
+    api.hud.labels.item3_minus.widget.click()
+    assert(api.tactics.rows()[1].max_load==math.max(0,load-1),"load slider decrements through tactics.configure")
+    h.dispose()
+end
 Geyser=nil
 do
     local h=fixture();h.api.request("start")
