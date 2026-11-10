@@ -75,6 +75,7 @@ function T.new(ctx,M,integration,patrol,changed)
                 enabled=policy.enabled and S.enabled[ch],channel=ch,slot=slot,
                 min_hp=policy.min_hp,max_load=policy.max_load,task=slot and config.minions[slot].task,
                 target_name=policy.target_name,target_id=policy.target_id,
+                cooldown=math.max(0,math.ceil((S.blocked[ch] or 0)-now())),
                 self=id==s.self_id}
         end
         add(s.self_id)
