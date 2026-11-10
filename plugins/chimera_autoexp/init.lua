@@ -2560,7 +2560,7 @@ return {
             remember(); note("HP: " .. a .. "% / " .. b .. "%")
         end)
         command("druzyna", "<on|off>", function(s)
-            if not allowed_config() then return end
+            -- Safe runtime switch: affects only future attack commands.
             local p = profile()
             if not p then note("Wybierz expowisko.", "warn"); return end
             s = normalized(s)
@@ -2633,6 +2633,10 @@ return {
         end
         return {
             status=status,
+            party_attack_enabled=function()
+                local p=profile()
+                return p and p.partyAttack==true or false
+            end,
             nearest_profiles=function(limit)
                 if destroyed then return {} end
                 return nearest_profiles(math.max(1,math.floor(tonumber(limit) or 3)))
@@ -2876,7 +2880,7 @@ function M.task(s,c,i)
     end
     return "support"
 end
-function M.plan(s,c,enabled,blocked,focus)
+function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     blocked=blocked or {}
     local function unavailable(ch,kind)
         return blocked[ch]==true or (type(blocked[ch])=="table" and blocked[ch][kind]==true)
@@ -3050,7 +3054,7 @@ function M.plan(s,c,enabled,blocked,focus)
                 if s.targets[id]~=target then mismatch=true end
             end
         end
-        if safe and mismatch and #recipients>0 then
+        if safe and mismatch and #recipients>0 and not suppress_team_attack then
             -- Do not let routine balancing spend the shared 15s team-order slot
             -- before idle members join. Explicit/emergency protection stays higher.
             out[#out+1]={channel=4,actor=me,enemy=target,kind="team_attack",priority=98,room=s.room,
@@ -3116,8 +3120,10 @@ end
 function M.manual(command,s,c)
     local text=tostring(command or ""):lower():gsub("^%s+",""):gsub("%s+$","")
     local verb,rest=text:match("^(%S+)%s*(.*)$")
+    -- Attacks have no formation cooldown. Neither kill nor team attack orders
+    -- should lock cover/break channels. Support remains a distinct action.
     local kinds={zaslon="cover",zaslonic="cover",wycofaj="cover",przelam="cover",
-        wesprzyj="support",wesprzec="support",zabij="support",zaatakuj="support",zaatakowac="support"}
+        wesprzyj="support",wesprzec="support"}
     if verb=="parozkaz" or verb=="rozkaz" then
         local recipient,action=rest:match("^(%S+)%s+(%S+)")
         local first=rest:match("^(%S+)")
@@ -3286,6 +3292,7 @@ function T.new(ctx,M,integration,patrol,changed)
                 enabled=policy.enabled and S.enabled[ch],channel=ch,slot=slot,
                 min_hp=policy.min_hp,max_load=policy.max_load,task=slot and config.minions[slot].task,
                 target_name=policy.target_name,target_id=policy.target_id,
+                cooldown=math.max(0,math.ceil((S.blocked[ch] or 0)-now())),
                 self=id==s.self_id}
         end
         add(s.self_id)
@@ -3395,7 +3402,11 @@ function T.new(ctx,M,integration,patrol,changed)
                 if not confirmed or confirmed.id~=pet.id or not current or current.name~=confirmed.name then blocked[i+1]=true end
             end
         end
-        local d=M.plan(s,config,S.enabled,blocked)
+        -- AutoExp already issues the initial party attack order when enabled.
+        -- Keep automatic covers, but never duplicate its target alignment.
+        local suppress_attack = xp.started and patrol.party_attack_enabled
+            and patrol.party_attack_enabled()
+        local d=M.plan(s,config,S.enabled,blocked,nil,suppress_attack)
         if not d then
             local detail=S.ambiguous and "Niejednoznaczne pachołki: wymagane jawne przypisanie do P1/P2."
                 or config.team_orders and s.leader~=s.self_id and "Rozkazy graczom czekają: nie prowadzisz drużyny."
@@ -3431,13 +3442,15 @@ function T.new(ctx,M,integration,patrol,changed)
         if not command then phase("BLOKADA","Nie można zbudować poprawnego rozkazu.");return end
         d.sent_at=t;S.pending=d
         if d.kind=="support" then S.support[d.channel]=t+4
-        else S.blocked[d.channel]=t+(d.channel==1 and d.kind~="retreat" and 8 or 15) end
+        elseif d.kind~="team_attack" then
+            S.blocked[d.channel]=t+(d.channel==1 and d.kind~="retreat" and 8 or 15)
+        end
         if d.kind=="retreat" then S.retreat_until=t+15 end
         if d.kind=="team_cover" or d.kind=="team_attack" then
             for i,p in ipairs(config.minions) do
                 for _,id in ipairs(d.recipients or {}) do if p.id==id then
                     if d.kind=="team_cover" then S.blocked[i+1]=math.max(S.blocked[i+1],t+15)
-                    else S.support[i+1]=math.max(S.support[i+1],t+4) end
+                    end -- Team attacks do not consume the minion formation cooldown.
                 end end
             end
             if d.kind=="team_cover" and d.protected~=s.self_id then S.blocked[1]=math.max(S.blocked[1],t+8) end
@@ -3470,12 +3483,13 @@ function T.new(ctx,M,integration,patrol,changed)
         local manual=M.manual(command,snapshot(),config)
         if manual then
             local t=now()
+            -- Only formation maneuvers use formation cooldowns. A support
+            -- command has its own short in-flight guard, not a 15s cover lock.
             for ch in pairs(manual.channels) do
                 local locks=manual.kind=="support" and S.support or S.blocked
-                locks[ch]=math.max(locks[ch] or 0,t+15)
+                local duration=manual.kind=="support" and 1 or 15
+                locks[ch]=math.max(locks[ch] or 0,t+duration)
             end
-            -- Team orders share a server-facing cadence regardless of maneuver type.
-            if manual.channels[4] then S.blocked[4]=math.max(S.blocked[4],t+15) end
             local pending=S.pending
             if pending then
                 local same=(pending.kind=="support" or pending.kind=="team_attack")== (manual.kind=="support")
@@ -3491,16 +3505,21 @@ function T.new(ctx,M,integration,patrol,changed)
             end
             phase("RĘCZNIE","Ręczny rozkaz: odpowiedni manewr wstrzymany na 15 s.")
         elseif text:match("^zaslon%s") or text:match("^wycofaj%s") or text:match("^przelam%s") then
-            S.enabled[1]=false
+            -- Manual commands never disable automation. Let the server
+            -- readiness message clear the maneuver cooldown early.
             if text:match("^wycofaj%s") then S.retreat_until=math.max(S.retreat_until,now()+15) end
             S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8)
             if S.pending and S.pending.channel==1 then S.pending=nil end
-            phase("RĘCZNIE","Ręczny manewr: kanał postaci wyłączony.")
+            phase("RĘCZNIE","Ręczny manewr: czekam na odnowienie, automatyka nadal działa.")
         end
     end)
     if type(ctx.trigger_exact)=="function" then
-        for _,text in ipairs({"Jestes gotowa do zmiany w szyku.","Jestes gotowy do zmiany w szyku."}) do
-            ctx:trigger_exact(text,function() S.blocked[1]=S.retreat_until;schedule() end)
+        for _,text in ipairs({"Jestes gotowa do zmiany w szyku.","Jestes gotowy do zmiany w szyku.",
+            "Jestes gotowa do kolejnej zmiany w szyku.","Jestes gotowy do kolejnej zmiany w szyku."}) do
+            ctx:trigger_exact(text,function()
+                S.blocked[1]=math.min(S.blocked[1],math.max(now(),S.retreat_until))
+                schedule()
+            end)
         end
         ctx:trigger_exact("Musisz chwile odpoczac po ostatniej zmianie w szyku.",function()
             S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8);if S.pending and S.pending.channel==1 then S.pending=nil end
@@ -3513,6 +3532,25 @@ function T.new(ctx,M,integration,patrol,changed)
             end
         end)
     end
+    -- A minion who regained formation readiness can maneuver immediately.
+    -- Do not clear the wrong minion if names are ambiguous.
+    ctx:trigger([[^(.+) jest gotow[ay] do kolejnej zmiany w szyku\.$]],function()
+        local name=tostring(matches and matches[2] or ""):lower():gsub("^%s+",""):gsub("%s+$","")
+        local channels={}
+        for _,row in ipairs(E.rows()) do
+            if not row.self and row.kind=="npc" and row.name:lower()==name and row.channel<4 then
+                channels[#channels+1]=row.channel
+            end
+        end
+        if #channels==1 then
+            S.blocked[channels[1]]=now()
+            if S.pending and S.pending.channel==channels[1] then S.pending=nil end
+            phase("GOTOWA","Pachołek gotowy do kolejnego manewru.")
+            schedule()
+        elseif #channels>1 then
+            phase("BLOKADA","Niejednoznaczna nazwa pachołka; nie kasuję blokad.")
+        end
+    end)
     ctx:trigger([[^(.+) wciaz lapie rownowage po ostatniej zmianie w szyku\.$]],function()
         local name=tostring(matches and matches[2] or ""):lower():gsub("^%s+",""):gsub("%s+$","")
         local channels={}
@@ -3535,7 +3573,7 @@ end
 factories["hud"] = function()
 -- Compact ChimeraVIP-style top bar. Party health belongs to Kondycje.
 local H={}
-local P={bg="#181C26",panel="#232938",raised="#2E3749",text="#D8DCE6",muted="#AEB6C5",
+local P={bg="#181C26",panel="#232938",raised="#303A4F",text="#D8DCE6",muted="#AEB6C5",
     mint="#A8DCC2",lavender="#C7B9E8",rose="#F0A8B8",yellow="#EFD8A6"}
 local function esc(v) return tostring(v or ""):gsub("&","&amp;"):gsub("<","&lt;"):gsub(">","&gt;"):gsub('"',"&quot;") end
 local function short(v,n)
@@ -3545,7 +3583,8 @@ local function short(v,n)
     local out={};for i=1,math.max(1,n-1) do out[#out+1]=chars[i] end;return table.concat(out).."…"
 end
 local function clock(n) n=math.max(0,math.floor(tonumber(n) or 0));return string.format("%02d:%02d:%02d",math.floor(n/3600),math.floor(n%3600/60),n%60) end
-local ROLES={tank="Tank",offtank="Off tank",standard="Standard",asekuracja="Asekuracja",support="Support"}
+local ROLES={tank="Obrońca",offtank="Drugi obrońca",standard="Wojownik",asekuracja="Ochrona innych",support="Wsparcie"}
+local ROLE_DETAILS={tank="Przejmuje zagrożenia i odciąża sojuszników.",offtank="Pomaga głównemu obrońcy przy przeciążeniu.",standard="Walczy i pomaga, gdy to bezpieczne.",asekuracja="Osłania szczególnie zagrożonych sojuszników.",support="Unika przejmowania przeciwników."}
 local ROLE_ORDER={"tank","offtank","standard","asekuracja","support","auto"}
 local TASKS={"auto","self","protect","support","reserve"}
 local TASK_LABEL={auto="Automatycznie",self="Chroń mnie",protect="Chroń wybraną osobę",support="Wspieraj mój cel",reserve="Rezerwa"}
@@ -3606,7 +3645,7 @@ function H.new(ctx,patrol,tactics,stop)
         self.page=1
         if name=="areas" then self.nearby=nil end
         if name=="party" or name=="tactics" or name=="areas" or name=="settings" then self.anchor=name end
-        if name~="member" and name~="roles" and name~="targets" then self.selected=nil end
+        if name~="member" and name~="roles" and name~="targets" and name~="member_advanced" then self.selected=nil end
         self:render()
     end
     function self:visible(value) if self.destroyed then return false end;self.shown=value~=false;self.menu=nil;save();self:render() end
@@ -3615,63 +3654,113 @@ function H.new(ctx,patrol,tactics,stop)
         local items={};local title="ChimeraXP";local note=""
         local function add(text,fn,tint) items[#items+1]={text=text,fn=fn,tint=tint} end
         local selected=find_row(rows,self.selected)
-        if (self.menu=="member" or self.menu=="roles" or self.menu=="targets") and not selected then self.menu="party" end
+        if (self.menu=="member" or self.menu=="roles" or self.menu=="targets" or self.menu=="member_advanced") and not selected then self.menu="party" end
         local p=snap.profile;local st=snap.status
         if self.menu=="party" then
-            title="Drużyna i role"
+            title="Drużyna · szybkie ustawienia"
+            add("● Ochrona: "..(ts.on and "WŁĄCZONA" or "WYŁĄCZONA").."  ↻",
+                function() tactics.toggle(not ts.on) end,ts.on and P.mint or P.yellow)
+            if p then
+                add("⚔ Wspólny cel: "..(p.partyAttack and "WŁĄCZONY" or "WYŁĄCZONY").."  ↻",
+                    function() request("druzyna",p.partyAttack and "off" or "on") end,
+                    p.partyAttack and P.mint or P.muted)
+            else add("⚔ Wspólny cel: wybierz expowisko",nil,P.muted) end
+            add("CZŁONKOWIE DRUŻYNY",nil,P.lavender)
             for _,r in ipairs(rows) do
                 local id=r.id
-                add(r.name.." · "..(ROLES[r.role] or "Automat")..(r.enabled and "  ●" or "  ○"),function() self.selected=id;self.menu="member";self.page=1;self:render() end)
+                local role=ROLES[r.role] or "Automatycznie"
+                local icon=r.self and "★" or r.kind=="npc" and "◆" or "●"
+                add(icon.." "..r.name.."  ·  "..role..(r.enabled and "  ✓" or "  WYŁ.")..(r.cooldown and r.cooldown>0 and ("  · "..r.cooldown.." s") or ""),
+                    function() self.selected=id;self.menu="member";self.page=1;self:render() end,
+                    r.enabled and P.text or P.muted)
             end
-            if #rows==0 then add("Czekam na aktualny skład drużyny.") end
-            note="Kondycje pozostają w osobnym oknie."
+            if #rows==0 then add("Oczekiwanie na aktualny skład GMCP.",nil,P.yellow) end
+            add("⚙ Dodatkowe ustawienia drużyny  ›",function()
+                self.menu="tactics";self.page=1;self:render()
+            end,P.lavender)
+            note="Kliknij postać, aby wybrać rolę lub zadanie. HP: okno Kondycje."
         elseif self.menu=="member" then
-            title=selected.name.." · ustawienia"
-            add("‹ Drużyna",function() self.menu="party";self:render() end,P.muted)
-            add("Rola: "..(ROLES[selected.role] or "Automat").."  ▾",function() self.menu="roles";self.page=1;self:render() end)
-            local id=selected.id
-            add("Udział w automatyce: "..(selected.enabled and "WŁ." or "WYŁ."),function() tactics.configure(id,"enabled",not selected.enabled,selected) end)
-            add("Minimalne HP wykonawcy: "..selected.min_hp.."%  ↻",function() tactics.configure(id,"min_hp",selected.min_hp>=100 and (selected.self and 40 or 50) or selected.min_hp+5,selected) end)
-            add("Limit przejmowanych przeciwników: "..selected.max_load.."  ↻",function() tactics.configure(id,"max_load",(selected.max_load+1)%6,selected) end)
-            add("Chroń: "..(selected.target_name or "automatycznie").."  ▾",function() self.menu="targets";self.page=1;self:render() end)
-            if selected.slot then
-                add("Zadanie: "..(TASK_LABEL[selected.task] or "Automatycznie").."  ↻",function()
-                    local current=1;for i,v in ipairs(TASKS) do if v==selected.task then current=i end end
-                    local value=TASKS[current%#TASKS+1];tactics.task(id,value,selected)
-                    if value=="protect" then self.menu="targets";self.page=1;self:render() end
-                end)
-            end
-            if selected.kind=="npc" then
-                for slot=1,2 do
-                    local n=slot
-                    add("Przypisz jako mój pachołek P"..n,function() tactics.bind(n,id,selected) end)
+            title=(selected and selected.name or "Postać").." · zachowanie"
+            add("‹ Wróć do drużyny",function() self.menu="party";self:render() end,P.muted)
+            if selected then
+                local id=selected.id
+                add("Udział w ochronie: "..(selected.enabled and "WŁ." or "WYŁ.").."  ↻",
+                    function() tactics.configure(id,"enabled",not selected.enabled,selected) end,
+                    selected.enabled and P.mint or P.yellow)
+                add("Rola: "..(ROLES[selected.role] or "Automatycznie").."  ›",
+                    function() self.menu="roles";self.page=1;self:render() end,P.lavender)
+                if selected.slot then
+                    add("Zadanie pachołka: "..(TASK_LABEL[selected.task] or "Automatycznie").."  ↻",
+                        function()
+                            local current=1
+                            for i,v in ipairs(TASKS) do if v==selected.task then current=i end end
+                            local value=TASKS[current%#TASKS+1]
+                            tactics.task(id,value,selected)
+                            if value=="protect" then self.menu="targets";self.page=1 end
+                            self:render()
+                        end)
+                end
+                add("Kogo chronić: "..(selected.target_name or "decyduje automat").."  ›",
+                    function() self.menu="targets";self.page=1;self:render() end)
+                add("⚙ Zaawansowane: HP i limit zagrożeń  ›",
+                    function() self.menu="member_advanced";self.page=1;self:render() end,P.muted)
+                if selected.kind=="npc" and not selected.slot then
+                    add("Przypisz jako pachołka 1",function() tactics.bind(1,id,selected) end)
+                    add("Przypisz jako pachołka 2",function() tactics.bind(2,id,selected) end)
                 end
             end
-            note="Progi określają zgodę na manewr, a nie pomiar obrony."
+            note="Rola dobiera domyślne progi. Szczegóły są opcjonalne."
+        elseif self.menu=="member_advanced" then
+            title=(selected and selected.name or "Postać").." · zaawansowane"
+            add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
+            if selected then
+                local id=selected.id
+                add("Minimalne HP do manewru: "..selected.min_hp.."%  +5",
+                    function() tactics.configure(id,"min_hp",selected.min_hp>=100 and (selected.self and 40 or 50) or selected.min_hp+5,selected) end)
+                add("Limit przejmowanych wrogów: "..selected.max_load.."  +1",
+                    function() tactics.configure(id,"max_load",(selected.max_load+1)%6,selected) end)
+            end
+            note="Progi dotyczą manewrów taktycznych, nie poziomu HP na HUD."
         elseif self.menu=="roles" then
-            title=selected.name.." · rola"
-            local id=selected.id
-            for _,role in ipairs(ROLE_ORDER) do
-                if role~="auto" or not selected.self then
-                    add((ROLES[role] or "Automat")..(selected.role==role and "  ✓" or ""),function() tactics.configure(id,"role",role,selected);self.menu="member";self:render() end)
+            title=(selected and selected.name or "Postać").." · wybierz rolę"
+            add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
+            if selected then
+                local id=selected.id
+                for _,role in ipairs(ROLE_ORDER) do
+                    if role~="auto" or not selected.self then
+                        local desc=ROLE_DETAILS[role] or "Bez przypisanej roli."
+                        add((selected.role==role and "✓ " or "○ ")..(ROLES[role] or "Automatycznie").." · "..desc,
+                            function() tactics.configure(id,"role",role,selected);self.menu="member";self:render() end)
+                    end
                 end
             end
-            note="Wybranie roli ustawia jej progi; AUTO nie włącza się samo."
+            note="Zmiana roli ustawia też domyślne progi bezpieczeństwa."
         elseif self.menu=="targets" then
-            title=selected.name.." · chroniona osoba"
-            local id=selected.id
-            add("Automatyczny wybór",function() tactics.configure(id,"target_id",nil,selected);self.menu="member";self:render() end)
-            for _,r in ipairs(rows) do if r.id~=id then
-                local target=r.id;add(r.name,function() tactics.configure(id,"target_id",target,selected);self.menu="member";self:render() end)
-            end end
-        elseif self.menu=="tactics" then
-            title="Taktyka drużyny"
-            add("Taktyka: "..(ts.on and "AUTO" or "WYŁ."),function() tactics.toggle(not ts.on) end,ts.on and P.mint or P.text)
-            for _,entry in ipairs({{"team_orders","Rozkazy graczom"},{"team_broadcast","Rozkazy zbiorowe"},{"retreat","Wycofanie w szyku"},{"mass","Zasłona masowa"}}) do
-                local key=entry[1];add(entry[2]..": "..(ts[key] and "WŁ." or "WYŁ."),function() tactics.option(key,not ts[key]) end)
+            title=(selected and selected.name or "Postać").." · kogo chronić"
+            add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
+            if selected then
+                local id=selected.id
+                add("Automatyczny wybór",function() tactics.configure(id,"target_id",nil,selected);self.menu="member";self:render() end)
+                for _,r in ipairs(rows) do if r.id~=id then
+                    local target=r.id
+                    add("Chroń: "..r.name,function() tactics.configure(id,"target_id",target,selected);self.menu="member";self:render() end)
+                end end
             end
-            add("Stan: "..ts.phase,nil,P.muted)
-            note=ts.detail
+        elseif self.menu=="tactics" then
+            title="Drużyna · dodatkowe ustawienia"
+            add("‹ Szybkie ustawienia",function() self.menu="party";self:render() end,P.muted)
+            add("Automatyczna ochrona: "..(ts.on and "WŁ." or "WYŁ.").."  ↻",
+                function() tactics.toggle(not ts.on) end,ts.on and P.mint or P.yellow)
+            for _,entry in ipairs({{"team_orders","Ochrona innych graczy"},
+                {"team_broadcast","Wspólna zasłona drużyny"},
+                {"retreat","Wycofanie za sojusznika"},
+                {"mass","Zasłona kilku wrogów"}}) do
+                local key=entry[1]
+                add(entry[2]..": "..(ts[key] and "WŁ." or "WYŁ.").."  ↻",
+                    function() tactics.option(key,not ts[key]) end)
+            end
+            add("Stan silnika: "..ts.phase,nil,P.muted)
+            note="Zaawansowane opcje zmieniają manewry osłony, nie komendy ataku."
         elseif self.menu=="areas" or self.menu=="allareas" then
             local all=self.menu=="allareas"
             title=all and "Wszystkie expowiska" or "Najbliższe expowiska"
@@ -3809,8 +3898,8 @@ function H.new(ctx,patrol,tactics,stop)
         end
         local xpcolor=not st.started and P.muted or st.paused and P.yellow or P.mint
         local tacticscolor=not ts.on and P.muted or (st.started and st.paused or ts.phase=="WSTRZYMANA") and P.yellow or P.mint
-        nav("party",tight and "D ▾" or small and "Drużyna ▾" or "Drużyna i role ▾",P.text,widths[1])
-        nav("tactics",tight and "T ▾" or "Taktyka ▾",P.text,widths[2],tacticscolor)
+        nav("party",tight and "D ▾" or small and "Drużyna ▾" or "Drużyna ▾",P.text,widths[1])
+        nav("tactics",tight and "O ▾" or "Ochrona ▾",P.text,widths[2],tacticscolor)
         nav("areas",small and "EXP ▾" or "Expowiska ▾",P.text,widths[3],xpcolor)
         widget("pause",self.root,right,y,cw-3,bh,(not st.started or st.paused) and "▶" or "Ⅱ",P.muted,P.bg,function() request(not st.started and "start" or st.paused and "wznow" or "pauza") end)
         widget("stop",self.root,right+cw,y,cw-3,bh,"■",P.rose,"#392A35",stop)
@@ -3818,7 +3907,8 @@ function H.new(ctx,patrol,tactics,stop)
         if st.started then
             local name=snap.profile and snap.profile.name or "Brak terenu"
             local earn=snap.profile and snap.profile.economy and snap.profile.economy.enabled
-            local suffix=earn and w>=900 and " · Zarobek" or ""
+            local status_label=st.paused and "PAUZA" or st.emergency and "ODWRÓT" or st.phase=="COMBAT" and "WALKA" or st.economy and "HANDEL" or st.phase=="LOOTING" and "ŁUPY" or "PATROL"
+            local suffix=w>=900 and " · "..status_label..(earn and " · Zarobek" or "") or ""
             local charwidth=settings.large and 8 or 7
             local _,namechars=name:gsub("[%z\1-\127\194-\244][\128-\191]*","")
             local width=math.max(1,math.min(right-x-8,(namechars+#suffix+13)*charwidth))
@@ -3831,11 +3921,12 @@ function H.new(ctx,patrol,tactics,stop)
         if self.menu then
             local items,title,note=items_for(snap,rows,ts)
             local catalog=self.menu=="allareas"
-            local mw=math.max(1,math.min(catalog and 700 or 540,w-16));local rowh=settings.large and 32 or 27
-            local capacity=math.max(1,math.floor((h-height-96)/rowh))
+            local mw=math.max(1,math.min(catalog and 700 or 540,w-16));local rowh=settings.large and 35 or 30
+            local fixed_height=math.min(h-height-12,catalog and 520 or 410)
+            local capacity=math.max(1,math.floor((fixed_height-91)/rowh))
             local pages=math.max(1,math.ceil(#items/capacity));self.page=math.min(self.page,pages)
             local first=(self.page-1)*capacity+1;local last=math.min(#items,first+capacity-1)
-            local mh=math.min(math.max(1,h-height-8),64+math.max(0,last-first+1)*rowh+(pages>1 and 27 or 0))
+            local mh=math.max(1,fixed_height)
             local anchor=self.labels[self.anchor or "party"]
             local mx=math.max(8,math.min(anchor and anchor.x or 8,w-mw-8))
             if catalog and not self.catalog then self.catalog=Geyser.Container:new({name=prefix.."catalog",x=0,y=0,width=mw,height=mh}) end
@@ -3848,7 +3939,7 @@ function H.new(ctx,patrol,tactics,stop)
             menu_widget("menu_bg",0,0,mw,mh,"",P.text,P.panel)
             menu_widget("menu_title",8,3,mw-42,25,title,P.lavender,P.panel)
             menu_widget("menu_close",mw-30,3,23,25,"×",P.muted,P.panel,function() self.menu=nil;self:render() end)
-            local yy=31
+            local yy=36
             for index=first,last do
                 local item=items[index];local fn=item.fn
                 if yy+rowh<=mh then
@@ -3862,13 +3953,13 @@ function H.new(ctx,patrol,tactics,stop)
                     yy=yy+rowh
                 end
             end
-            if pages>1 and yy+26<=mh then
+            if pages>1 and yy+26<=mh-27 then
                 menu_widget("previous",8,yy,30,24,"‹",P.text,nil,function() self.page=math.max(1,self.page-1);self:render() end)
                 menu_widget("page",42,yy,mw-84,24,self.page.." / "..pages,P.muted,P.panel)
                 menu_widget("next",mw-38,yy,30,24,"›",P.text,nil,function() self.page=math.min(pages,self.page+1);self:render() end)
                 yy=yy+27
             end
-            if yy+25<=mh then menu_widget("note",8,yy,mw-16,24,short(note or "",math.max(1,math.floor((mw-22)/5.5))),P.muted,P.panel) end
+            if mh>=55 then menu_widget("note",8,mh-27,mw-16,24,short(note or "",math.max(1,math.floor((mw-22)/5.5))),P.muted,P.panel) end
             panel:show();if type(panel.raiseAll)=="function" then panel:raiseAll() end
         else self.overlay:hide();if self.catalog then self.catalog:hide() end end
         for key,item in pairs(self.labels) do if not self.used[key] and type(item.widget.hide)=="function" then item.widget:hide() end end
