@@ -1,7 +1,40 @@
 -- Compact ChimeraVIP-style top bar. Party health belongs to Kondycje.
 local H={}
-local P={bg="#181C26",panel="#232938",raised="#303A4F",text="#D8DCE6",muted="#AEB6C5",
-    mint="#A8DCC2",lavender="#C7B9E8",rose="#F0A8B8",yellow="#EFD8A6"}
+-- Obsidian: single palette and explicit control styles shared by every menu.
+-- Icons are Unicode glyphs rendered by Qt, not downloaded images or font files.
+local P={bg="#151922",panel="#1D2430",card="#222B39",raised="#303B4C",line="#343E50",
+    text="#EDF0F5",muted="#A6B0C0",soft="#8291A5",mint="#A8DCC2",
+    lavender="#C7B9E8",rose="#F0A8B8",yellow="#EFD8A6",green="#315746"}
+local ICON={party="♧",shield="◇",attack="⚔",area="⌖",gear="⚙",close="×",
+    back="‹",next="›",role="✦",member="◆",npc="◆",player="●",star="★",
+    ready="✓",wait="◷",sliders="☷",safety="✚",loot="◇",trade="◆",
+    session="◷",map="⌖",reset="↺",play="▶",pause="Ⅱ",stop="■",
+    auto="✧",target="◎",support="✚"}
+local STYLES={
+    base={radius=7,pad=4,font=10},
+    bar={radius=0,pad=0,font=10},
+    nav={radius=9,pad=5,font=10,hover=P.raised},
+    toolbar={radius=9,pad=3,font=12,hover=P.raised},
+    danger={radius=9,pad=3,font=12,hover="#593440"},
+    panel={radius=16,pad=0,border=P.line},
+    title={radius=0,pad=2,font=12,bold=true},
+    subtitle={radius=0,pad=0,font=9},
+    section={radius=0,pad=2,font=9,bold=true},
+    card={radius=12,pad=4,border=P.line},
+    row={radius=10,pad=6,hover=P.raised},
+    label={radius=0,pad=2},
+    detail={radius=0,pad=2,font=9},
+    icon={radius=10,pad=1,font=15,bold=true},
+    chip={radius=11,pad=2,font=9,bold=true},
+    ["switch-track"]={radius=13,pad=0},
+    ["switch-knob"]={radius=12,pad=0},
+    ["slider-track"]={radius=5,pad=0},
+    ["slider-hit"]={radius=0,pad=0},
+    ["slider-thumb"]={radius=10,pad=0,border="#DFFBE9"},
+    button={radius=9,pad=3,font=12,hover=P.card},
+    footer={radius=0,pad=2,font=9},
+    divider={radius=0,pad=0}
+}
 local function esc(v) return tostring(v or ""):gsub("&","&amp;"):gsub("<","&lt;"):gsub(">","&gt;"):gsub('"',"&quot;") end
 local function short(v,n)
     local chars={};for c in tostring(v or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do chars[#chars+1]=c end
@@ -21,7 +54,9 @@ function H.new(ctx,patrol,tactics,stop)
     self.shown=settings.visible~=false
     ctx.state.hud_generation=(ctx.state.hud_generation or 0)+1
     local prefix="chimeraxp."..ctx.state.hud_generation.."."
-    local height=settings.large and 52 or 44
+    -- A single, dependable bar height; the old "Większy pasek" toggle was cosmetic.
+    settings.large=nil
+    local height=44
     local before,owned
     local function available() return type(Geyser)=="table" and type(Geyser.Container)=="table" and type(Geyser.Label)=="table" end
     local function screen()
@@ -37,7 +72,7 @@ function H.new(ctx,patrol,tactics,stop)
         owned=nil
     end
     local function save() settings.visible=self.shown;ctx:save("hud",settings) end
-    local function widget(key,parent,x,y,w,h,text,tint,background,fn,html_override)
+    local function widget(key,parent,x,y,w,h,text,tint,background,fn,html_override,style)
         local item=self.labels[key]
         local name=prefix..key
         if not item then
@@ -48,14 +83,16 @@ function H.new(ctx,patrol,tactics,stop)
             if item.w~=w or item.h~=h then item.widget:resize(w,h) end
         end
         item.x,item.y,item.w,item.h=x,y,w,h
-        local radius=key:find("_switch",1,true) and 14 or key:find("_knob",1,true) and 11
-            or key:find("_tick",1,true) and 5 or key:find("_state",1,true) and 9 or 6
-        local pad=(key:find("_switch",1,true) or key:find("_knob",1,true)
-            or key:find("_tick",1,true)) and 0 or 3
-        local css="QLabel {background:"..(background or P.panel)..";color:"..(tint or P.text)
-            ..";font-family:'Segoe UI';font-size:"..(settings.large and 11 or 9)
-            .."pt;border:0;border-radius:"..radius.."px;padding:"..pad.."px;}"
-        if fn then css=css.." QLabel:hover {background:"..P.raised..";}" end
+        local st=STYLES[style or "base"] or STYLES.base
+        local bg=background or P.panel
+        local css="QLabel {background:"..bg..";color:"..(tint or P.text)
+            ..";font-family:'"..(style=="icon" and "Segoe UI Symbol" or "Segoe UI")
+            .."';font-size:"..(st.font or 10).."pt;font-weight:"..(st.bold and "600" or "400")
+            ..";border:"..(st.border and "1px solid "..st.border or "0")
+            ..";border-radius:"..(st.radius or 0).."px;padding:"..(st.pad or 0).."px;}"
+        if fn and st.hover then
+            css=css.." QLabel:hover {background:"..st.hover..";}"
+        end
         local html=html_override or "<font color='"..(tint or P.text).."'>"..esc(text).."</font>"
         if item.css~=css then item.widget:setStyleSheet(css);item.css=css end
         if item.html~=html then item.widget:echo(html);item.html=html end
@@ -240,9 +277,7 @@ function H.new(ctx,patrol,tactics,stop)
             for _,entry in ipairs({{"combat","Walka i cele"},{"safety","Schronienie i powrót"},{"loot","Łupy"},{"trade","Auto-zarobek"},{"profiles","Zarządzanie terenami"},{"session","Sesja i komunikaty"}}) do
                 local key=entry[1];add(entry[2].."  ›",function() self.menu=key;self.page=1;self:render() end)
             end
-            toggle("Większy pasek",settings.large,function()
-                settings.large=not settings.large;height=settings.large and 52 or 44;save();self:render()
-            end)
+            note="Wszystkie opcje są dostępne bez zmieniania wysokości paska."
         elseif self.menu=="profiles" then
             title="Zarządzanie terenami"
             add("Mapuj nowy teren…",function() prefill("mapuj ") end)
@@ -328,7 +363,7 @@ function H.new(ctx,patrol,tactics,stop)
         self.root:move(0,0);self.root:resize(w,height)
         self.used={}
         widget("background",self.root,0,0,w,height,"",P.text,P.bg)
-        local small=w<500;local tight=st.started and w<700;local cw=settings.large and 36 or 32
+        local small=w<500;local tight=st.started and w<700;local cw=32
         cw=math.min(cw,math.max(3,math.floor(w*.09)))
         local right=w-8-cw*3;local y=5;local bh=height-10
         local widths=tight and {28,40,44} or small and {83,90,72} or {128,110,120}
@@ -353,7 +388,7 @@ function H.new(ctx,patrol,tactics,stop)
             local earn=snap.profile and snap.profile.economy and snap.profile.economy.enabled
             local status_label=st.paused and "PAUZA" or st.emergency and "ODWRÓT" or st.phase=="COMBAT" and "WALKA" or st.economy and "HANDEL" or st.phase=="LOOTING" and "ŁUPY" or "PATROL"
             local suffix=w>=900 and " · "..status_label..(earn and " · Zarobek" or "") or ""
-            local charwidth=settings.large and 8 or 7
+            local charwidth=7
             local _,namechars=name:gsub("[%z\1-\127\194-\244][\128-\191]*","")
             local width=math.max(1,math.min(right-x-8,(namechars+#suffix+13)*charwidth))
             local clipped=short(name,math.max(1,math.floor(width/charwidth)-#suffix-13))
@@ -368,13 +403,15 @@ function H.new(ctx,patrol,tactics,stop)
             local decorated=self.menu=="party" or self.menu=="member" or self.menu=="member_advanced"
                 or self.menu=="tactics" or self.menu=="settings"
             local mw=math.max(1,math.min(catalog and 700 or decorated and 570 or 540,w-16))
-            local rowh=self.menu=="member_advanced" and 76 or decorated and 49
-                or settings.large and 35 or 30
-            local fixed_height=math.min(h-height-12,catalog and 520 or decorated and 510 or 410)
-            local capacity=math.max(1,math.floor((fixed_height-91)/rowh))
+            local rowh=self.menu=="member_advanced" and 94 or decorated and 59 or 36
+            local fixed_height=math.min(h-height-12,catalog and 520 or decorated and 610 or 450)
+            local capacity=math.max(1,math.floor((fixed_height-108)/rowh))
             local pages=math.max(1,math.ceil(#items/capacity));self.page=math.min(self.page,pages)
             local first=(self.page-1)*capacity+1;local last=math.min(#items,first+capacity-1)
-            local mh=math.max(1,fixed_height)
+            -- Size to content when possible, capped to keep menus on-screen.
+            -- This never modifies the console border (only the overlay container).
+            local mh=math.max(1,math.min(fixed_height,102+math.min(#items,capacity)*rowh
+                +(pages>1 and 28 or 0)))
             local anchor=self.labels[self.anchor or "party"]
             local mx=math.max(8,math.min(anchor and anchor.x or 8,w-mw-8))
             if catalog and not self.catalog then self.catalog=Geyser.Container:new({name=prefix.."catalog",x=0,y=0,width=mw,height=mh}) end
@@ -392,7 +429,7 @@ function H.new(ctx,patrol,tactics,stop)
                 local item=items[index];local fn=item.fn
                 if yy+rowh<=mh-29 then
                     local key="item"..(index-first+1)
-                    local ew=item.economy and (settings.large and 124 or 110) or 0
+                    local ew=item.economy and 110 or 0
                     local mainw=mw-16-(ew>0 and ew+3 or 0)
                     if item.kind=="toggle" then
                         local active=item.enabled
@@ -446,7 +483,7 @@ function H.new(ctx,patrol,tactics,stop)
                             function() item.change(math.min(maximum,value+step)) end)
                     else
                         menu_widget(key,8,yy,mainw,rowh-3,
-                            short(item.text,math.max(1,math.floor((mainw-8)/(settings.large and 8 or 7)))),
+                            short(item.text,math.max(1,math.floor((mainw-8)/7))),
                             item.tint,P.raised,fn)
                         if item.economy then
                             menu_widget(key.."_economy",mw-8-ew,yy,ew,rowh-3,
