@@ -88,7 +88,8 @@ do
     assert(visible_item(h,"Teren 2").y<visible_item(h,"Teren 1").y and visible_item(h,"Teren 1").y<visible_item(h,"Teren 4").y,"three nearest are sorted by the cheapest reachable route point")
     assert(not visible_item(h,"Teren 3") and not visible_item(h,"Teren 5"),"dropdown excludes farther and unreachable areas")
     local row=visible_item(h,"Teren 2");local economy=api.hud.labels.item1_economy
-    assert(economy.y==row.y and economy.x>=row.x+row.w,"economy action shares the terrain row")
+    assert(economy.y>=row.y and economy.y+economy.h<=row.y+row.h and economy.x>=row.x+row.w,
+        "economy status chip is vertically centered beside the terrain card")
     economy.widget.click();assert(api.snapshot().profiles.p2.economy.enabled and not api.snapshot().profiles.p1.economy.enabled)
     local calls=h.costcalls;api.hud:render();assert(h.costcalls==calls,"clock updates do not recompute all paths")
     visible_item(h,"Wszystkie expowiska").widget.click()
