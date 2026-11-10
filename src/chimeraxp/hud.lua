@@ -127,8 +127,9 @@ function H.new(ctx,patrol,tactics,stop)
             for key,value in pairs(extra or {}) do item[key]=value end
             items[#items+1]=item
         end
-        local function toggle(label,value,fn,description)
-            add(label,fn,P.text,"toggle",{enabled=value==true,description=description})
+        local function toggle(label,value,fn,description,icon)
+            add(label,fn,P.text,"toggle",{enabled=value==true,description=description,
+                icon=icon or ICON.shield})
         end
         local function slider(label,value,minimum,maximum,step,fn,unit)
             add(label,fn,P.text,"slider",{value=value,min=minimum,max=maximum,step=step,
@@ -138,39 +139,40 @@ function H.new(ctx,patrol,tactics,stop)
         if (self.menu=="member" or self.menu=="roles" or self.menu=="targets" or self.menu=="member_advanced") and not selected then self.menu="party" end
         local p=snap.profile;local st=snap.status
         if self.menu=="party" then
-            title="Drużyna · szybkie ustawienia"
+            title="Drużyna"
             toggle("Automatyczna ochrona",ts.on,function() tactics.toggle(not ts.on) end,
-                "Zasłania zagrożonych członków drużyny")
+                "Zasłania zagrożonych członków drużyny",ICON.shield)
             if p then
                 toggle("Wspólny cel ataku",p.partyAttack,
                     function() request("druzyna",p.partyAttack and "off" or "on") end,
-                    "Dowódca wydaje rozkaz ataku podczas expienia")
-            else add("⚔ Wspólny cel: wybierz expowisko",nil,P.muted) end
+                    "Dowódca wydaje rozkaz ataku podczas expienia",ICON.attack)
+            else add(ICON.attack.." Wspólny cel: wybierz expowisko",nil,P.muted,"hint") end
             add("CZŁONKOWIE DRUŻYNY",nil,P.lavender,"section")
             for _,r in ipairs(rows) do
                 local id=r.id
                 local role=ROLES[r.role] or "Automatycznie"
-                local icon=r.self and "★" or r.kind=="npc" and "◆" or "●"
-                add(icon.." "..r.name,
+                local icon=r.self and ICON.star or r.kind=="npc" and ICON.npc or ICON.player
+                add(r.name,
                     function() self.selected=id;self.menu="member";self.page=1;self:render() end,
                     r.enabled and P.text or P.muted,"member",
                     {role=role,active=r.enabled,cooldown=r.cooldown or 0,portrait=icon})
             end
             if #rows==0 then add("Oczekiwanie na aktualny skład GMCP.",nil,P.yellow) end
-            add("⚙ Dodatkowe ustawienia drużyny  ›",function()
+            add("Dodatkowe ustawienia drużyny",function()
                 self.menu="tactics";self.page=1;self:render()
-            end,P.lavender)
+            end,P.lavender,"action",{icon=ICON.gear})
             note="Kliknij postać, aby wybrać rolę lub zadanie. HP: okno Kondycje."
         elseif self.menu=="member" then
             title=(selected and selected.name or "Postać").." · zachowanie"
-            add("‹ Wróć do drużyny",function() self.menu="party";self:render() end,P.muted)
+            add("Wróć do drużyny",function() self.menu="party";self:render() end,P.muted,"back",{icon=ICON.back})
             if selected then
                 local id=selected.id
                 toggle("Automatyczna ochrona tej postaci",selected.enabled,
                     function() tactics.configure(id,"enabled",not selected.enabled,selected) end,
                     "Pozostałe postacie zachowują swoje ustawienia")
-                add("Rola: "..(ROLES[selected.role] or "Automatycznie").."  ›",
-                    function() self.menu="roles";self.page=1;self:render() end,P.lavender)
+                add("Rola: "..(ROLES[selected.role] or "Automatycznie"),
+                    function() self.menu="roles";self.page=1;self:render() end,
+                    P.lavender,"action",{icon=ICON.role})
                 if selected.slot then
                     add("Zadanie pachołka: "..(TASK_LABEL[selected.task] or "Automatycznie").."  ↻",
                         function()
@@ -182,10 +184,12 @@ function H.new(ctx,patrol,tactics,stop)
                             self:render()
                         end)
                 end
-                add("Kogo chronić: "..(selected.target_name or "decyduje automat").."  ›",
-                    function() self.menu="targets";self.page=1;self:render() end)
-                add("⚙ Zaawansowane: HP i limit zagrożeń  ›",
-                    function() self.menu="member_advanced";self.page=1;self:render() end,P.muted)
+                add("Kogo chronić: "..(selected.target_name or "decyduje automat"),
+                    function() self.menu="targets";self.page=1;self:render() end,
+                    P.text,"action",{icon=ICON.shield})
+                add("Zaawansowane: HP i limit zagrożeń",
+                    function() self.menu="member_advanced";self.page=1;self:render() end,
+                    P.lavender,"action",{icon=ICON.sliders})
                 if selected.kind=="npc" and not selected.slot then
                     add("Przypisz jako pachołka 1",function() tactics.bind(1,id,selected) end)
                     add("Przypisz jako pachołka 2",function() tactics.bind(2,id,selected) end)
@@ -193,8 +197,8 @@ function H.new(ctx,patrol,tactics,stop)
             end
             note="Rola dobiera domyślne progi. Szczegóły są opcjonalne."
         elseif self.menu=="member_advanced" then
-            title=(selected and selected.name or "Postać").." · zaawansowane"
-            add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
+            title=(selected and selected.name or "Postać").." · bezpieczeństwo"
+            add("Wróć do postaci",function() self.menu="member";self:render() end,P.muted,"back",{icon=ICON.back})
             if selected then
                 local id=selected.id
                 slider("Minimalne HP do manewru",selected.min_hp,selected.self and 40 or 50,100,5,
@@ -211,8 +215,11 @@ function H.new(ctx,patrol,tactics,stop)
                 for _,role in ipairs(ROLE_ORDER) do
                     if role~="auto" or not selected.self then
                         local desc=ROLE_DETAILS[role] or "Bez przypisanej roli."
-                        add((selected.role==role and "✓ " or "○ ")..(ROLES[role] or "Automatycznie").." · "..desc,
-                            function() tactics.configure(id,"role",role,selected);self.menu="member";self:render() end)
+                        add(ROLES[role] or "Automatycznie",
+                            function() tactics.configure(id,"role",role,selected);self.menu="member";self:render() end,
+                            P.text,"choice",{selected=selected.role==role,description=desc,
+                                icon=role=="tank" or role=="offtank" and ICON.shield or
+                                    role=="support" and ICON.support or role=="asekuracja" and ICON.safety or ICON.attack})
                     end
                 end
             end
@@ -222,23 +229,27 @@ function H.new(ctx,patrol,tactics,stop)
             add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
             if selected then
                 local id=selected.id
-                add("Automatyczny wybór",function() tactics.configure(id,"target_id",nil,selected);self.menu="member";self:render() end)
+                add("Automatyczny wybór",function() tactics.configure(id,"target_id",nil,selected);self.menu="member";self:render() end,
+                    P.text,"choice",{selected=not selected.target_id,icon=ICON.auto})
                 for _,r in ipairs(rows) do if r.id~=id then
                     local target=r.id
-                    add("Chroń: "..r.name,function() tactics.configure(id,"target_id",target,selected);self.menu="member";self:render() end)
+                    add("Chroń: "..r.name,function() tactics.configure(id,"target_id",target,selected);self.menu="member";self:render() end,
+                        P.text,"choice",{selected=selected.target_id==target,icon=ICON.shield})
                 end end
             end
         elseif self.menu=="tactics" then
-            title="Drużyna · dodatkowe ustawienia"
-            add("‹ Szybkie ustawienia",function() self.menu="party";self:render() end,P.muted)
+            title="Taktyka drużyny"
+            add("Wróć do drużyny",function() self.menu="party";self:render() end,P.muted,"back",{icon=ICON.back})
             toggle("Automatyczna ochrona",ts.on,function() tactics.toggle(not ts.on) end,
-                "Reaguje na zagrożenia drużyny")
+                "Reaguje na zagrożenia drużyny",ICON.shield)
             for _,entry in ipairs({{"team_orders","Ochrona innych graczy"},
                 {"team_broadcast","Wspólna zasłona drużyny"},
                 {"retreat","Wycofanie za sojusznika"},
                 {"mass","Zasłona kilku wrogów"}}) do
                 local key=entry[1]
-                toggle(entry[2],ts[key],function() tactics.option(key,not ts[key]) end)
+                toggle(entry[2],ts[key],function() tactics.option(key,not ts[key]) end,
+                    nil,key=="team_orders" and ICON.party or key=="team_broadcast" and ICON.shield
+                        or key=="retreat" and ICON.back or ICON.safety)
             end
             add("Stan silnika: "..ts.phase,nil,P.muted)
             note="Zaawansowane opcje zmieniają manewry osłony, nie komendy ataku."
@@ -274,10 +285,14 @@ function H.new(ctx,patrol,tactics,stop)
             note="Kliknij teren, aby wybrać. Zarobek przełączysz obok nazwy."
         elseif self.menu=="settings" then
             title="Ustawienia ChimeraXP"
-            for _,entry in ipairs({{"combat","Walka i cele"},{"safety","Schronienie i powrót"},{"loot","Łupy"},{"trade","Auto-zarobek"},{"profiles","Zarządzanie terenami"},{"session","Sesja i komunikaty"}}) do
-                local key=entry[1];add(entry[2].."  ›",function() self.menu=key;self.page=1;self:render() end)
+            for _,entry in ipairs({{"combat","Walka i cele",ICON.attack},{"safety","Schronienie i powrót",ICON.safety},
+                {"loot","Łupy",ICON.loot},{"trade","Auto-zarobek",ICON.trade},
+                {"profiles","Zarządzanie terenami",ICON.map},{"session","Sesja i komunikaty",ICON.session}}) do
+                local key=entry[1]
+                add(entry[2],function() self.menu=key;self.page=1;self:render() end,
+                    P.text,"action",{icon=entry[3]})
             end
-            note="Wszystkie opcje są dostępne bez zmieniania wysokości paska."
+            note="Zmiany wyglądu nie zmieniają zachowania automatyki."
         elseif self.menu=="profiles" then
             title="Zarządzanie terenami"
             add("Mapuj nowy teren…",function() prefill("mapuj ") end)
