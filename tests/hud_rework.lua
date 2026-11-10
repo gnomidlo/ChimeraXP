@@ -55,8 +55,8 @@ do
     end
     api.hud:open("settings");visible_item(h,"Walka i cele").widget.click()
     api.hud.labels.settings.widget.click();assert(not api.hud.menu,"parent tab closes an open submenu")
-    assert(api.hud.labels.areas.html:find("#AEB6C5",1,true),"stopped expedition has a grey indicator")
-    assert(api.hud.labels.tactics.html:find("#AEB6C5",1,true),"disabled tactics have a grey indicator")
+    assert(api.hud.labels.areas.html:find("#A6B0C0",1,true),"stopped expedition has a grey indicator")
+    assert(api.hud.labels.tactics.html:find("#A6B0C0",1,true),"disabled tactics have a grey indicator")
     api.tactics.toggle(true)
     assert(api.hud.labels.tactics.html:find("#A8DCC2",1,true),"enabled tactics have a green indicator")
     api.hud.labels.pause.widget.click();assert(api.status().started,"play starts the selected terrain")
@@ -119,7 +119,7 @@ do
     assert(h.border==44 and api.hud.root.y==0 and not api.status().started,"bar starts at viewport top and reserves console space")
     assert(api.hud.labels.party.w<150 and api.hud.labels.areas.x+api.hud.labels.areas.w<450,"menus keep compact natural widths")
     assert(api.hud.labels.pause.x>850,"controls stay at the right edge")
-    assert(api.hud.labels.party.css:find("background:#181C26",1,true),"idle menus share the bar background")
+    assert(api.hud.labels.party.css:find("background:#151922",1,true),"idle menus share the bar background")
     local writes=h.border_writes;api.hud:render();assert(h.border_writes==writes,"unchanged border must not trigger resize loops")
     api.hud:open("tactics");assert(api.hud.overlay.x==api.hud.labels.tactics.x,"dropdown anchors to its menu")
     api.hud:open("settings");assert(api.hud.overlay.x+api.hud.overlay.w==h.width-8,"right dropdown fits the viewport")
@@ -127,6 +127,16 @@ do
     for _,label in pairs(api.hud.labels) do
         if not label.widget.hidden then assert(not label.html:find("%%"),"party list must not duplicate health") end
     end
+    api.hud:open("settings")
+    assert(not visible_item(h,"Większy pasek"),"obsolete large-bar control is removed")
+    assert(h.border==44,"Obsidian keeps the top bar at 44px")
+    assert(api.hud.labels.menu_bg.css:find("border-radius:16px",1,true),
+        "all popup menus share a rounded Obsidian container")
+    assert(api.hud.labels.header_icon and api.hud.labels.header_icon.html:find("⚙",1,true),
+        "settings menu has a dedicated icon")
+    api.hud:open("party")
+    assert(api.hud.labels.item1_switch.css:find("border-radius:13px",1,true),
+        "switch track is a rounded Qt component")
     local copy=api.snapshot();copy.profiles.alpha.route[1]="corrupt"
     assert(api.snapshot().profiles.alpha.route[1]=="rooma","snapshots cannot mutate saved profiles")
     assert(api.set_economy("alpha",true));assert(api.snapshot().profiles.beta.economy.enabled)
