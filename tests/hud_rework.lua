@@ -55,8 +55,8 @@ do
     end
     api.hud:open("settings");visible_item(h,"Walka i cele").widget.click()
     api.hud.labels.settings.widget.click();assert(not api.hud.menu,"parent tab closes an open submenu")
-    assert(api.hud.labels.areas.html:find("#A6B0C0",1,true),"stopped expedition has a grey indicator")
-    assert(api.hud.labels.tactics.html:find("#A6B0C0",1,true),"disabled tactics have a grey indicator")
+    assert(api.hud.labels.areas.html:find("#C2CCDB",1,true),"stopped expedition has a grey indicator")
+    assert(api.hud.labels.tactics.html:find("#C2CCDB",1,true),"disabled tactics have a grey indicator")
     api.tactics.toggle(true)
     assert(api.hud.labels.tactics.html:find("#A8DCC2",1,true),"enabled tactics have a green indicator")
     api.hud.labels.pause.widget.click();assert(api.status().started,"play starts the selected terrain")
@@ -131,13 +131,22 @@ do
     api.hud:open("settings")
     assert(not visible_item(h,"Większy pasek"),"obsolete large-bar control is removed")
     assert(h.border==44,"Obsidian keeps the top bar at 44px")
-    assert(api.hud.labels.menu_bg.css:find("border-radius:16px",1,true),
+    assert(api.hud.labels.menu_bg.css:find("border-radius:10px",1,true),
         "all popup menus share a rounded Obsidian container")
     assert(api.hud.labels.header_icon and api.hud.labels.header_icon.html:find("⚙",1,true),
         "settings menu has a dedicated icon")
     api.hud:open("party")
-    assert(api.hud.labels.item1_switch.css:find("border-radius:13px",1,true),
+    assert(api.hud.labels.item1_switch.css:find("border-radius:10px",1,true),
         "switch track is a rounded Qt component")
+    assert(api.hud.overlay.w<=420,"compact party panel never exceeds 420 logical pixels")
+    assert(api.hud.labels.item1_switch.w<=35 and api.hud.labels.item1_knob.w<=14,
+        "toggles use narrow tracks and knobs")
+    assert(api.hud.labels.item4_state.h<=22,"member status chip does not dominate the row")
+    assert(not api.hud.labels.menu_subtitle or api.hud.labels.menu_subtitle.widget.hidden,
+        "duplicate large menu subtitles are removed")
+    assert(not api.hud.labels.note or api.hud.labels.note.widget.hidden,
+        "self-explanatory party view has no oversized footer")
+
     local copy=api.snapshot();copy.profiles.alpha.route[1]="corrupt"
     assert(api.snapshot().profiles.alpha.route[1]=="rooma","snapshots cannot mutate saved profiles")
     assert(api.set_economy("alpha",true));assert(api.snapshot().profiles.beta.economy.enabled)
