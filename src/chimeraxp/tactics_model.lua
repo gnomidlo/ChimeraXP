@@ -213,7 +213,7 @@ function M.task(s,c,i)
     end
     return "support"
 end
-function M.plan(s,c,enabled,blocked,focus)
+function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     blocked=blocked or {}
     local function unavailable(ch,kind)
         return blocked[ch]==true or (type(blocked[ch])=="table" and blocked[ch][kind]==true)
@@ -387,7 +387,7 @@ function M.plan(s,c,enabled,blocked,focus)
                 if s.targets[id]~=target then mismatch=true end
             end
         end
-        if safe and mismatch and #recipients>0 then
+        if safe and mismatch and #recipients>0 and not suppress_team_attack then
             -- Do not let routine balancing spend the shared 15s team-order slot
             -- before idle members join. Explicit/emergency protection stays higher.
             out[#out+1]={channel=4,actor=me,enemy=target,kind="team_attack",priority=98,room=s.room,
@@ -453,8 +453,10 @@ end
 function M.manual(command,s,c)
     local text=tostring(command or ""):lower():gsub("^%s+",""):gsub("%s+$","")
     local verb,rest=text:match("^(%S+)%s*(.*)$")
+    -- Attacks have no formation cooldown. Neither kill nor team attack orders
+    -- should lock cover/break channels. Support remains a distinct action.
     local kinds={zaslon="cover",zaslonic="cover",wycofaj="cover",przelam="cover",
-        wesprzyj="support",wesprzec="support",zabij="support",zaatakuj="support",zaatakowac="support"}
+        wesprzyj="support",wesprzec="support"}
     if verb=="parozkaz" or verb=="rozkaz" then
         local recipient,action=rest:match("^(%S+)%s+(%S+)")
         local first=rest:match("^(%S+)")
