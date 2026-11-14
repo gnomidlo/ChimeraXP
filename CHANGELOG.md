@@ -1,5 +1,9 @@
 # Zmiany
 
+## 0.7.0-beta.24
+
+- Limit celów EXP pomija walkę w zatłoczonym pokoju. Patrol może przechodzić przez ten pokój w obie strony, także w trwającej walce. Jedyne wyjście pozostaje dostępne nawet bez znanej dalszej trasy.
+
 ## 0.7.0-beta.22
 
 - Powrót po utracie światła kończy wyprawę w schronieniu. Przy braku drogi lub potwierdzenia ruchu XP podaje powód interwencji.

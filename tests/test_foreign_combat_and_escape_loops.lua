@@ -79,8 +79,14 @@ local function trial(case)
     local four={}
     for i=1,4 do four[i]={id="crowd"..i,name="goblin",kind="npc"} end
     place("d",{wschod="s"},four)
-    assert(api.status().paused and not api.status().fallback, "only exit returns to excluded room")
-    assert(#sent==1,"no immediate bounce or attack")
+    if case=="alternate" then
+      assert(sent[2]=="e" and not api.status().paused,"backtrack to the junction")
+      place("s",room.exits,four)
+      assert(sent[3]=="s" and #sent==3,"leave via the other branch without attacking")
+    else
+      assert(not api.status().paused and not api.status().fallback, "traverse occupied rooms")
+      assert(#sent==2 and sent[2]=="e","take the only exit without proof of an onward exit")
+    end
   elseif case=="preexisting" then
     world.entities.entities={world.entities.entities[1],visitor,mob}
     world.combat={self_active=0,relations={{attacker="visitor",defender="mob"}}}

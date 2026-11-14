@@ -236,7 +236,7 @@ emit("chimera.room.changed",{id="r2",how="chodzik"})
 emit("chimera.room.entities",world.entities)
 emit("chimera.combat.state",world.combat)
 tick()
-assert(not api.status().paused and sent[#sent]=="s", "escape after walker stopped on attack prefers unvisited room over immediate backtrack")
+assert(not api.status().paused and sent[#sent]=="n", "escape after attack continues toward the next recorded patrol point")
 cmd("exp stop")
 -- A retreat in progress must not restart whenever fresh vitals arrive.
 world.room={id="r1"};world.current=1
