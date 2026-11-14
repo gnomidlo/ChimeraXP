@@ -155,7 +155,7 @@ do
     h.dispose()
 end
 
--- Reported limit 2: three trolls at the junction and three in the pit.
+-- Reported limit 2: three trolls at the junction and five in the pit during combat.
 do
     local h=fixture()
     local crowd={}
@@ -166,7 +166,9 @@ do
     h.p.entities.entities=crowd
     h.api.request("start");h.advance(.1)
     assert(h.sent[1]=="e")
-    h.place("b",{zachod="a"},"reczny");h.p.entities.entities=crowd
+    h.place("b",{zachod="a"},"reczny");h.p.entities.entities={crowd[1],crowd[2],crowd[3],
+        {id="t4",kind="npc",name="goblin troll"},{id="t5",kind="npc",name="goblin troll"}}
+    h.p.combat.self_active=1
     h.advance(.1);assert(h.sent[2]=="w","leave the pit")
     h.place("a",{polnoc="safe",wschod="b",zachod="c"},"reczny")
     h.p.entities.entities=crowd

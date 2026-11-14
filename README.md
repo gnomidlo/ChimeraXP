@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.23** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.24** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Aktualizacja przez Mudlet
 
@@ -12,13 +12,13 @@ Przy pierwszej instalacji w profilu z oficjalną Chimerą 5.x wpisz w Mudlecie:
 lua installPackage("https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/packages/ChimeraXP.xml")
 ```
 
-## Instalacja wersji beta.23 z ZIP-a
+## Instalacja wersji beta.24 z ZIP-a
 
 Rozpakuj cały ZIP, uruchom `install.cmd` i wybierz katalog profilu Mudleta. Po instalacji wpisz `/przeladuj`. W `/exp status` sprawdź wersję. W profilu korzystającym z instancji zapisz schronienie poleceniem `/exp bezpieczna` w docelowym pokoju, aby przypisać konkretną instancję.
 
 ## Bezpieczeństwo wyprawy
 
-Patrol wybiera jeden krok mapy i ponownie ocenia pokój. Tłum celów EXP, unikany NPC i zastana cudza walka wykluczają pokój na bieżący obieg. Ze ślepej uliczki XP może wrócić przez pominięty pokój, jeżeli zapamiętał dalsze wyjście poza grupę zagrożonych lokacji. Każdy krok sprawdza po dotarciu. Spadek HP uruchamia powrót i regenerację.
+Patrol wybiera jeden krok mapy i ponownie ocenia pokój. W pokoju z nadmiarem celów EXP, unikanym NPC lub zastaną cudzą walką patrol pomija atak i idzie do następnego punktu. Przez zajęte pokoje może przechodzić w obu kierunkach, także podczas walki. Z dołu z jednym wyjściem wraca nim również wtedy, gdy dalsza droga jest jeszcze nieznana. Każdy krok sprawdza po dotarciu. Spadek HP uruchamia powrót i regenerację.
 
 Komunikat „Ciemne miejsce.”, zgaśnięcie lampy lub zanik wyjść GMCP zmienia cel na powrót i zatrzymanie. Wyprawa anuluje handel, łupy i kolejne ataki. W ciemności XP wykonuje pojedynczy krok po aktualnym potwierdzonym wyjściu lub po przejściu sprawdzonym wcześniej w tym kierunku w tej sesji. Gdy brakuje potwierdzenia, pojawia się alarm. Po powrocie przywróć widoczność i uruchom wyprawę ręcznie.
 

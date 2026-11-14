@@ -1,8 +1,8 @@
 # Zmiany
 
-## 0.7.0-beta.23
+## 0.7.0-beta.24
 
-- Patrol opuszcza zatłoczoną ślepą uliczkę przez wcześniej pominięty pokój, gdy zna dalszą drogę. Zachowuje zakaz ataku i sprawdza kolejne wyjście po dotarciu.
+- Limit celów EXP pomija walkę w zatłoczonym pokoju. Patrol może przechodzić przez ten pokój w obie strony, także w trwającej walce. Jedyne wyjście pozostaje dostępne nawet bez znanej dalszej trasy.
 
 ## 0.7.0-beta.22
 

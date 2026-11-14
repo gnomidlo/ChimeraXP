@@ -84,8 +84,8 @@ local function trial(case)
       place("s",room.exits,four)
       assert(sent[3]=="s" and #sent==3,"leave via the other branch without attacking")
     else
-      assert(api.status().paused and not api.status().fallback, "no known onward exit")
-      assert(#sent==1,"no immediate bounce or attack")
+      assert(not api.status().paused and not api.status().fallback, "traverse occupied rooms")
+      assert(#sent==2 and sent[2]=="e","take the only exit without proof of an onward exit")
     end
   elseif case=="preexisting" then
     world.entities.entities={world.entities.entities[1],visitor,mob}
