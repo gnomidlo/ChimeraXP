@@ -154,3 +154,24 @@ do
     h.place("safe",{});h.advance(1);assert(h.api.status().phase=="DARK_STOP")
     h.dispose()
 end
+
+-- Reported limit 2: three trolls at the junction and three in the pit.
+do
+    local h=fixture()
+    local crowd={}
+    for i=1,3 do crowd[i]={id="t"..i,kind="npc",name="goblin troll"} end
+    h.api.request("limit","2")
+    h.place("safe",{poludnie="a"})
+    h.place("a",{polnoc="safe",wschod="b",zachod="c"})
+    h.p.entities.entities=crowd
+    h.api.request("start");h.advance(.1)
+    assert(h.sent[1]=="e")
+    h.place("b",{zachod="a"},"reczny");h.p.entities.entities=crowd
+    h.advance(.1);assert(h.sent[2]=="w","leave the pit")
+    h.place("a",{polnoc="safe",wschod="b",zachod="c"},"reczny")
+    h.p.entities.entities=crowd
+    h.p.combat.self_active=1
+    h.advance(.1)
+    assert(h.sent[3]=="w" and #h.sent==3 and not h.api.status().paused,"take western branch")
+    h.dispose()
+end

@@ -1,5 +1,9 @@
 # Zmiany
 
+## 0.7.0-beta.23
+
+- Patrol opuszcza zatłoczoną ślepą uliczkę przez wcześniej pominięty pokój, gdy zna dalszą drogę. Zachowuje zakaz ataku i sprawdza kolejne wyjście po dotarciu.
+
 ## 0.7.0-beta.22
 
 - Powrót po utracie światła kończy wyprawę w schronieniu. Przy braku drogi lub potwierdzenia ruchu XP podaje powód interwencji.

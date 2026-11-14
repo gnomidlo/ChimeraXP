@@ -142,7 +142,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.22",
+    version = "0.7.0-beta.23",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -197,7 +197,7 @@ return {
         local fallback, fallback_count = nil, 0
         local begin_fallback
         local function hazardous(id)
-            return safety.skipped[id] == true
+            return safety.skipped[id] ~= nil
         end
         local function has_hazards()
             return next(safety.skipped) ~= nil
@@ -599,6 +599,32 @@ return {
             if #options > 0 then return options[1].command, options[1].id, "wyjscie GMCP" end
             return nil
         end
+        -- When every live exit leads to a skipped room, search the rooms
+        -- observed during this pass for the shortest way out of that cluster.
+        -- Execute only its first live exit and replan after confirmation.
+        local function transit_exit(r, tried)
+            local queue, seen = {{id=r.id}}, {[r.id]=true}
+            local head=1
+            while head<=#queue do
+                local node=queue[head]
+                head=head+1
+                local exits=node.first and safety.skipped[node.id] or r.exits
+                local commands={}
+                for exit in pairs(exits or {}) do commands[#commands+1]=exit end
+                table.sort(commands)
+                for _,exit in ipairs(commands) do
+                    local dest,command=exits[exit],exit_command(exit)
+                    local attempts=(skip_exit_history[node.id] or {})[command] or 0
+                    if command and valid_id(dest) and not seen[dest] and attempts<2
+                        and (node.first or not tried[command]) then
+                        local first=node.first or command
+                        if not hazardous(dest) then return first end
+                        seen[dest]=true
+                        queue[#queue+1]={id=dest,first=first}
+                    end
+                end
+            end
+        end
         local function escape_exit(p, r, tried, transit)
             local exits = type(r.exits) == "table" and r.exits or {}
             local options, attempts = {}, skip_exit_history[r.id] or {}
@@ -642,7 +668,7 @@ return {
                 if a.rank ~= b.rank then return a.rank < b.rank end
                 return a.command < b.command
             end)
-            if #options == 0 then return nil end
+            if #options == 0 then return transit_exit(r,tried) end
             if options[1].rank < 1000 or options[1].visits > 0
                 or options[1].hazard_visits > 0 then
                 return options[1].command
@@ -925,7 +951,7 @@ return {
         end
         local function escape_avoided(p, r, name, transit)
             local now = os.time()
-            if not transit then safety.skipped[r.id]=true end
+            if not transit then safety.skipped[r.id]=r.exits or {} end
             safety.visited[r.id]=true
             if not escape or escape.origin ~= r.id or escape.transit ~= (transit == true) then
                 escape = { origin = r.id, tried = {}, tries = 0, transit = transit == true }
@@ -1943,7 +1969,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.22 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.23 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2069,7 +2095,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.22"},
+                {"Wersja", "0.7.0-beta.23"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
