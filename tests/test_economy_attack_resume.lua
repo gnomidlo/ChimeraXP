@@ -130,7 +130,7 @@ local function trial(combat_remains, blocked_step, exhausted)
     end
     commands["exp zarobek kurs"]()
     advance(0)
-    assert(walked[1]==map.shop,"course starts toward shop")
+    assert(walked[1]==map.cross,"course starts toward shop")
     emit("chimera.walk.stopped",{reason="atak"})
     -- Simulate walker stop event preceding GMCP Combat update.
     advance(0)
@@ -203,6 +203,8 @@ local function trial(combat_remains, blocked_step, exhausted)
     end
     assert(sent[offset+4]=="ALIAS:wlm","withdraw after acknowledged denom")
     advance(0.71)
+    place("shop","chodzik",true)
+    place("cross","chodzik",true)
     assert(walked[#walked]==map.home,"return to original EXP room")
     place("home","chodzik",true)
     assert(api.status().phase=="OFF","one-shot merchant trip completed")

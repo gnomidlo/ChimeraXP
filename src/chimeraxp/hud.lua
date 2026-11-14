@@ -399,7 +399,7 @@ function H.new(ctx,patrol,tactics,stop)
         end
         local xpcolor=not st.started and P.muted or st.paused and P.yellow or P.mint
         local tacticscolor=not ts.on and P.muted or
-            ((st.started and st.paused) or ts.phase=="WSTRZYMANA") and P.yellow or P.mint
+            (ts.phase=="BLOKADA") and P.yellow or P.mint
         nav("party",ICON.party,"Drużyna",widths[1],nil)
         nav("tactics",ICON.shield,"Ochrona",widths[2],tacticscolor)
         nav("areas",ICON.area,"Expowiska",widths[3],xpcolor)
@@ -412,10 +412,13 @@ function H.new(ctx,patrol,tactics,stop)
         widget("settings",self.root,right+cw*2,y,cw-3,bh,ICON.gear,
             P.text,self.menu and self.anchor=="settings" and P.raised or P.bg,
             function() self:open("settings") end,nil,"toolbar")
-        if st.started then
+        if st.started or st.phase=="DARK_STOP" then
             local name=snap.profile and snap.profile.name or "Brak terenu"
             local earn=snap.profile and snap.profile.economy and snap.profile.economy.enabled
-            local label=st.paused and "PAUZA" or st.emergency and "ODWRÓT" or
+            local stages={DARK_STOP="STOP · CIEMNO",DARK_RETREAT="ODWRÓT",INTERVENTION="ALARM",
+                REST_FATIGUE="SIŁY",RECOVERY="REGENERACJA",WAIT_VISIBILITY="WIDOCZNOŚĆ",
+                WAIT_ENTITIES="DANE",MANUAL_MOVE="RĘCZNIE",COOLDOWN="OCZEKIWANIE"}
+            local label=stages[st.phase] or st.paused and "PAUZA" or st.emergency and "ODWRÓT" or
                 st.phase=="COMBAT" and "WALKA" or st.economy and "HANDEL" or
                 st.phase=="LOOTING" and "ŁUPY" or "PATROL"
             local tint=st.paused and P.yellow or st.emergency and P.rose or

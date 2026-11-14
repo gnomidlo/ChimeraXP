@@ -36,11 +36,11 @@ for _,M in ipairs(models) do
     assert(plan({[4]={support=true}}).kind=="support","team focus hold is respected")
     local s=assert(M.snapshot(h.gmcp))
     local d=M.manual("  parozkaz PETONE zabij enemy2",s,c)
-    assert(not d,"attacks never acquire a maneuver cooldown")
+    assert(d.kind=="target" and d.channels[2] and not d.channels[3],"target hold affects the selected retainer")
     d=M.manual("parozkaz wesprzyj",s,c);assert(d.channels[2] and d.channels[3])
     d=M.manual("parozkaz old-id zaslon",s,c);assert(d.kind=="cover" and d.channels[2] and d.channels[3])
     assert(not M.manual("parozkaz petone inwentarz",s,c))
-    assert(not M.manual("rozkaz druzynie zaatakowac enemy2",s,c))
+    assert(M.manual("rozkaz druzynie zaatakowac enemy2",s,c).channels[4])
     assert(not M.manual("zabij enemy2",s,c))
     s.minions.petone.name="same";s.minions.pettwo.name="same"
     d=M.manual("parozkaz same wesprzyj",s,c);assert(d.channels[2] and d.channels[3])
@@ -78,7 +78,7 @@ do
         {attacker="pettwo",defender="enemy3"}}
     h.emit("sysDataSendRequest","sysDataSendRequest","parozkaz petone zabij enemy2")
     h.fresh();h.advance(.2)
-    assert(h.sent[1]=="parozkaz petone wesprzyj","manual attack does not lock support maneuvers")
+    assert(h.sent[1]=="parozkaz pettwo wesprzyj","manual target only holds its recipient")
     h.dispose()
 end
 do
@@ -102,7 +102,7 @@ do
     h.emit("sysDataSendRequest","sysDataSendRequest","rozkaz druzynie zaatakowac enemy2")
     h.p.combat.relations={{attacker="me",defender="enemy1"},{attacker="petone",defender="enemy2"}}
     h.fresh();h.advance(.2)
-    assert(h.sent[1]=="parozkaz petone wesprzyj","manual attack has no formation cooldown: "..h.api.status().detail)
+    assert(#h.sent==0,"team target order holds retargeting")
     h.dispose()
 end
 do

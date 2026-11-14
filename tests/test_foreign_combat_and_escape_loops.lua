@@ -79,7 +79,7 @@ local function trial(case)
     local four={}
     for i=1,4 do four[i]={id="crowd"..i,name="goblin",kind="npc"} end
     place("d",{wschod="s"},four)
-    assert(not api.status().paused and api.status().fallback, "second hazard triggers shelter fallback")
+    assert(api.status().paused and not api.status().fallback, "only exit returns to excluded room")
     assert(#sent==1,"no immediate bounce or attack")
   elseif case=="preexisting" then
     world.entities.entities={world.entities.entities[1],visitor,mob}

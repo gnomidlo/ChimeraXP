@@ -93,7 +93,7 @@ local function trial(which)
     move('safe',{})
     assert(api.status().phase=='COMBAT' and not api.status().paused,'confirmed named exit reaches shelter')
   elseif which=='no_exits' then
-    assert(not status.paused and status.fallback and #sent==0, 'no exits must alarm, cannot invent one')
+    assert(not status.started and #sent==0, 'no exits must alarm, cannot invent one')
   end
   os.time=prevtime
   print('PASS emergency fallback: '..which)

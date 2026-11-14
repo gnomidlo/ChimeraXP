@@ -62,7 +62,7 @@ do
     api.hud.labels.pause.widget.click();assert(api.status().started,"play starts the selected terrain")
     assert(api.hud.labels.areas.html:find("#A8DCC2",1,true))
     api.hud.labels.pause.widget.click();assert(api.status().paused)
-    assert(api.hud.labels.areas.html:find("#EFD8A6",1,true) and api.hud.labels.tactics.html:find("#EFD8A6",1,true),"paused automation has yellow indicators")
+    assert(api.hud.labels.areas.html:find("#EFD8A6",1,true) and api.hud.labels.tactics.html:find("#A8DCC2",1,true),"patrol pause leaves protection green")
     assert(h.border==44 and #h.roots==2,"pause never adds a separate status strip")
     api.hud.labels.pause.widget.click();assert(not api.status().paused)
     api.stop_all();h.dispose()

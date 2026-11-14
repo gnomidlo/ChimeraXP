@@ -10,7 +10,7 @@ local function fixture(loot)
     h.saved.profiles={test={name="Gnolle",route={"rooma","safe"},targets={"Goblin"},avoid={},loot=loot or {"bronie"},
         safeRoom="rooma",rules={maxEnemies=5},economy={enabled=true}}};h.saved.selected="test"
     getRoomIDbyHash=function(id) return id=="rooma" and 1 or 2 end
-    getPath=function() return true end
+    getPath=function(a,b) speedWalkPath={b};return true end
     h.api=P.setup(h.ctx)
     assert(h.triggers[EMPTY],"empty count response is recognized")
     h.api.request("start");h.advance(.1)

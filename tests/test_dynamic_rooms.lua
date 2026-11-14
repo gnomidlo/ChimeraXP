@@ -112,7 +112,7 @@ local function scenario(kind)
     assert(not api.status().paused and api.status().phase=='AVOID_ESCAPE',kind..': first hazard should be skipped')
     assert(sent[#sent]=='w','first escape should prefer route neighbour (deep forest)')
     place('d',{wschod='s'}, {})
-    assert(not api.status().paused and api.status().fallback, 'dead end initiates shelter fallback')
+    assert(api.status().paused and not api.status().fallback, 'dead end finishes pass')
     assert(#walker_moves==0,'do not resume patrol through hazard')
     commands['exp stop']()
     os.time = previous_time

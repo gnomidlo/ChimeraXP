@@ -1,5 +1,12 @@
 # Zmiany
 
+## 0.7.0-beta.22
+
+- Powrót po utracie światła kończy wyprawę w schronieniu. Przy braku drogi lub potwierdzenia ruchu XP podaje powód interwencji.
+- Patrol i handel zlecają chodzikowi sąsiednie pokoje. Zagrożenie lokalne wyklucza pokój do końca obiegu.
+- Ochrona podczas ręcznego ruchu i odwrotu, czasowe pierwszeństwo ręcznych rozkazów, rozróżnienie odpoczynku i alarmu w HUD.
+- Regresje obejmują zapis śmiertelnego przejścia w ciemności, potwierdzone przejścia nazwane i spóźnione zdarzenia ruchu.
+
 ## 0.7.0-beta.16 — odświeżanie podczas odpoczynku
 
 - Saferoom prosi o brakujące Room.Entities przez oficjalne refresh_entities co 5 s zamiast czekać bez końca przy pełnej regeneracji. Wznowienie nadal wymaga poprawnych danych.

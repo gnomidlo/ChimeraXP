@@ -8,7 +8,7 @@ local storage, commands, handlers, timers, sent, moves, messages = {}, {}, {}, {
 local time = 0
 os.time = function() return time end
 getRoomIDbyHash = function(id) return ({r1=1,r2=2,r3=3,safe=5})[id] or -1 end
-getPath = function(from, dest) return from ~= dest end
+getPath = function(from, dest) speedWalkPath={dest}; return from ~= dest end
 getMudletHomeDir = function() return "/fake" end
 local world = {
   room={id="r1",name="Poczatek"},current=1,
@@ -81,7 +81,7 @@ assert(#converted.runa.route == 2 and #converted.runa.targets == 1 and converted
 -- Map a new area including room change and profile edits.
 cmd("exp mapuj","Test")
 assert(api.status().mapping=="Test")
-world.room={id="r2",name="Drugie"};world.current=2
+world.room={id="r2",name="Drugie",exits={polnoc="r1"}};world.current=2
 emit("chimera.room.changed",{id="r2",how="reczny"})
 emit("chimera.room.info",world.room)
 cmd("exp mapuj","Test")
@@ -152,7 +152,7 @@ assert(api.status().phase=="COMBAT")
 world.vitals.hp=23
 emit("chimera.char.vitals",world.vitals)
 tick()
-assert(not api.status().paused and api.status().fallback)
+assert(api.status().phase=="INTERVENTION" and api.status().paused)
 assert(#moves==0)
 cmd("exp stop")
 -- Low HP outside combat retreats through official walker API.
@@ -197,7 +197,7 @@ emit("chimera.room.changed",{id="r1",how="reczny"})
 emit("chimera.room.entities",world.entities)
 emit("chimera.combat.state",world.combat)
 tick()
-assert(not api.status().paused and api.status().fallback, "return to shelter instead of restarting patrol")
+assert(api.status().phase=="COOLDOWN" and not api.status().fallback, "completed pass rests before revisiting a skipped room")
 assert(not table.concat(messages,";"):find("Wykryto ruch reczny",1,true), "owned escape is not manual movement")
 assert(#moves==moves_before, "do not route patrol back through the spider room")
 cmd("exp stop")
@@ -215,7 +215,7 @@ assert(#sent==sent_before+1 and sent[#sent]=="n", "attack never initiates a kill
 time=time+5;emit("chimera.combat.state",world.combat);tick()
 assert(#sent==sent_before+2 and sent[#sent]=="s", "retry a different safe exit")
 time=time+5;emit("chimera.combat.state",world.combat);tick()
-assert(not api.status().paused and api.status().fallback, "exhausted exits initiate shelter fallback")
+assert(api.status().paused and not api.status().fallback, "exhausted exits require intervention")
 assert(#sent==sent_before+2, "do not spam escape commands")
 cmd("exp stop")
 -- An upstream walker stopped by attack must not prematurely pause AutoExp.
@@ -268,7 +268,7 @@ cmd("exp mapuj","Bliskie")
 world.room={id="safe",name="Piate"};world.current=5
 cmd("exp mapuj","Dalekie")
 cmd("exp mapuj","Dalekie")
-world.room={id="r2",name="Drugie"};world.current=2
+world.room={id="r2",name="Drugie",exits={polnoc="r1"}};world.current=2
 links,rendered={},{}
 cmd("exp")
 local nearest={}

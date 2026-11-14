@@ -64,6 +64,7 @@ local function normalize_profile(src, name)
         loot = unique_names(old.loot),
         partyAttack = bool(old.partyAttack),
         economy = { enabled = type(old.economy) == "table" and bool(old.economy.enabled) },
+        safeKey = valid_id(old.safeKey) and old.safeKey or nil,
         safeRoom = valid_id(old.safeRoom) and old.safeRoom or nil,
         rules = {},
     }
@@ -85,13 +86,14 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.21",
+    version = "0.7.0-beta.22",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
     deps = { "gmcp", "mapper", "walker", "locations" },
     setup = function(ctx, hooks)
         hooks = hooks or {}
+        local safety = assert(hooks.safety)
         local destroyed = false
         local requests = {}
         local gmcp_api = ctx:use("gmcp")
@@ -132,22 +134,17 @@ return {
         local attacked_in_room = {}
         local last_seen = {} -- room ID -> time at which room was checked and empty
         -- Temporary, session-only quarantine: moving NPCs may leave again.
-        local hazard_until, recent_rooms = {}, {}
+        local recent_rooms = {}
         local recent_room = nil
-        local HAZARD_TTL = 120
+        local RECENT_WINDOW = 120
         local skip_exit_history = {} -- room ID -> { command = count }
-        local hazard_chain = nil -- bounded escape/detour episode
         local fallback, fallback_count = nil, 0
         local begin_fallback
         local function hazardous(id)
-            return (hazard_until[id] or 0) > os.time()
+            return safety.skipped[id] == true
         end
         local function has_hazards()
-            for id in pairs(hazard_until) do
-                if hazardous(id) then return true end
-                hazard_until[id] = nil
-            end
-            return false
+            return next(safety.skipped) ~= nil
         end
         local function patrol_path_safe()
             if not has_hazards() then return true end
@@ -176,7 +173,7 @@ return {
                 for direction, id in pairs(r.exits) do
                     if valid_id(direction) and valid_id(id) then links[direction] = id end
                 end
-                known_exits[r.id] = links
+                if next(links) then known_exits[r.id] = links end
             end
             if trail[#trail] == r.id then return end
             if #trail >= 2 and trail[#trail - 1] == r.id then
@@ -306,7 +303,9 @@ return {
         local function combat_status(group_ids)
             local combat = gmcp_api.combat()
             if type(combat) ~= "table" then return nil, false end
-            local active = bool(combat.self_active)
+            if combat.room and combat.room~=room_id() then return nil,false end
+            if combat.self_active==nil and type(combat.relations)~="table" then return nil,false end
+            local active = bool(combat.self_active) or (type(combat.primary)=="string" and combat.primary~="")
             local foreign = false
             local by_id = {}
             local packet = gmcp_api.entities()
@@ -379,9 +378,12 @@ return {
         -- Tactics handles formation maneuvers; this command only aligns attack targets.
         local function attack_target(p, id)
             if not valid_id(id) then return false, "Niepoprawne ID celu" end
+            safety.attacking=true
             local ok, err = pcall(ctx.send, ctx, "zabij " .. id, true)
+            safety.attacking=false
+            if safety.dark or paused or not started then return true end
             if not ok then return false, tostring(err) end
-            if p.partyAttack and not dry then
+            if p.partyAttack and not dry and not safety.blind then
                 local group = gmcp_api.group() or {}
                 local me = me_and_group()
                 local members = type(group.members) == "table" and group.members or {}
@@ -390,9 +392,12 @@ return {
                     if not bool(member.self) and bool(member.here) then has_party = true; break end
                 end
                 -- Never issue a leader-only order as a party member or when solo.
-                if has_party and me and tostring(group.leader) == tostring(me.id) then
+                if has_party and me and tostring(group.leader) == tostring(me.id) and
+                    os.time()>=(safety.manual_party_until or 0) then
+                    safety.ordering=true
                     local ordered, order_err = pcall(ctx.send, ctx,
                         "rozkaz druzynie zaatakowac " .. id, true)
+                    safety.ordering=false
                     if not ordered then
                         note("AutoExp: nie udalo sie wydac rozkazu druzynie: " .. tostring(order_err), "warn")
                     end
@@ -428,6 +433,7 @@ return {
         local expected_manual = nil -- one pending numpad echo of our own step
         local function send_owned_direction(command)
             local direction = EXIT_COMMANDS[command] or command
+            safety.outgoing=command
             -- A "chimera.step.manual" callback may follow ctx:send() instead
             -- of happening inside it. Keep ONE matching expected event while
             -- still in the source room (max two seconds).
@@ -445,6 +451,7 @@ return {
             if type(direction) ~= "string" or direction == "" or direction:find("[;%c]") then return nil end
             return EXIT_COMMANDS[direction] or direction
         end
+        safety.normalize=exit_command
         local function known_step_toward(r, target)
             -- BFS through exits observed in previously visited rooms. Unlike
             -- the Mudlet map, this needs no saved mapper rooms/coordinates.
@@ -536,21 +543,6 @@ return {
             if #options > 0 then return options[1].command, options[1].id, "wyjscie GMCP" end
             return nil
         end
-        local function has_new_way_after_backtrack(destination, origin)
-            -- Returning to an observed hostile room is only worthwhile if
-            -- it has an exit besides our current room that was never tried.
-            local links = known_exits[destination]
-            if type(links) ~= "table" then return false end
-            local used = skip_exit_history[destination] or {}
-            for direction, id in pairs(links) do
-                local command = EXIT_COMMANDS[direction] or direction
-                if valid_id(id) and valid_id(command) and id ~= origin
-                    and (used[command] or 0) == 0 then
-                    return true
-                end
-            end
-            return false
-        end
         local function escape_exit(p, r, tried, transit)
             local exits = type(r.exits) == "table" and r.exits or {}
             local options, attempts = {}, skip_exit_history[r.id] or {}
@@ -568,14 +560,14 @@ return {
                 if hash ~= r.id and priority[hash] == nil then priority[hash] = step end
             end
             for exit, hash in pairs(exits) do
-                local command = EXIT_COMMANDS[exit] or exit
+                local command = exit_command(exit)
                 if valid_id(hash) and valid_id(command) and not tried[command] then
                     local previous_hazard = hazardous(hash) and 1 or 0
                     -- Do not bounce into a hazardous room unless we know
                     -- an untried onward route out of that room.
-                    local recent = recent_rooms[hash] and os.time() - recent_rooms[hash] < HAZARD_TTL
+                    local recent = recent_rooms[hash] and os.time() - recent_rooms[hash] < RECENT_WINDOW
                     if (not transit or (previous_hazard == 0 and not recent)) and
-                        (previous_hazard == 0 or has_new_way_after_backtrack(hash, r.id)) then
+                        previous_hazard == 0 then
                         options[#options + 1] = {
                             command = command, id = hash,
                             rank = priority[hash] or 1000,
@@ -629,12 +621,17 @@ return {
         end
         local function queue(delay)
             if not started or paused or pending then return end
+            local generation=safety.generation
             pending = ctx:timer(delay or 0, function()
+                if safety.generation~=generation then return end
                 pending = nil
                 if started and not paused then evaluate() end
             end)
         end
         local function halt(reason)
+            safety.generation=(safety.generation or 0)+1
+            safety.dark,safety.awaiting,safety.manual_at,safety.manual_target_until=nil,nil,nil,nil
+            safety.after_walk,safety.swim_until,safety.hp_since,safety.manual_party_until=nil,nil,nil,nil
             fatigue_rest=nil
             expected_manual = nil
             if pending then ctx:cancel(pending); pending = nil end
@@ -642,8 +639,8 @@ return {
             economy_run, loot_run = nil, nil
             started, paused, dry = false, false, false
             fallback, fallback_count = nil, 0
-            hazard_chain, engaged_here = nil, false
-            hazard_until, recent_rooms, recent_room = {}, {}, nil
+            engaged_here = false
+            recent_rooms, recent_room = {}, nil
             phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
             post_combat_at = nil
             last_reason = reason or "Zatrzymano"
@@ -659,8 +656,10 @@ return {
             if not started or paused then return end
             fatigue_rest=nil
             expected_manual = nil
+            safety.generation=(safety.generation or 0)+1
             paused = true
-            fallback = nil
+            safety.manual_at=nil
+            if not safety.dark then fallback=nil end
             phase = "PAUSED"
             last_reason = reason
             if pending then ctx:cancel(pending); pending = nil end
@@ -822,12 +821,26 @@ return {
             end
             if current == destination then return true end
             if state.owns_walk then return false end
-            move = { id = id, map = destination, purpose = purpose }
+            if getRoomIDbyHash(room_id())~=current then
+                pause("Pozycja mapy rozni sie od GMCP"); return false
+            end
+            if not getPath(current,destination) or type(speedWalkPath)~="table" or not speedWalkPath[1] then
+                pause("Nie mozna potwierdzic pierwszego kroku trasy do "..id)
+                return false
+            end
+            local adjacent=tonumber(speedWalkPath[1])
+            if adjacent~=destination then
+                id=adjacent and getRoomHashByID(adjacent)
+                if not valid_id(id) then pause("Nieznany identyfikator kroku"); return false end
+                destination=adjacent
+            end
+            move = { id = id, map = destination, purpose = purpose, origin=room_id() }
             state.owns_walk = true -- BEFORE go: native walker emits synchronously
             announce(purpose == "safe" and "RETREAT" or "MOVING")
             local ok, reason = walker.go(destination)
             if not ok then
                 move, state.owns_walk = nil, false
+                if fallback then fallback.health=false end
                 begin_fallback("Chodzik odmowil ruchu: " .. tostring(reason))
                 return false
             end
@@ -856,20 +869,9 @@ return {
         end
         local function escape_avoided(p, r, name, transit)
             local now = os.time()
-            if not transit then hazard_until[r.id] = now + HAZARD_TTL end
-            if hazard_chain and (not escape or escape.origin ~= r.id) then
-                begin_fallback("Kolejna przeszkoda po ominieciu lokacji: " .. name)
-                return
-            end
+            if not transit then safety.skipped[r.id]=true end
+            safety.visited[r.id]=true
             if not escape or escape.origin ~= r.id or escape.transit ~= (transit == true) then
-                if not hazard_chain then
-                    hazard_chain = {hazards = {}, steps = 0}
-                end
-                hazard_chain.hazards[r.id] = (hazard_chain.hazards[r.id] or 0) + (transit and 0 or 1)
-                if hazard_chain.hazards[r.id] > 2 then
-                    begin_fallback("Petla miedzy niebezpiecznymi lokacjami")
-                    return
-                end
                 escape = { origin = r.id, tried = {}, tries = 0, transit = transit == true }
                 pending_attack, post_combat_at = nil, nil
                 note(transit and "AutoExp: patrol prowadzi przez zagrozenie - szukam nowego przejscia."
@@ -887,16 +889,12 @@ return {
                 return
             end
             if escape.tries >= (tonumber(p.rules.escapeMaxTries) or DEFAULT.escapeMaxTries) then
-                begin_fallback("Nie udalo sie ominac lokacji: " .. name)
-                return
-            end
-            if hazard_chain.steps >= 8 then
-                begin_fallback("Wyczerpano limit omijania")
+                pause("Brak potwierdzenia ominiecia lokacji: " .. name)
                 return
             end
             local command = escape_exit(p, r, escape.tried, transit)
             if not command then
-                begin_fallback("Brak wyjscia do dalszego patrolu: " .. name)
+                pause("Koniec obiegu: brak bezpiecznego wyjscia z "..r.id.." ("..name..")")
                 return
             end
             if dry then
@@ -905,7 +903,7 @@ return {
                 return
             end
             escape.tries = escape.tries + 1
-            if hazard_chain then hazard_chain.steps = hazard_chain.steps + 1 end
+
             local history = skip_exit_history[r.id] or {}
             history[command] = (history[command] or 0) + 1
             skip_exit_history[r.id] = history
@@ -914,21 +912,20 @@ return {
             end
             escape.tried[command] = true
             escape.sent_at = now
+            for exit,id in pairs(r.exits or {}) do
+                if exit_command(exit)==command then escape.destination=id; break end
+            end
             announce("AVOID_ESCAPE")
             local ok, err = send_owned_direction(command)
             if not ok then begin_fallback("Blad wyslania kroku omijania NPC: " .. tostring(err)) end
         end
-        -- Emergency retreat: the official walker deliberately stops on combat.
+        -- Emergency retreat remains available when an attack interrupts walking.
         -- Issue ONE mapped direction at a time and await Room.Info confirmation.
         -- This cannot overcome a server-side ban on fleeing from combat.
         local function retreat_wait(reason)
-            if not fallback then begin_fallback(reason) end
-            if fallback then
-                fallback.retry_at = os.time() + 30
-                emergency = nil
-                announce("RETREAT_WAIT")
-                note("ALARM: " .. reason .. "; ponowie odwrot za 30 s.", "warn")
-            end
+            pause("ALARM: "..reason.." ("..tostring(room_id())..")")
+            fallback={reason=reason,wait=30}
+            announce("INTERVENTION")
         end
         local function retreat_in_combat(p, r)
             if not valid_id(p.safeRoom) then
@@ -1010,6 +1007,84 @@ return {
             local ok, err = send_owned_direction(command)
             if not ok then retreat_wait("Blad wyslania kroku awaryjnego: " .. tostring(err)) end
         end
+        local function darkness(reason)
+            safety.blind=true
+            if not started or safety.dark then return end
+            safety.dark_visits={}
+            safety.dark=reason
+            if paused then return end
+            local in_flight=(move and move.sent and move) or safety.after_walk or (emergency and emergency.step) or (escape and escape.sent_at and escape)
+                or (economy_run and economy_run.direct_step)
+            if in_flight and not fatigue_rest and (in_flight.origin or observed_room)==room_id() then
+                safety.awaiting={origin=room_id(),until_at=os.time()+25}
+            end
+            if pending then ctx:cancel(pending); pending=nil end
+            safety.generation=(safety.generation or 0)+1
+            if state.owns_walk then
+                stop_ours=true; walker.stop("AutoExp: ciemnosc"); stop_ours=false
+            end
+            state.owns_walk=false
+            move,escape,emergency,pending_attack,post_combat_at=nil,nil,nil,nil,nil
+            cancel_economy_timers()
+            economy_run,loot_run=nil,nil
+            fallback={reason=reason,stop_on_arrival=true}
+            announce("DARK_RETREAT")
+            note("Ciemnosc: odwrot do schronienia i zatrzymanie.", "warn")
+            queue(0)
+        end
+        local function dark_return(p,r)
+            local key=r.key or r.id
+            local step=safety.awaiting
+            if step then
+                if step.origin==r.id then
+                    if os.time()>=step.until_at then
+                        pause("ALARM: brak potwierdzenia ruchu w ciemnosci w "..key); announce("INTERVENTION")
+                    end
+                    return
+                end
+                safety.awaiting=nil
+                if (step.destination and step.destination~=r.id) or (step.key and step.key~=key) then
+                    pause("ALARM: nieoczekiwana pozycja po kroku odwrotu: "..key); announce("INTERVENTION"); return
+                end
+            end
+            if key==(p.safeKey or p.safeRoom) then
+                halt("Ciemnosc: osiagnieto schronienie. Wymagany reczny start.")
+                phase="DARK_STOP"; ui_refresh(); return
+            end
+            local target=p.safeKey or p.safeRoom
+            local command,dest,expected_key=safety.return_step(r,target)
+            if not command then
+                for exit,id in pairs(r.exits or {}) do
+                    if id==p.safeRoom then command,dest,expected_key=exit,id,target; break end
+                end
+            end
+            if not command and target==p.safeRoom and not r.instance then
+                command,dest=known_step_toward(r,target)
+            end
+            if not command and type(getRoomIDbyHash)=="function" and type(getRoomHashByID)=="function" then
+                local from,to=mapper.current_room(),getRoomIDbyHash(p.safeRoom)
+                if from and to and to>0 and from==getRoomIDbyHash(r.id) and getPath(from,to)
+                    and type(speedWalkPath)=="table" and speedWalkPath[1] then
+                    local adjacent=getRoomHashByID(speedWalkPath[1])
+                    for exit,id in pairs(r.exits or {}) do
+                        if valid_id(adjacent) and id==adjacent then command,dest=exit,id; break end
+                    end
+                end
+            end
+            if not command or not exit_command(command) then
+                pause("ALARM: brak potwierdzonej drogi odwrotu z "..key); announce("INTERVENTION"); return
+            end
+            if dry then pause("TEST: odwrot przez "..command); return end
+            safety.dark_visits=safety.dark_visits or {}
+            if safety.dark_visits[key] then
+                pause("ALARM: powrot w ciemnosci prowadzi ponownie do "..key);announce("INTERVENTION");return
+            end
+            safety.dark_visits[key]=true
+            safety.awaiting={origin=r.id,destination=dest,key=expected_key,until_at=os.time()+25}
+            announce("DARK_RETREAT")
+            local ok=send_owned_direction(exit_command(command))
+            if not ok then pause("ALARM: blad kroku odwrotu z "..key) end
+        end
         local function select_next(p, current)
             local route, now = p.route, os.time()
             local position = 0
@@ -1023,7 +1098,7 @@ return {
                 local id = route[idx]
                 local revisit = last_seen[id] and (last_seen[id] + p.rules.minRoomRevisit) or 0
                 local eligible_at = revisit
-                if hazardous(id) then
+                if hazardous(id) or safety.visited[id] then
                     blocked = true
                 elseif now >= eligible_at then
                     if id ~= current then
@@ -1065,15 +1140,37 @@ return {
                 return
             end
             -- Guard against triggering on stale room/Entities after a fast move.
+            if safety.after_walk and not safety.dark then
+                if r.id==safety.after_walk.origin then
+                    if os.time()>=safety.after_walk.deadline then
+                        pause("ALARM: niepotwierdzone cofniecie chodzika")
+                    end
+                    return
+                end
+                safety.after_walk=nil
+            end
+            if state.owns_walk and move and r.id~=move.origin and not safety.dark then
+                return
+            end
+            if safety.swim_until and os.time()<safety.swim_until and not safety.dark then
+                return
+            end
             if observed_room ~= r.id then
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
                 last_visited = os.time()
             end
+            if safety.dark and not fatigue_rest then dark_return(p,r); return end
+            if safety.blind and not safety.dark then
+                announce("WAIT_VISIBILITY"); last_reason="Brak potwierdzenia widocznosci"; return
+            end
             local hp, weakest, group_ids = health()
             if not hp then
+                safety.hp_since=safety.hp_since or os.time()
+                if os.time()-safety.hp_since>=30 then pause("Brak aktualnego HP od 30 s");return end
                 announce("WAIT_HP"); return
             end
+            safety.hp_since=nil
             local danger = hp <= p.rules.retreatHP or
                 (weakest and weakest.hp <= p.rules.retreatHP)
             local active, foreign = combat_status(group_ids)
@@ -1089,24 +1186,39 @@ return {
                     return
                 end
                 fatigue_rest=nil;announce(rest.phase)
+                if safety.dark then dark_return(p,r);return end
                 note("AutoExp: odzyskano sily; ponawiam ocene ruchu.")
                 if rest.move and not active and not danger and not economy_run and not emergency and not escape then
                     move_to(rest.move.id,rest.move.purpose);return
                 end
             end
-            if danger and active and not fallback and r.id ~= p.safeRoom then
+            if danger and not fallback then
                 begin_fallback("Prog odwrotu HP")
+                if paused then return end
+                if fallback then fallback.health=true end
             end
             if fallback then
-                if r.id ~= p.safeRoom then
-                    if fallback.retry_at and os.time() < fallback.retry_at then
-                        announce(active and "COMBAT" or "RETREAT_WAIT")
-                        return
-                    end
-                    fallback.retry_at = nil
-                    retreat_in_combat(p, r)
+                if r.id==p.safeRoom and p.safeKey and (r.key or r.id)~=p.safeKey then
+                    retreat_wait("Niewlasciwa instancja schronienia")
                     return
                 end
+                if r.id ~= p.safeRoom then
+                    if fallback.health and active==false and not emergency then
+                        if not state.owns_walk then move_to(p.safeRoom,"safe") end
+                    else
+                        retreat_in_combat(p,r)
+                    end
+                    return
+                end
+                local fatigue=tonumber((gmcp_api.vitals() or {}).fatigue)
+                local missing=active==nil or not ready_entities() or not fatigue or fatigue<0 or fatigue>100
+                if missing then
+                    fallback.missing_since=fallback.missing_since or os.time()
+                    if os.time()-fallback.missing_since>=30 then
+                        retreat_wait("Brak aktualnych danych regeneracji: "..last_reason)
+                        return
+                    end
+                else fallback.missing_since=nil end
                 if not fallback.poll_at or os.time() >= fallback.poll_at then
                     fallback.poll_at = os.time() + 5
                     if not ready_entities() and type(gmcp_api.refresh_entities) == "function" then
@@ -1123,7 +1235,6 @@ return {
                     last_reason = active and "Saferoom: GMCP nadal wskazuje walke." or "Saferoom: brak danych walki GMCP."
                     return
                 end
-                local fatigue = tonumber((gmcp_api.vitals() or {}).fatigue)
                 local reason
                 if hp < p.rules.returnHP then reason="HP postaci "..hp.."%, wymagane "..p.rules.returnHP.."%."
                 elseif weakest and weakest.hp < p.rules.returnHP then reason="HP druzyny: "..weakest.name.." "..weakest.hp.."%, wymagane "..p.rules.returnHP.."%."
@@ -1143,13 +1254,13 @@ return {
                     return
                 end
                 note("AutoExp: regeneracja i oczekiwanie zakonczone; wznawiam patrol.")
-                fallback, hazard_chain, escape = nil, nil, nil
+                fallback, escape = nil, nil
                 skip_exit_history = {}
                 announce("READY")
             end
             -- When low HP forces retreat while in combat, safety takes
             -- precedence over ordinary avoided-NPC routing and attacking.
-            if emergency or (danger and active) then
+            if emergency then
                 retreat_in_combat(p, r)
                 return
             end
@@ -1158,10 +1269,6 @@ return {
             -- GMCP single steps until ordinary walking becomes possible.
             -- Critical HP still takes priority above this branch.
             if economy_run then
-                if danger then
-                    pause("Niskie HP w czasie kursu handlowego. Przejmij sterowanie!")
-                    return
-                end
                 process_economy(r, active)
                 return
             end
@@ -1180,35 +1287,6 @@ return {
                 return
             end
             if active == nil then announce("WAIT_COMBAT"); return end
-            if danger then
-                if active then
-                    retreat_in_combat(p, r)
-                    return
-                end
-                if r.id ~= p.safeRoom then
-                    if dry then
-                        note("AutoExp TEST: odwrot -> " .. tostring(p.safeRoom))
-                        pause("Zakonczono test - zadnej komendy nie wyslano")
-                        return
-                    end
-                    -- A running retreat is already heading to safety.
-                    -- Do not stop/restart it on every vitals/timer callback.
-                    if state.owns_walk and move and move.purpose == "safe" then
-                        announce("RETREAT")
-                        return
-                    end
-                    if state.owns_walk then
-                        stop_ours = true
-                        walker.stop("AutoExp: odwrot")
-                        stop_ours = false
-                        state.owns_walk = false
-                        move = nil
-                    end
-                    move_to(p.safeRoom, "safe")
-                    return
-                end
-                announce("RECOVERY"); return
-            end
             if loot_run then
                 announce("LOOTING")
                 return
@@ -1232,25 +1310,21 @@ return {
                 -- joining our ongoing combat must never trigger an escape.
                 skip_reason = "obcy gracz walczy z NPC"
             end
-            if skip_reason and active then
-                begin_fallback(skip_reason)
-                return
-            end
+
             if skip_reason then
                 escape_avoided(p, r, skip_reason)
                 return
             end
-            -- Only a fresh acceptable observation clears THIS room. Two safe
-            -- neighbours must not erase a different room's quarantine.
-            hazard_until[r.id] = nil
+            -- A room excluded in this pass remains transit-only until the next pass.
+            if hazardous(r.id) then escape_avoided(p,r,"pominieta w tym obiegu"); return end
             if escape and (not escape.transit or active or target) then escape = nil end
             if not has_hazards() then
-                hazard_chain, skip_exit_history = nil, {}
+                skip_exit_history = {}
             end
             if active then
                 post_combat_at = nil
                 announce("COMBAT")
-                if target and tostring(target.id) ~= current_target then
+                if target and tostring(target.id) ~= current_target and os.time()>=(safety.manual_target_until or 0) then
                     -- One outstanding attack; never flood commands on GMCP bursts.
                     if pending_attack and os.time() - pending_attack.since < p.rules.attackWait then return end
                     if pending_attack and tostring(pending_attack.id) == tostring(target.id) then
@@ -1314,6 +1388,7 @@ return {
             if weakest and weakest.hp < p.rules.returnHP and r.id == p.safeRoom then
                 announce("RECOVERY"); return
             end
+            if target and os.time()<(safety.manual_target_until or 0) then announce("MANUAL_TARGET");return end
             if target then
                 if dry then
                     note("AutoExp TEST: atak -> " .. target.name .. " [" .. target.id .. "]")
@@ -1322,7 +1397,7 @@ return {
                 end
                 announce("ENGAGING")
                 engaged_here = true
-                hazard_chain, skip_exit_history = nil, {}
+                skip_exit_history = {}
                 pending_attack = { id = target.id, room = r.id, since = os.time() }
                 attacked_in_room[target.id] = true
                 local ok, err = attack_target(p, target.id)
@@ -1330,11 +1405,26 @@ return {
                 queue(0)
                 return
             end
+            safety.visited[r.id]=true
+            local complete=true
+            for _,id in ipairs(p.route) do
+                if not safety.visited[id] and not hazardous(id) then complete=false; break end
+            end
+            if complete then
+                if has_hazards() then
+                    safety.pass_until=safety.pass_until or os.time()+math.max(1,p.rules.minRoomRevisit)
+                    if os.time()<safety.pass_until then
+                        announce("COOLDOWN");last_reason="Obieg zakonczony; czekam przed nastepnym.";return
+                    end
+                end
+                safety.pass_until=nil
+                safety.visited,safety.skipped={},{}
+            end
             last_seen[r.id] = os.time()
             local next_id, wait_time, blocked = select_next(p, r.id)
             if not next_id then
-                if blocked then
-                    escape_avoided(p, r, "brak bezpiecznej trasy patrolu", true)
+                if blocked and not wait_time then
+                    pause("Koniec obiegu: pozostale punkty niedostepne bez przejscia przez zagrozenie")
                     return
                 end
                 if dry then
@@ -1343,7 +1433,7 @@ return {
                     return
                 end
                 announce("COOLDOWN")
-                if not wait_time then begin_fallback("Nie ma dostepnej trasy patrolu") end
+                if not wait_time then pause("Koniec obiegu: nie ma dostepnej trasy patrolu") end
                 return
             end
             if dry then
@@ -1358,6 +1448,7 @@ return {
                 local reason = hooks.before_start(profile())
                 if reason then note(reason, "warn"); return false end
             end
+            if safety.blind or (room() and type(room().exits)=="table" and not next(room().exits)) then note("Brak widocznosci. Sprawdz swiatlo i odswiez lokacje.", "warn"); return false end
             if not started then
                 session.elapsed, session.xp = 0, 0
             end
@@ -1397,14 +1488,17 @@ return {
                 return
             end
             record_room(room())
+            safety.observe(room())
+            safety.skipped,safety.visited,safety.pass_until={},{},nil
+            safety.hp_since=nil
             started, paused, dry = true, false, test_mode == true
             fallback, fallback_count = nil, 0
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
             cancel_economy_timers()
             economy_run, loot_run = nil, nil
             attacked_in_room, last_seen, skip_exit_history = {}, {}, {}
-            hazard_chain, engaged_here = nil, false
-            hazard_until, recent_rooms, recent_room = {}, {}, nil
+            engaged_here = false
+            recent_rooms, recent_room = {}, nil
             record_room(room())
             last_visited = os.time()
             last_group = {}
@@ -1416,16 +1510,78 @@ return {
         end
         -- Bus handlers: the new official Chimera API guarantees that gmcp_api
         -- state has been updated before these callbacks are emitted.
+        ctx:trigger([[^[ >]*Ciemne miejsce\.$]],function()
+            safety.text_dark=room() and (room().key or room().id)
+            safety.relit=nil; darkness("Ciemne miejsce")
+        end)
+        ctx:on("chimera.lamp.changed",function(event)
+            if event and event.lit==false then
+                safety.text_dark=room() and (room().key or room().id)
+                safety.relit=nil; darkness("Lampa zgasla")
+            elseif event and event.lit==true then safety.relit=true end
+        end)
+        ctx:trigger([[^[ >]*Umierasz\.$]],function()
+            halt("Smierc postaci")
+            if hooks.on_stop then hooks.on_stop() end
+            safety.edges,safety.last,safety.outgoing={},nil,nil
+            known_exits,trail={},{}
+            state.emergency_known_exits,state.emergency_trail=known_exits,trail
+        end)
+        ctx:on("sysDataSendRequest",function(_,command)
+            if type(command)~="string" then return end
+            command=normalized(command)
+            local here=room()
+            if state.owns_walk and move and command~="stan" then move.sent=true end
+            for exit in pairs(here and here.exits or {}) do
+                if command==exit or command==exit_command(exit) then
+                    safety.outgoing=command
+                    break
+                end
+            end
+            if not safety.ordering and command:match("^rozkaz%s+druzynie%s+zaatakowac%s") then
+                safety.manual_party_until=os.time()+15
+            end
+            if command:match("^zabij%s") and not safety.attacking then
+                safety.manual_target_until=os.time()+15
+            end
+        end)
         ctx:on("chimera.room.info", function(r)
+            if not r or not r.id then return end
+            local previous=safety.last
+            if next(r.exits or {}) then
+                if not safety.text_dark or safety.text_dark~=(r.key or r.id) or safety.relit then
+                    safety.blind=false; safety.text_dark=nil; safety.relit=nil
+                end
+            elseif previous and next(previous.exits or {}) then
+                darkness("Zniknely wyjscia GMCP")
+            elseif not safety.dark then
+                safety.blind=true
+            end
+            safety.observe(r)
+            if safety.dark and paused and phase=="INTERVENTION" and not safety.awaiting then
+                local p=profile()
+                local key=r.key or r.id
+                if p and (key==(p.safeKey or p.safeRoom) or
+                    (not (safety.dark_visits or {})[key] and safety.return_step(r,p.safeKey or p.safeRoom))) then
+                    paused=false
+                end
+            end
             record_room(r)
+            if started and not paused then queue(0) end
             maybe_record(r)
         end)
+        ctx:trigger([[^[ >]*Zaczynasz plynac.*$]],function()
+            safety.swim_until=os.time()+25
+        end)
         ctx:on("chimera.room.changed", function(r)
+            safety.swim_until=nil
+            if safety.manual_at then safety.manual_confirmed=true end
             expected_manual = nil -- room has changed; step ownership expired
             record_room(r)
             -- The changed event has only {id,how,...}; complete exits live in
             -- gmcp.room() and were updated before official Chimera emitted it.
             local latest = room()
+            if latest then safety.observe(latest) end
             local key=latest and (latest.key or latest.id)
             if latest and observed_room==latest.id and observed_key and observed_key~=key then
                 observed_key=key;entities_ready=false
@@ -1465,6 +1621,9 @@ return {
                     (economy_run.direct_steps_completed or 0) + 1
             end
             if was_escaping then
+                if escape.destination and r.id~=escape.destination then
+                    pause("Nieoczekiwana lokacja po kroku omijania: "..r.id); return
+                end
                 escape = nil -- direct step from an avoided room succeeded
                 pending_attack, post_combat_at = nil, nil
             end
@@ -1482,8 +1641,10 @@ return {
             if started and not paused and not state.owns_walk then
                 -- Manual navigation while running is not treated as a patrol step.
                 if r and r.how == "reczny" and not was_escaping
-                    and not was_emergency and not was_trade_step then
+                    and not was_emergency and not was_trade_step and not safety.dark then
                     pause("Wykryto ruch reczny gracza")
+                    safety.manual_at=os.time(); safety.manual_confirmed=true
+                    announce("MANUAL_MOVE")
                 else
                     queue(0)
                 end
@@ -1505,7 +1666,7 @@ return {
             for _, member in ipairs(packet and packet.members or {}) do
                 if member.id and not bool(member.self) then ids[tostring(member.id)] = true end
             end
-            if started and not paused and last_group then
+            if started and not paused and not safety.dark and last_group then
                 for id in pairs(last_group) do
                     if not ids[id] then
                         pause("Czlonek druzyny zniknal z GMCP (" .. id .. ")")
@@ -1539,10 +1700,21 @@ return {
         ctx:on("chimera.walk.stopped", function(event)
             external_walk = false
             if not state.owns_walk or stop_ours then return end
+            if event and event.reason=="atak" and move and move.sent and move.origin==room_id() then
+                safety.after_walk={origin=room_id(),deadline=os.time()+25}
+            end
             state.owns_walk = false
             move = nil
             if started and not paused then
+                if fallback then fallback.health=false end
                 if event and event.reason == "atak" then
+                    local cfg=ctx.app and ctx.app.config
+                    if cfg and type(cfg.get)=="function" then
+                        local ok,mode=pcall(cfg.get,cfg,"walker","przy_ataku")
+                        if ok and mode=="cofnij" then
+                            safety.after_walk={origin=room_id(),deadline=os.time()+25}
+                        end
+                    end
                     -- Keep the merchant goal. During ordinary patrol a fight
                     -- starts combat; during commerce we continue with GMCP
                     -- single steps, never restarting the walker into combat.
@@ -1560,12 +1732,19 @@ return {
                 end
             end
         end)
-        ctx:on("chimera.session.end", function() halt("Rozlaczono - automat zatrzymany") end)
+        ctx:on("chimera.session.end", function()
+            halt("Rozlaczono - automat zatrzymany")
+            known_exits,trail={},{}
+            state.emergency_known_exits,state.emergency_trail=known_exits,trail
+            safety.last,safety.blind,safety.edges,safety.outgoing,safety.text_dark=nil,nil,{},nil,nil
+        end)
         ctx:trigger([[^Jestes tak zmeczon[ay], ze nie mozesz isc w tym kierunku\.$]],function()
             if not started or paused or dry or fatigue_rest then return end
             local step=expected_manual
             local own_step=step and step.room==room_id() and os.time()-step.time<=5
-            if not state.owns_walk and not own_step then return end
+            if not state.owns_walk and not own_step and not safety.awaiting then return end
+            safety.awaiting=nil
+            if safety.dark_visits and room() then safety.dark_visits[room().key or room_id()]=nil end
             fatigue_rest={fresh=false,until_at=os.time()+2,phase=phase,move=move}
             if state.owns_walk then
                 stop_ours=true;walker.stop("AutoExp: odpoczynek po odmowie ruchu");stop_ours=false
@@ -1581,7 +1760,6 @@ return {
             end
             if escape and own_step then
                 escape.sent_at=nil;escape.tries=math.max(0,escape.tries-1);escape.tried[step.direction]=nil
-                if hazard_chain then hazard_chain.steps=math.max(0,hazard_chain.steps-1) end
                 local history=skip_exit_history[room_id()]
                 if history then history[step.direction]=math.max(0,(history[step.direction] or 0)-1) end
             end
@@ -1590,6 +1768,7 @@ return {
             queue(0)
         end)
         ctx:on("chimera.step.manual", function(manual)
+            if safety.manual_at then safety.manual_at=os.time();safety.manual_confirmed=false end
             if not started or paused then return end
             local direction = type(manual) == "table" and manual.direction or nil
             direction = direction and (EXIT_COMMANDS[direction] or direction)
@@ -1606,9 +1785,17 @@ return {
             -- genuine user input: retain the manual-takeover safety rule.
             expected_manual = nil
             pause("Gracz przejal sterowanie")
+            announce("MANUAL_MOVE")
+            safety.manual_at=os.time();safety.manual_confirmed=false
         end)
         ctx:timer(1, function()
             session_clock()
+            if safety.manual_at and safety.manual_confirmed and paused and not external_walk and os.time()-safety.manual_at>=3
+                and ready_entities() and room() and room().id==observed_room then
+                safety.manual_at=nil
+                paused=false
+                announce("READY")
+            end
             if started and not paused then queue(0) end
         end, true)
         ctx:cleanup(function()
@@ -1700,7 +1887,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.21 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.22 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1826,7 +2013,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.21"},
+                {"Wersja", "0.7.0-beta.22"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -2008,7 +2195,7 @@ return {
             end
             return true
         end
-        -- The official walker always stops on 'atak'. When we are on a
+        -- When an attack interrupts the native walker during a
         -- commerce trip, use one GMCP-verified exit at a time. Do not fight
         -- or restart the full walker while the fight is active.
         local function economy_combat_step(run, r, target)
@@ -2427,14 +2614,22 @@ return {
             end
         end)
         command("stop", nil, function() halt("Zatrzymano recznie") end)
-        command("pauza", nil, function() pause("Pauza uzytkownika") end)
+        command("pauza", nil, function()
+            safety.manual_at=nil
+            if paused then phase="PAUSED"; last_reason="Pauza uzytkownika"
+            else pause("Pauza uzytkownika") end
+        end)
         command("wznow", nil, function()
             if started and paused then
                 if hooks.before_start then
                     local reason = hooks.before_start(profile())
                     if reason then note(reason, "warn"); return false end
                 end
-                paused, phase = false, "READY"
+                if safety.dark then
+                    safety.awaiting=nil; safety.dark_visits={}
+                    fallback={reason=safety.dark,stop_on_arrival=true}
+                elseif safety.blind then note("Brak widocznosci", "warn"); return end
+                safety.manual_at=nil; paused, phase = false, "READY"
                 observed_room, entities_ready = room_id(), false
                 observed_key=room() and (room().key or room().id)
                 local packet = gmcp_api.entities()
@@ -2542,7 +2737,7 @@ return {
             if not allowed_config() then return end
             local p = profile(); local id = room_id()
             if not p or not valid_id(id) then note("Wybierz profil i stan na lokacji.", "warn"); return end
-            p.safeRoom = id; remember(); note("Bezpieczna lokacja: " .. id)
+            p.safeRoom = id; p.safeKey = room().key or id; remember(); note("Bezpieczna lokacja: " .. id)
         end)
         command("hp", "<odwrot powrot>", function(s)
             if not allowed_config() then return end
@@ -2620,7 +2815,9 @@ return {
             local out = {}; for k,v in pairs(value) do out[k] = copy(v) end; return out
         end
         local function status()
-            return {phase=phase, started=started, paused=paused, dry=dry,
+            return {defensive_only=safety.blind or safety.dark~=nil or phase=="DARK_STOP" or
+                    (started and (paused or phase~="COMBAT" or fallback~=nil)),
+                phase=phase, started=started, paused=paused, dry=dry,
                 selected=selected, moving=move and move.id, mapping=mapping and mapping.name,
                 escaping=escape and escape.origin, emergency=emergency and emergency.destination,
                 fallback=fallback and fallback.reason,
@@ -2629,6 +2826,7 @@ return {
         end
         return {
             status=status,
+            issuing_attack_order=function() return safety.ordering==true end,
             party_attack_enabled=function()
                 local p=profile()
                 return p and p.partyAttack==true or false

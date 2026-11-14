@@ -12,7 +12,7 @@ return function(module)
         local integration=Integration.new(ctx)
         local function changed() if view then view:render() end end
         patrol=setup(ctx,{
-            changed=changed,
+            changed=changed, safety=module("safety").new(),
             open=function() if view then return view:open("areas") end return false end,
             on_stop=function() if tactics then tactics.stop("STOP ChimeraXP") end end,
             before_start=function(profile)
