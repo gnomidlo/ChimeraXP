@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-VERSION = '0.7.0-beta.21'
-MODULES = ['engine', 'tactics_model', 'integration', 'tactics', 'hud', 'init']
+VERSION = '0.7.0-beta.22'
+MODULES = ['safety', 'engine', 'tactics_model', 'integration', 'tactics', 'hud', 'init']
 
 
 def build(check=False):

@@ -149,11 +149,9 @@ function T.new(ctx,M,integration,patrol,changed)
     local function evaluate()
         if S.destroyed or not S.on then return end
         local reason=integration.check(nil)
-        if reason then E.stop(reason);return end
+        if reason then phase("BLOKADA",reason);return end
         local xp=patrol.status()
-        if xp.started and (xp.paused or xp.dry or xp.phase~="COMBAT") then
-            phase("WSTRZYMANA","Taktyka czeka na walkę podczas wyprawy.");return
-        end
+        if xp.dry then return end
         local t=now()
         for _,key in ipairs({"entities","group","combat"}) do
             if not S.received[key] or t-S.received[key]>15 then
@@ -189,6 +187,12 @@ function T.new(ctx,M,integration,patrol,changed)
         -- Keep automatic covers, but never duplicate its target alignment.
         local suppress_attack = xp.started and patrol.party_attack_enabled
             and patrol.party_attack_enabled()
+        if xp.defensive_only then
+            for ch=2,4 do
+                if type(blocked[ch])=="table" then blocked[ch].support=true end
+            end
+            suppress_attack=true
+        end
         local d=M.plan(s,config,S.enabled,blocked,nil,suppress_attack)
         if not d then
             local detail=S.ambiguous and "Niejednoznaczne pachołki: wymagane jawne przypisanie do P1/P2."
@@ -261,21 +265,22 @@ function T.new(ctx,M,integration,patrol,changed)
     ctx:on("chimera.step.manual",function() if not S.sending then invalid_room() end end)
     ctx:on("chimera.session.end",function() E.stop("Rozłączono. Taktyka pozostaje wyłączona.") end)
     ctx:on("sysDataSendRequest",function(_,command)
-        if S.sending then return end
+        if S.sending or (patrol.issuing_attack_order and patrol.issuing_attack_order()) then return end
         local text=tostring(command or ""):lower():gsub("^%s+","")
         local manual=M.manual(command,snapshot(),config)
         if manual then
             local t=now()
             -- Only formation maneuvers use formation cooldowns. A support
             -- command has its own short in-flight guard, not a 15s cover lock.
+            local focus=manual.kind=="support" or manual.kind=="target"
             for ch in pairs(manual.channels) do
-                local locks=manual.kind=="support" and S.support or S.blocked
+                local locks=focus and S.support or S.blocked
                 local duration=manual.kind=="support" and 1 or 15
                 locks[ch]=math.max(locks[ch] or 0,t+duration)
             end
             local pending=S.pending
             if pending then
-                local same=(pending.kind=="support" or pending.kind=="team_attack")== (manual.kind=="support")
+                local same=(pending.kind=="support" or pending.kind=="team_attack")== focus
                 local affected=manual.channels[pending.channel]
                 if pending.channel==4 then
                     for i,p in ipairs(config.minions) do

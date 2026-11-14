@@ -456,7 +456,7 @@ function M.manual(command,s,c)
     -- Attacks have no formation cooldown. Neither kill nor team attack orders
     -- should lock cover/break channels. Support remains a distinct action.
     local kinds={zaslon="cover",zaslonic="cover",wycofaj="cover",przelam="cover",
-        wesprzyj="support",wesprzec="support"}
+        wesprzyj="support",wesprzec="support",zabij="target",zaatakowac="target"}
     if verb=="parozkaz" or verb=="rozkaz" then
         local recipient,action=rest:match("^(%S+)%s+(%S+)")
         local first=rest:match("^(%S+)")

@@ -1,24 +1,28 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.16** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.22** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
-## Beta.13 — priorytety walki
+## Aktualizacja przez Mudlet
 
-Kolejność listy celów obowiązuje także podczas trwającej walki. Wyższy priorytet przejmuje cel po przybyciu; równorzędni przeciwnicy nie powodują przełączania. Przekroczenie limitu podczas walki uruchamia powrót do saferoom.
+W profilu z zainstalowanym aktualizatorem wpisz `/exp aktualizuj`. Po pobraniu wydania wykonaj `/przeladuj` i sprawdź wersję przez `/exp status`.
 
-## Beta.12 — powrót do saferoom
-
-Po pierwszym omijaniu kolejna przeszkoda uruchamia powrót do saferoom, regenerację i ponowienie patrolu. Słaby agresor w schronieniu nie powoduje ucieczki. Powrót wymaga zakończenia walki, progów HP, minimum 30% sił i przerwy 30–150 s. Brak drogi powoduje alarm i nadzorowane ponawianie co 30 s. Ręczna pauza i STOP pozostają nadrzędne. Limit dotyczy celów XP, a cudze walki są nadal omijane.
-
-## Szybka instalacja w Mudlecie
-
-W profilu z zainstalowaną oficjalną Chimerą **5.x** wklej do linii poleceń Mudleta:
+Przy pierwszej instalacji w profilu z oficjalną Chimerą 5.x wpisz w Mudlecie:
 
 ```lua
 lua installPackage("https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/packages/ChimeraXP.xml")
 ```
 
-Po zakończeniu pobierania wykonaj `/przeladuj`, a następnie `/exp`, aby otworzyć menu expowisk. Pakiet pobiera aktualną wersję z gałęzi `main` i sprawdza aktualizacje przy uruchomieniu profilu. Ręcznie sprawdzisz je poleceniem `/exp aktualizuj`.
+## Instalacja wersji beta.22 z ZIP-a
+
+Rozpakuj cały ZIP, uruchom `install.cmd` i wybierz katalog profilu Mudleta. Po instalacji wpisz `/przeladuj`. W `/exp status` sprawdź wersję. W profilu korzystającym z instancji zapisz schronienie poleceniem `/exp bezpieczna` w docelowym pokoju, aby przypisać konkretną instancję.
+
+## Bezpieczeństwo wyprawy
+
+Patrol wybiera jeden krok mapy i ponownie ocenia pokój. Tłum celów EXP, unikany NPC i zastana cudza walka wykluczają pokój na bieżący obieg. Brak drogi omijającej zagrożenie kończy obieg z informacją w statusie. Spadek HP uruchamia powrót i regenerację.
+
+Komunikat „Ciemne miejsce.”, zgaśnięcie lampy lub zanik wyjść GMCP zmienia cel na powrót i zatrzymanie. Wyprawa anuluje handel, łupy i kolejne ataki. W ciemności XP wykonuje pojedynczy krok po aktualnym potwierdzonym wyjściu lub po przejściu sprawdzonym wcześniej w tym kierunku w tej sesji. Gdy brakuje potwierdzenia, pojawia się alarm. Po powrocie przywróć widoczność i uruchom wyprawę ręcznie.
+
+Ręczny ruch oddaje graczowi sterowanie. Patrol wraca po potwierdzeniu pokoju, danych o istotach i trzech sekundach od ostatniego ręcznego kroku. Jawna pauza wymaga `/exp wznow`. Włączona ochrona może osłaniać drużynę w potwierdzonej walce także podczas pauzy, ruchu i odwrotu. Ręczne rozkazy mają pierwszeństwo na odpowiednim kanale.
 
 Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy automatyczne Lua 5.1/5.4; zachowanie serwerowych komend i wygląd Qt/Geyser wymagają jeszcze próby w działającym Mudlecie.
 
@@ -38,13 +42,6 @@ Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy aut
 - Odbiorca wycofania musi mieć co najmniej 70% HP lub wyższy próg swojego profilu, nie być Supportem, ogłuszonym, rzucającym czar ani pachołkiem w rezerwie lub z wyłączonym udziałem. Nadal sprawdzany jest limit po przejęciu wszystkich napastników.
 - HUD i ustawienia zachowane. Testy obejmują bezczynnych członków, zgodne cele, odnowienie, STOP, zdrowie i role odbiorców.
 
-## 0.7.0-beta.11 — ochrona przed krążeniem między lokacjami
-
-- Niebezpieczny pokój jest zapamiętywany przez 120 s. Patrol sprawdza także pokoje pośrednie całej trasy chodzika; dwa spokojne pokoje ani rozpoczęcie innej walki nie kasują tej pamięci. Świeże, poprawne dane GMCP z danego pokoju mogą usunąć jego blokadę wcześniej.
-- Przy ucieczce preferowane są przejścia do nieodwiedzonych ostatnio pokoi. Gdy wszystkie trasy patrolu prowadzą przez zapamiętane zagrożenie, automat próbuje nowego wyjścia z GMCP, również poza zapisaną trasą. Nie jest to potwierdzenie bezpieczeństwa nieznanego pokoju — po wejściu ponownie ocenia NPC.
-- Obejście i ucieczka mają wspólny limit 8 prób ruchu. Brak nowego przejścia powoduje pauzę i alarm zamiast powrotów między sąsiednimi pokojami. Ze spokojnej ślepej uliczki automat nie wraca sam w znane zagrożenie; potrzebne jest przejęcie sterowania lub wznowienie po zmianie warunków.
-- Pamięć dotyczy bieżącego uruchomienia i identyfikatorów lokacji, nie zmiennych ID NPC. Krytyczny odwrót, odpoczynek po zmęczeniu i własność kroków zachowują dotychczasowe zabezpieczenia.
-
 ## 0.7.0-beta.10 — kolejność celów i odpoczynek po odmowie ruchu
 
 - Cele wybierane są według kolejności wpisów NPC, nie kolejności Entities. Wszystkie dostępne gobliny poprzedzają goblinki, a te smoki. Przy nakładających się fragmentach nazw wygrywa najdłuższy pasujący wpis (goblinka nie trafia do kategorii goblin). Trwająca walka nie jest przerywana, a unikanie NPC i limity nadal obowiązują.
@@ -61,7 +58,7 @@ Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy aut
 - **Drużyna i role:** obecne jednostki, Tank / Off tank / Standard / Asekuracja / Support, udział w automatyce, efektywne progi, limit przeciwników i preferencja ochrony. Pachołki mają dodatkowo zadanie: automatyczne, ochrona, wsparcie lub rezerwa.
 - **Expowiska:** trzy najbliższe osiągalne tereny według mapy. Każdy zajmuje jeden wiersz z liczbą lokacji, kosztem dojścia i przełącznikiem zarobku. „Wszystkie expowiska…” otwiera osobne okno z pełną listą i stronami. Zmiana terenu wymaga STOP; zmianę auto-zarobku można wykonać także w pauzie.
 - **Stan wyprawy w pasku:** nazwa rzeczywiście aktywnego profilu i czas działania po prawej, obok sterowania, bez dodatkowego rzędu. Czas obejmuje patrol, walkę, regenerację i handel. Pauza zatrzymuje licznik, nowy start go zeruje. STOP chowa szczegóły wyprawy.
-- **Taktyka:** osobne włączenie AUTO, rozkazów graczom, rozkazów zbiorowych, masowej zasłony i wycofania w szyku. Podczas wyprawy manewry wykonywane są tylko w fazie walki; podczas ruchu, handlu i pauzy czekają.
+- **Taktyka:** osobne włączenie AUTO, rozkazów graczom, rozkazów zbiorowych, masowej zasłony i wycofania w szyku. Ochrona reaguje na aktualne dane walki również podczas ruchu, handlu i pauzy.
 - **Ustawienia:** cele, unikane NPC, schronienie, progi powrotu, łupy, tempo handlu, mapowanie, import, sesja i komunikaty.
 
 HP drużyny pozostaje w osobnym oknie Kondycji. Dolny pasek i docki ChimeraVIP nie są przebudowywane. Rozwinięcia mają strony dla dużych drużyn i list terenów. Tekstowe nazwy uzupełnia się w linii komend, bez wykonywania kodu Lua z nazw.
@@ -70,7 +67,7 @@ Ponowne kliknięcie zakładki zamyka jej menu. Kółka przy Taktyce i Expowiskac
 
 ## Instalacja i aktualizacja
 
-Najprościej użyć komendy z sekcji „Szybka instalacja w Mudlecie” powyżej — bez pobierania repozytorium. Alternatywnie z pobranego repozytorium uruchom `install.cmd`, wybierz katalog profilu Mudleta, a następnie w Mudlecie wykonaj `/przeladuj`.
+Z rozpakowanego wydania uruchom `install.cmd`, wybierz katalog profilu Mudleta, a następnie w Mudlecie wykonaj `/przeladuj`.
 
 Zachowano jednoplikowy format instalacji. Kod z `src/chimeraxp/` jest łączony przez `build.py` w samowystarczalny `plugins/chimera_autoexp/init.lua`; instalator nie musi pobierać dodatkowych modułów. `manifest.json` zawiera SHA-256 tego pliku.
 

@@ -18,7 +18,7 @@ local before=find('me').cooldown
 h.emit('sysDataSendRequest',nil,'zabij enemy1')
 assert(find('me').cooldown==before,'ordinary attack must not reset maneuver cooldown')
 assert(M.manual('zabij enemy1',nil,{minions={{},{}}})==nil)
-assert(M.manual('rozkaz druzynie zaatakowac enemy1',nil,{minions={{},{}}})==nil)
+assert(M.manual('rozkaz druzynie zaatakowac enemy1',nil,{minions={{},{}}}).kind=='target')
 assert(M.manual('rozkaz druzynie zaslonic ciebie',nil,{minions={{},{}}}).kind=='cover')
 local pet=find('petone')
 assert(pet.channel==2,'first minion auto-discovered')

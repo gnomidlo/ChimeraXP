@@ -31,6 +31,6 @@ h.p.combat.relations={{attacker='me',defender='y2'}}
 h.emit('chimera.combat.state',h.p.combat);h.advance(.1)
 h.p.entities.entities={e1,e2,mob('e3','ettin'),mob('e4','ettin'),mob('e5','ettin'),g}
 h.emit('chimera.room.entities',h.p.entities);h.advance(.1)
-assert(h.api.status().fallback and not h.api.status().paused,'five targets exceed limit during combat at full HP')
+assert(h.api.status().phase=='AVOID_ESCAPE' and h.sent[#h.sent]=='n','five targets exceed limit during combat at full HP')
 h.dispose()
 print('PASS active combat priority, stable ties, arrivals, deaths and limit')

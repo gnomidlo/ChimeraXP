@@ -17,9 +17,15 @@ local function setup()
  getRoomIDbyHash=function(id)return ids[id]end
  getRoomHashByID=function(id)for k,v in pairs(ids)do if v==id then return k end end end
  getPath=function(a,b)speedWalkPath={b};return true end
+ local base_use=h.ctx.use
+ h.ctx.use=function(ctx,name)
+  if name=="mapper" then return {current_room=function()return ids[h.p.room.id] end} end
+  return base_use(ctx,name)
+ end
  h.api=P.setup(h.ctx)
  function h.place(id,exits,entities)
   h.p.room={id=id,key=id,exits=exits}
+  h.p.combat.room=id
   h.p.entities={room=id,entities=entities or {}}
   h.emit('chimera.room.changed',{id=id,how='chodzik'})
   h.emit('chimera.room.entities',h.p.entities)
@@ -33,8 +39,9 @@ for _,stop in ipairs({false,true}) do
  local h=setup();h.p.entities.entities=crowd
  h.api.request('start');h.advance(.1)
  assert(h.sent[1]=='n','first hazard skipped')
- h.place('b',{polnoc='safe'},crowd)
- assert(h.api.status().fallback and not h.api.status().paused,'second hazard retreats')
+ h.p.vitals.hp=20;h.p.combat.self_active=1
+ h.place('b',{polnoc='safe'},crowd);h.p.vitals.hp=100;h.p.combat.self_active=0
+ assert(h.api.status().fallback and not h.api.status().paused,'critical health retreats')
  h.advance(.1)
  assert(h.sent[#h.sent]=='n','shelter direction sent')
  h.p.combat={self_active=1,relations={}}
@@ -72,7 +79,7 @@ do
  local h=setup();h.p.room.exits={};h.p.vitals.hp=10
  h.p.combat={self_active=1,relations={}}
  h.api.request('start');h.advance(31)
- assert(not h.api.status().paused and h.api.status().fallback,'blocked retreat stays supervised')
+ assert(not h.api.status().started and #h.sent==0,'empty initial snapshot blocks start')
  h.api.request('pauza');local n=#h.sent;h.advance(60)
  assert(#h.sent==n,'manual pause cancels retries and polling')
  h.dispose()
@@ -82,13 +89,15 @@ print('PASS shelter recovery, retry, STOP, priority failure and unlisted aggress
 do
  local h=setup();h.p.entities.entities=crowd
  h.api.request('start');h.advance(.1)
- h.place('b',{polnoc='safe'},crowd);h.advance(.1)
+ h.p.vitals.hp=20;h.p.combat.self_active=1
+ h.place('b',{polnoc='safe'},crowd);h.p.vitals.hp=100;h.p.combat.self_active=0;h.advance(.1)
  local refreshes=0
  h.gmcp.refresh_entities=function()
   refreshes=refreshes+1
   return true
  end
  h.p.room={id='safe',key='safe',exits={poludnie='c'}}
+ h.p.combat.room='safe'
  h.emit('chimera.room.changed',{id='safe',how='chodzik'})
  h.advance(6)
  assert(refreshes>0 and refreshes<=2,'request missing shelter entities with bounded polling')
@@ -104,7 +113,8 @@ end
 do
  local h=setup();h.p.entities.entities=crowd
  h.api.request('start');h.advance(.1)
- h.place('b',{polnoc='safe'},crowd);h.advance(.1)
+ h.p.vitals.hp=20;h.p.combat.self_active=1
+ h.place('b',{polnoc='safe'},crowd);h.p.vitals.hp=100;h.p.combat.self_active=0;h.advance(.1)
  h.p.vitals={hp=100,fatigue=0,mana=100,encumbrance=66}
  h.p.group={leader='e921aced34b49b424-1',members={
   {id='e921aced34b49b424-1',self=1,here=1,hp=1999,maxhp=1999,stamina=153,maxstamina=153,name='Xochitl'},

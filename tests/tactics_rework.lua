@@ -22,10 +22,10 @@ end
 do
     local h=fixture();h.p.combat.relations={{attacker="enemy1",defender="me"}}
     h.api.toggle(true);h.xp={started=true,phase="MOVING"};h.fresh();h.advance(6)
-    assert(#h.sent==0,"no formation changes during patrol movement")
+    assert(#h.sent==1,"protect against confirmed attacks during movement")
     h.xp.phase="COMBAT";h.fresh();h.advance(0.2);assert(#h.sent==1,"formation cooperates only in combat")
     h.xp.paused=true;h.api.stop();h.api.toggle(true);h.fresh();h.advance(6)
-    assert(#h.sent==1,"paused expedition blocks tactics")
+    assert(h.api.status().on and #h.sent>=1,"paused expedition preserves protection")
     h.dispose()
 end
 do

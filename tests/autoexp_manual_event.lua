@@ -63,7 +63,7 @@ local function trial(hazard, delayed, same_direction)
     end
     emit('chimera.step.manual',{direction=same_direction and 'n' or 's',before={}})
     assert(api.status().paused,'true manual movement must pause')
-    assert(api.status().phase=='PAUSED','manual pause phase')
+    assert(api.status().phase=='MANUAL_MOVE','manual movement lease')
     commands['exp start']()
     assert(messages[#messages]:find('WSTRZYMANY',1,true),'/exp start should explain how to resume')
     return hazard and 'avoided NPC' or 'emergency HP'
