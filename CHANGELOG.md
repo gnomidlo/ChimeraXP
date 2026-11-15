@@ -1,5 +1,9 @@
 # Zmiany
 
+## 0.7.0-beta.25
+
+- Patrol pamięta docelowy punkt przy przechodzeniu przez pokoje pośrednie i po odpoczynku. Niespójna droga prowadząca ponownie do przebytego pokoju w tym samym odcinku wywołuje komunikat z identyfikatorami zamiast kolejnego ruchu.
+
 ## 0.7.0-beta.24
 
 - Limit celów EXP pomija walkę w zatłoczonym pokoju. Patrol może przechodzić przez ten pokój w obie strony, także w trwającej walce. Jedyne wyjście pozostaje dostępne nawet bez znanej dalszej trasy.

@@ -2,10 +2,10 @@ local new=dofile("tests/support_harness.lua")
 local plugin=dofile("plugins/chimera_autoexp/init.lua")
 local DARK=[[^[ >]*Ciemne miejsce\.$]]
 local DEAD=[[^[ >]*Umierasz\.$]]
-local function fixture()
+local function fixture(route)
     local h=new()
     h.saved.selected="test"
-    h.saved.profiles={test={name="Test",route={"a","b","c"},safeRoom="safe",safeKey="safe",
+    h.saved.profiles={test={name="Test",route=route or {"a","b","c"},safeRoom="safe",safeKey="safe",
         targets={"goblin"},avoid={"ettin"},rules={minRoomRevisit=30}}}
     local rooms={a=1,b=2,c=3,safe=4}
     getRoomIDbyHash=function(id)return rooms[id] end
@@ -175,5 +175,32 @@ do
     h.p.combat.self_active=1
     h.advance(.1)
     assert(h.sent[3]=="w" and #h.sent==3 and not h.api.status().paused,"take western branch")
+    h.dispose()
+end
+
+-- Each junction is a waypoint, but the next waypoint after B is on the
+-- other side of A. Re-selecting at B would reverse the first hop forever.
+for _,broken_map in ipairs({false,true}) do
+    local h=fixture({"a","c","b","safe"})
+    getPath=function(from,to)
+        if from==1 and to==3 then speedWalkPath={2,3}
+        elseif from==2 and to==4 then speedWalkPath={1,4}
+        elseif broken_map and from==2 and to==3 then speedWalkPath={1,3}
+        else speedWalkPath={to} end
+        return true
+    end
+    h.api.request("start");h.advance(.1)
+    assert(h.moves[1]==2)
+    h.place("b",{poludnie="a",wschod="c"})
+    h.emit("chimera.walk.arrived",{map_room=2,target="b"})
+    h.advance(.1)
+    if broken_map then
+        assert(#h.moves==1 and h.api.status().paused,"inconsistent paths cannot start an A-B loop")
+    else
+        assert(h.moves[2]==3,"continue toward C instead of reversing toward A")
+        h.place("c",{zachod="b"})
+        h.emit("chimera.walk.arrived",{map_room=3,target="c"});h.advance(.1)
+        assert(#h.moves==3,"next patrol leg starts after reaching C")
+    end
     h.dispose()
 end
