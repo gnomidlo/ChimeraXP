@@ -86,7 +86,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.24",
+    version = "0.7.0-beta.25",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -129,6 +129,7 @@ return {
         end
         local phase = "OFF"
         local mapping = nil
+        local patrol_leg -- final waypoint and rooms crossed on the way to it
         local move = nil -- { id, map, purpose }
         local pending_attack = nil -- { id, room, since }
         local attacked_in_room = {}
@@ -584,6 +585,7 @@ return {
             end)
         end
         local function halt(reason)
+            patrol_leg=nil
             safety.generation=(safety.generation or 0)+1
             safety.dark,safety.awaiting,safety.manual_at,safety.manual_target_until=nil,nil,nil,nil
             safety.after_walk,safety.swim_until,safety.hp_since,safety.manual_party_until=nil,nil,nil,nil
@@ -608,6 +610,7 @@ return {
             note("AutoExp: " .. last_reason)
         end
         local function pause(reason)
+            patrol_leg=nil
             if not started or paused then return end
             fatigue_rest=nil
             expected_manual = nil
@@ -783,11 +786,21 @@ return {
                 pause("Nie mozna potwierdzic pierwszego kroku trasy do "..id)
                 return false
             end
+            if purpose=="patrol" and not patrol_leg then patrol_leg={target=id,crossed={}} end
             local adjacent=tonumber(speedWalkPath[1])
             if adjacent~=destination then
                 id=adjacent and getRoomHashByID(adjacent)
                 if not valid_id(id) then pause("Nieznany identyfikator kroku"); return false end
                 destination=adjacent
+            end
+            if purpose=="patrol" then
+                if patrol_leg.crossed[id] then
+                    pause("Mapa prowadzi ponownie z "..room_id().." do "..id..
+                        " w drodze do punktu "..patrol_leg.target)
+                    return false
+                end
+            else
+                patrol_leg=nil
             end
             move = { id = id, map = destination, purpose = purpose, origin=room_id() }
             state.owns_walk = true -- BEFORE go: native walker emits synchronously
@@ -806,6 +819,7 @@ return {
             return true
         end
         begin_fallback = function(reason)
+            patrol_leg=nil
             if dry then pause("TEST: odwrot do saferoom: " .. reason); return end
             if fallback then return end
             fallback_count = math.min(fallback_count + 1, 5)
@@ -823,6 +837,7 @@ return {
             queue(0)
         end
         local function escape_avoided(p, r, name)
+            patrol_leg=nil
             local now = os.time()
             safety.skipped[r.id]=true
             safety.visited[r.id]=true
@@ -1150,7 +1165,8 @@ return {
                 if safety.dark then dark_return(p,r);return end
                 note("AutoExp: odzyskano sily; ponawiam ocene ruchu.")
                 if rest.move and not active and not danger and not economy_run and not emergency and not escape then
-                    move_to(rest.move.id,rest.move.purpose);return
+                    local goal=rest.move.purpose=="patrol" and patrol_leg and patrol_leg.target or rest.move.id
+                    move_to(goal,rest.move.purpose);return
                 end
             end
             if danger and not fallback then
@@ -1384,7 +1400,13 @@ return {
                 safety.visited,safety.skipped={},{}
             end
             last_seen[r.id] = os.time()
-            local next_id, wait_time, blocked = select_next(p, r.id)
+            local next_id, wait_time, blocked
+            if patrol_leg and patrol_leg.target~=r.id then
+                next_id=patrol_leg.target
+            else
+                patrol_leg=nil
+                next_id,wait_time,blocked=select_next(p,r.id)
+            end
             if not next_id then
                 if blocked and not wait_time then
                     pause("Koniec obiegu: pozostale punkty niedostepne bez przejscia przez zagrozenie")
@@ -1654,6 +1676,10 @@ return {
                 pause("Chodzik: cel lub pozycja GMCP nie potwierdzily dotarcia")
                 return
             end
+            if move.purpose=="patrol" and patrol_leg then
+                patrol_leg.crossed[move.origin]=true
+                if move.id==patrol_leg.target then patrol_leg=nil end
+            end
             state.owns_walk = false
             move = nil
             announce("WAIT_ENTITIES")
@@ -1850,7 +1876,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.24 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.25 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1976,7 +2002,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.24"},
+                {"Wersja", "0.7.0-beta.25"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
