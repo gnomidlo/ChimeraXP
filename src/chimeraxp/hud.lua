@@ -42,11 +42,17 @@ local function short(v,n)
     local out={};for i=1,math.max(1,n-1) do out[#out+1]=chars[i] end;return table.concat(out).."…"
 end
 local function clock(n) n=math.max(0,math.floor(tonumber(n) or 0));return string.format("%02d:%02d:%02d",math.floor(n/3600),math.floor(n%3600/60),n%60) end
-local ROLES={tank="Obrońca",offtank="Drugi obrońca",standard="Wojownik",asekuracja="Ochrona innych",support="Wsparcie"}
-local ROLE_DETAILS={tank="Przejmuje zagrożenia i odciąża sojuszników.",offtank="Pomaga głównemu obrońcy przy przeciążeniu.",standard="Walczy i pomaga, gdy to bezpieczne.",asekuracja="Osłania szczególnie zagrożonych sojuszników.",support="Unika przejmowania przeciwników."}
-local ROLE_ORDER={"tank","offtank","standard","asekuracja","support","auto"}
-local TASKS={"auto","self","protect","support","reserve"}
-local TASK_LABEL={auto="Automatycznie",self="Chroń mnie",protect="Chroń wybraną osobę",support="Wspieraj mój cel",reserve="Rezerwa"}
+local ROLES={
+    obronca="Obrońca",asekurant="Asekurant",
+    zrownowazony="Zrównoważony",chroniony="Chroniony"
+}
+local ROLE_DETAILS={
+    obronca="Przejmuje napastników i osłania drużynę.",
+    asekurant="Szybko pomaga zagrożonym sojusznikom.",
+    zrownowazony="Walczy i chroni, gdy jest to bezpieczne.",
+    chroniony="Wymaga ochrony; nie przejmuje napastników."
+}
+local ROLE_ORDER={"obronca","asekurant","zrownowazony","chroniony"}
 function H.new(ctx,patrol,tactics,stop)
     local self={labels={},widgets={},menu=nil,page=1,shown=true,destroyed=false}
     local settings=ctx:saved("hud",{});if type(settings)~="table" then settings={} end
@@ -114,7 +120,7 @@ function H.new(ctx,patrol,tactics,stop)
         self.page=1
         if name=="areas" then self.nearby=nil end
         if name=="party" or name=="tactics" or name=="areas" or name=="settings" then self.anchor=name end
-        if name~="member" and name~="roles" and name~="targets" and name~="member_advanced" then self.selected=nil end
+        if name~="member" and name~="member_advanced" then self.selected=nil end
         self:render()
     end
     function self:visible(value) if self.destroyed then return false end;self.shown=value~=false;self.menu=nil;save();self:render() end
@@ -135,7 +141,7 @@ function H.new(ctx,patrol,tactics,stop)
                 change=fn,unit=unit or ""})
         end
         local selected=find_row(rows,self.selected)
-        if (self.menu=="member" or self.menu=="roles" or self.menu=="targets" or self.menu=="member_advanced") and not selected then self.menu="party" end
+        if (self.menu=="member" or self.menu=="member_advanced") and not selected then self.menu="party" end
         local p=snap.profile;local st=snap.status
         if self.menu=="party" then
             title="Drużyna"
@@ -162,39 +168,37 @@ function H.new(ctx,patrol,tactics,stop)
             end,P.lavender,"action",{icon=ICON.gear})
             note=""
         elseif self.menu=="member" then
-            title=(selected and selected.name or "Postać").." · zachowanie"
-            add("Wróć do drużyny",function() self.menu="party";self:render() end,P.muted,"back",{icon=ICON.back})
+            title=(selected and selected.name or "Postać").." · rola"
+            add("‹ Wróć do drużyny",function() self.menu="party";self:render() end,
+                P.muted,"back",{icon=ICON.back})
             if selected then
                 local id=selected.id
                 toggle("Automatyczna ochrona tej postaci",selected.enabled,
                     function() tactics.configure(id,"enabled",not selected.enabled,selected) end,
-                    "Pozostałe postacie zachowują swoje ustawienia")
-                add("Rola: "..(ROLES[selected.role] or "Automatycznie"),
-                    function() self.menu="roles";self.page=1;self:render() end,
-                    P.lavender,"action",{icon=ICON.role})
-                if selected.slot then
-                    add("Zadanie pachołka: "..(TASK_LABEL[selected.task] or "Automatycznie").."  ↻",
-                        function()
-                            local current=1
-                            for i,v in ipairs(TASKS) do if v==selected.task then current=i end end
-                            local value=TASKS[current%#TASKS+1]
-                            tactics.task(id,value,selected)
-                            if value=="protect" then self.menu="targets";self.page=1 end
-                            self:render()
-                        end)
+                    "Udział w manewrach ustala wyłącznie automat")
+                add("ROLA",nil,P.lavender,"section")
+                for _,role in ipairs(ROLE_ORDER) do
+                    local name=ROLES[role]
+                    add(name,function()
+                        tactics.configure(id,"role",role,selected)
+                        self.page=1;self:render()
+                    end,P.text,"choice",{selected=selected.role==role,
+                        icon=role=="obronca" and ICON.shield
+                            or role=="asekurant" and ICON.safety
+                            or role=="chroniony" and ICON.star or ICON.attack})
                 end
-                add("Kogo chronić: "..(selected.target_name or "decyduje automat"),
-                    function() self.menu="targets";self.page=1;self:render() end,
-                    P.text,"action",{icon=ICON.shield})
-                add("Zaawansowane: HP i limit zagrożeń",
-                    function() self.menu="member_advanced";self.page=1;self:render() end,
-                    P.lavender,"action",{icon=ICON.sliders})
+                add("⚙ Ustawienia zaawansowane",function()
+                    self.menu="member_advanced";self.page=1;self:render()
+                end,P.lavender,"action",{icon=ICON.sliders})
                 if selected.kind=="npc" and not selected.slot then
-                    add("Przypisz jako pachołka 1",function() tactics.bind(1,id,selected) end)
-                    add("Przypisz jako pachołka 2",function() tactics.bind(2,id,selected) end)
+                    add("Przypisz jako pachołka 1",
+                        function() tactics.bind(1,id,selected) end)
+                    add("Przypisz jako pachołka 2",
+                        function() tactics.bind(2,id,selected) end)
                 end
             end
-            note="Rola dobiera domyślne progi. Szczegóły są opcjonalne."
+            note=selected and ROLE_DETAILS[selected.role]
+                or "Jedna rola i jedna automatyka."
         elseif self.menu=="member_advanced" then
             title=(selected and selected.name or "Postać").." · bezpieczeństwo"
             add("Wróć do postaci",function() self.menu="member";self:render() end,P.muted,"back",{icon=ICON.back})
@@ -206,36 +210,6 @@ function H.new(ctx,patrol,tactics,stop)
                     function(v) tactics.configure(id,"max_load",v,selected) end,"")
             end
             note="Progi dotyczą manewrów taktycznych, nie poziomu HP na HUD."
-        elseif self.menu=="roles" then
-            title=(selected and selected.name or "Postać").." · wybierz rolę"
-            add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
-            if selected then
-                local id=selected.id
-                for _,role in ipairs(ROLE_ORDER) do
-                    if role~="auto" or not selected.self then
-                        local desc=ROLE_DETAILS[role] or "Bez przypisanej roli."
-                        add(ROLES[role] or "Automatycznie",
-                            function() tactics.configure(id,"role",role,selected);self.menu="member";self:render() end,
-                            P.text,"choice",{selected=selected.role==role,description=desc,
-                                icon=(role=="tank" or role=="offtank") and ICON.shield or
-                                    role=="support" and ICON.support or role=="asekuracja" and ICON.safety or ICON.attack})
-                    end
-                end
-            end
-            note="Zmiana roli ustawia też domyślne progi bezpieczeństwa."
-        elseif self.menu=="targets" then
-            title=(selected and selected.name or "Postać").." · kogo chronić"
-            add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
-            if selected then
-                local id=selected.id
-                add("Automatyczny wybór",function() tactics.configure(id,"target_id",nil,selected);self.menu="member";self:render() end,
-                    P.text,"choice",{selected=not selected.target_id,icon=ICON.auto})
-                for _,r in ipairs(rows) do if r.id~=id then
-                    local target=r.id
-                    add("Chroń: "..r.name,function() tactics.configure(id,"target_id",target,selected);self.menu="member";self:render() end,
-                        P.text,"choice",{selected=selected.target_id==target,icon=ICON.shield})
-                end end
-            end
         elseif self.menu=="tactics" then
             title="Taktyka drużyny"
             add("Wróć do drużyny",function() self.menu="party";self:render() end,P.muted,"back",{icon=ICON.back})
@@ -398,10 +372,11 @@ function H.new(ctx,patrol,tactics,stop)
             x=x+width+4
         end
         local xpcolor=not st.started and P.muted or st.paused and P.yellow or P.mint
-        local tacticscolor=not ts.on and P.muted or
-            (ts.phase=="BLOKADA") and P.yellow or P.mint
+        local tacticscolor=ts.on and P.mint or P.yellow
         nav("party",ICON.party,"Drużyna",widths[1],nil)
-        nav("tactics",ICON.shield,"Ochrona",widths[2],tacticscolor)
+        -- Status LED is visible even with the dropdown closed. The pilot
+        -- cares about AUTO on/off, not a tiny grey-on-grey shield glyph.
+        nav("tactics","●","Ochrona",widths[2],tacticscolor)
         nav("areas",ICON.area,"Expowiska",widths[3],xpcolor)
         widget("pause",self.root,right,y,cw-3,bh,
             (not st.started or st.paused) and ICON.play or ICON.pause,
@@ -514,15 +489,17 @@ function H.new(ctx,patrol,tactics,stop)
                 self.overlay:hide()
                 mx=math.max(8,math.floor((w-mw)/2))
             elseif self.catalog then self.catalog:hide() end
-            panel:move(mx,catalog and math.max(height+8,math.floor((h-mh)/2)) or height+5)
+            local my=catalog and math.max(height+8,math.floor((h-mh)/2)) or height+5
+            panel:move(mx,my)
             panel:resize(mw,mh)
+            self.menu_rect={x=mx,y=my,w=mw,h=mh}
             local function menu_widget(key,xx,yy,ww,hh,text,tint,bg,fn,html,style)
                 widget((catalog and "catalog_" or "")..key,panel,xx,yy,
                     math.max(1,ww),math.max(1,hh),text,tint,bg,fn,html,style)
             end
             local menu_meta={
                 party=ICON.party,member=ICON.member,member_advanced=ICON.sliders,
-                roles=ICON.role,targets=ICON.target,tactics=ICON.shield,
+                tactics=ICON.shield,
                 areas=ICON.area,allareas=ICON.map,settings=ICON.gear,
                 combat=ICON.attack,safety=ICON.safety,loot=ICON.loot,
                 trade=ICON.trade,profiles=ICON.map,session=ICON.session
@@ -680,7 +657,11 @@ function H.new(ctx,patrol,tactics,stop)
                     P.muted,P.panel,nil,nil,"footer")
             end
             panel:show();if type(panel.raiseAll)=="function" then panel:raiseAll() end
-        else self.overlay:hide();if self.catalog then self.catalog:hide() end end
+        else
+            self.menu_rect=nil
+            self.overlay:hide()
+            if self.catalog then self.catalog:hide() end
+        end
         for key,item in pairs(self.labels) do if not self.used[key] and type(item.widget.hide)=="function" then item.widget:hide() end end
         self.root:show()
     end
@@ -691,6 +672,30 @@ function H.new(ctx,patrol,tactics,stop)
         self.rendering=false
         if not ok then error(err,0) end
     end
+    -- Mudlet raises this for a click anywhere on the main window, even if
+    -- the click isn't on one of our Geyser labels. Do not create a giant
+    -- transparent overlay: that would block combat, mapper and Kondycje.
+    ctx:on("sysWindowMousePressEvent",function(_,button,xx,yy,windowname)
+        if not self.menu or not self.menu_rect or self.destroyed then return end
+        if windowname and windowname~="" and windowname~="main" then return end
+        local x,y=tonumber(xx),tonumber(yy)
+        if not x or not y then return end
+        local function within(rect)
+            return rect and x>=rect.x and x<rect.x+rect.w
+                and y>=rect.y and y<rect.y+rect.h
+        end
+        if within(self.menu_rect) then return end
+        -- Leave actual toolbar clicks to their own callbacks. Closing the
+        -- active tab on mouse-down would otherwise reopen it on mouse-up.
+        for _,key in ipairs({"party","tactics","areas","settings",
+            "pause","stop","stage","defense_thought"}) do
+            local item=self.labels[key]
+            if item and self.used and self.used[key]
+                and within(item) then return end
+        end
+        self.menu=nil
+        self:render()
+    end)
     ctx:on("sysWindowResizeEvent",function() self:render() end)
     ctx:on("chimera.group.state",function() self:render() end)
     ctx:on("chimera.room.entities",function() self:render() end)
