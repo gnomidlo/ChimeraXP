@@ -490,7 +490,7 @@ function M.command(d,s)
         if d.kind=="cover" and M.id(d.protected) and s.members[d.protected] and M.id(d.enemy)
             and s.leader==s.self_id and s.members[d.actor] and s.members[d.actor].kind=="player" then
             if d.protected~=s.self_id then return "rozkaz "..d.actor.." zaslonic "..d.protected end
-            return "rozkaz "..d.actor.." zaslonic ciebie
+            return "rozkaz "..d.actor.." zaslonic ciebie"
         end
         return nil
     elseif d.channel==1 then
