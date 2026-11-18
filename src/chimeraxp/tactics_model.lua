@@ -376,17 +376,28 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
             or s.members[me].hp<=55
             or M.policy(s,c,me).role=="chroniony"
         if danger then
-            for _,actor in ipairs(actors) do
-                local id=actor.id
-                if id~=me and can_take(s,id,count(s,me),c)
-                    and s.members[id].hp>=math.max(70,M.policy(s,c,id).min_hp)
-                    and not s.members[id].casting
-                    and not blocked_for(blocked,actor.channel,"cover")
-                    and enabled[actor.channel] and M.policy(s,c,id).enabled then
-                    out[#out+1]={kind="retreat",channel=1,actor=me,
-                        protected=id,room=s.room,priority=urgency(s,c,me)-3,
-                        before_targets=s.attackers[me],
-                        reason="Wycofanie za "..s.members[id].name}
+            for _,id in ipairs(ordered(s.members)) do
+                if id~=me then
+                    local member=s.members[id]
+                    local allowed=true
+                    if member.minion then
+                        -- NPCs outside the verified two retainer slots cannot
+                        -- be relied on as retreat recipients.
+                        allowed=false
+                        for _,actor in ipairs(actors) do
+                            if actor.id==id and enabled[actor.channel] then
+                                allowed=true
+                            end
+                        end
+                    end
+                    if allowed and can_take(s,id,count(s,me),c)
+                        and member.hp>=math.max(70,M.policy(s,c,id).min_hp)
+                        and not member.casting then
+                        out[#out+1]={kind="retreat",channel=1,actor=me,
+                            protected=id,room=s.room,priority=urgency(s,c,me)-3,
+                            before_targets=s.attackers[me],
+                            reason="Wycofanie za "..member.name}
+                    end
                 end
             end
         end
