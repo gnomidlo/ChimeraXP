@@ -77,9 +77,18 @@ function M.defaults(raw)
         -- An explicitly reserved helper is opted out until the user enables
         -- it again. All other former tasks defer to the one role.
         for _,p in ipairs(type(raw.minions)=="table" and raw.minions or {}) do
-            if p.task=="reserve" and M.id(p.id) then
+            if (p.task=="reserve" or p.task=="support") and M.id(p.id) then
                 local saved=c.profiles[p.id] or profile({name=p.name,kind="npc"})
-                saved.enabled=false
+                if p.task=="reserve" then
+                    saved.enabled=false
+                else
+                    -- Former 'support my target' never covered others;
+                    -- migrate to Chroniony (no enemy transfers) rather than
+                    -- silently drafting it into front-line protection.
+                    saved.role="chroniony"
+                    saved.min_hp=M.presets.chroniony.min_hp
+                    saved.max_load=0
+                end
                 c.profiles[p.id]=saved
             end
         end
