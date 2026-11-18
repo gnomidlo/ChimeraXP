@@ -1,48 +1,88 @@
 -- ChimeraXP tactical planner, derived from Tacticus NG beta.15.
 -- Pure normalization and planning. Never sends commands or reads global GMCP.
 local M = {}
-M.roles = {"tank", "offtank", "standard", "asekuracja", "support"}
-M.labels = {tank="TANK", offtank="OFF TANK", standard="STANDARD", asekuracja="ASEKURACJA", support="SUPPORT"}
-M.presets={tank={min_hp=55,max_load=4,weight=0.65},offtank={min_hp=60,max_load=3,weight=0.85},
-    standard={min_hp=65,max_load=2,weight=1},asekuracja={min_hp=75,max_load=1,weight=1.25},support={min_hp=80,max_load=0,weight=2}}
-local function profile(raw)
-    raw=type(raw)=="table" and raw or {}
-    local preset=M.presets[raw.role]
-    return {name=raw.name,kind=raw.kind,role=preset and raw.role or nil,enabled=raw.enabled~=false,
-        min_hp=math.max(40,math.min(100,math.floor(tonumber(raw.min_hp) or (preset and preset.min_hp or 50)))),
-        max_load=math.max(0,math.min(5,math.floor(tonumber(raw.max_load) or (preset and preset.max_load or 3)))),
-        target_id=M.id(raw.target_id),target_name=raw.target_name}
+-- One role per character. Legacy names are normalized once on load,
+-- never consulted by combat planning after migration.
+M.roles={"obronca","asekurant","zrownowazony","chroniony"}
+M.labels={obronca="OBRONCA",asekurant="ASEKURANT",
+    zrownowazony="ZROWNOWAZONY",chroniony="CHRONIONY"}
+M.presets={
+    obronca={min_hp=55,max_load=4,weight=0.65},
+    asekurant={min_hp=70,max_load=2,weight=0.90},
+    zrownowazony={min_hp=65,max_load=2,weight=1},
+    chroniony={min_hp=80,max_load=0,weight=2.0},
+}
+local legacy_roles={tank="obronca",offtank="asekurant",standard="zrownowazony",
+    asekuracja="asekurant",support="chroniony"}
+local legacy_presets={
+    tank={min_hp=55,max_load=4},offtank={min_hp=60,max_load=3},
+    standard={min_hp=65,max_load=2},asekuracja={min_hp=75,max_load=1},
+    support={min_hp=80,max_load=0},
+}
+function M.role(value)
+    local role=legacy_roles[value] or value
+    return M.labels[role] and role or "zrownowazony"
 end
-M.profile_defaults=profile
-M.tasks = {"auto", "self", "protect", "support", "reserve"}
-M.task_labels = {auto="Dobieraj automatycznie",self="Chroń mnie", protect="Chroń wybraną osobę", support="Wspieraj mój cel", reserve="Rezerwa"}
 function M.id(v)
-    if type(v) ~= "string" or v == "" or v:find("[^%w_%-]") or v:match("^%d+$") or v:match("^ob_%d+$") then return nil end
+    if type(v) ~= "string" or v == "" or v:find("[^%w_%-]")
+        or v:match("^%d+$") or v:match("^ob_%d+$") then return nil end
     return v
 end
 local function yes(v) return v == true or v == 1 or v == "1" end
-local function pct(h, m)
-    h, m = tonumber(h), tonumber(m)
-    if not h or not m or m <= 0 then return nil end
-    return math.max(0, math.min(100, h * 100 / m))
+local function pct(h,m)
+    h,m=tonumber(h),tonumber(m)
+    if not h or not m or m<=0 then return nil end
+    return math.max(0,math.min(100,h*100/m))
 end
+local function profile(raw,migrating)
+    raw=type(raw)=="table" and raw or {}
+    local role=M.role(raw.role)
+    local preset=M.presets[role]
+    local previous=migrating and legacy_presets[raw.role]
+    local function threshold(field)
+        local value=tonumber(raw[field])
+        -- A value equal to the old role default is not a user override.
+        if previous and value==previous[field] then value=nil end
+        return value or preset[field]
+    end
+    return {name=raw.name,kind=raw.kind,role=role,enabled=raw.enabled~=false,
+        min_hp=math.max(40,math.min(100,math.floor(threshold("min_hp")))),
+        max_load=math.max(0,math.min(5,math.floor(threshold("max_load"))))}
+end
+M.profile_defaults=profile
+
 function M.defaults(raw)
-    raw = type(raw)=="table" and raw or {}
-    local c = {schema=2, team_broadcast=raw.team_broadcast==true, team_orders=raw.team_orders==true, auto_minions=true, role=M.labels[raw.role] and raw.role or "standard",
-        protect=raw.protect==true, protect_id=M.id(raw.protect_id), protect_name=raw.protect_name,
-        tank_id=M.id(raw.tank_id), tank_name=raw.tank_name,
-        mass=raw.mass==true, mass_min=math.max(2, math.min(5, math.floor(tonumber(raw.mass_min) or 2))),
-        mass_max=math.max(2, math.min(5, math.floor(tonumber(raw.mass_max) or 5))),
-        retreat=raw.retreat==true, min_hp=40, minion_cover_hp=50, max_load=3, minions={},profiles={},self_profile=type(raw.self_profile)=="table" and profile(raw.self_profile) or nil}
+    raw=type(raw)=="table" and raw or {}
+    local migrating=raw.schema~=3
+    local role=M.role(raw.role)
+    local c={schema=3,team_broadcast=raw.team_broadcast==true,
+        team_orders=raw.team_orders==true,role=role,
+        mass=raw.mass==true,mass_min=math.max(2,math.min(5,math.floor(tonumber(raw.mass_min) or 2))),
+        mass_max=math.max(2,math.min(5,math.floor(tonumber(raw.mass_max) or 5))),
+        retreat=raw.retreat==true,minions={},profiles={},
+        self_profile=type(raw.self_profile)=="table" and profile(raw.self_profile,migrating) or nil}
     if c.mass_min>c.mass_max then c.mass_max=c.mass_min end
     for i=1,2 do
         local p=type(raw.minions)=="table" and raw.minions[i] or {}
         p=type(p)=="table" and p or {}
-        c.minions[i]={id=M.id(p.id), name=p.name, task=M.task_labels[p.task] and p.task or "auto",
-            target_id=M.id(p.target_id), target_name=p.target_name}
+        c.minions[i]={id=M.id(p.id),name=p.name}
     end
     for id,p in pairs(type(raw.profiles)=="table" and raw.profiles or {}) do
-        if M.id(id) and type(p)=="table" and type(p.name)=="string" then c.profiles[id]=profile(p) end
+        if M.id(id) and type(p)=="table" and type(p.name)=="string" then
+            c.profiles[id]=profile(p,migrating)
+        end
+    end
+    if migrating then
+        -- Old task/target selections must not survive as hidden vetoes.
+        -- An explicitly reserved helper is opted out until the user enables
+        -- it again. All other former tasks defer to the one role.
+        for _,p in ipairs(type(raw.minions)=="table" and raw.minions or {}) do
+            if p.task=="reserve" and M.id(p.id) then
+                local saved=c.profiles[p.id] or profile({name=p.name,kind="npc"})
+                saved.enabled=false
+                c.profiles[p.id]=saved
+            end
+        end
     end
     return c
 end
@@ -50,11 +90,12 @@ function M.policy(s,c,id)
     local member=s.members[id]
     local p=id==s.self_id and c.self_profile or c.profiles and c.profiles[id]
     if p and id~=s.self_id and (not member or p.name~=member.name or p.kind~=member.kind) then p=nil end
-    local preset=p and M.presets[p.role]
-    local floor=id==s.self_id and c.min_hp or 50
-    return {role=p and p.role,enabled=not p or p.enabled~=false,min_hp=math.max(floor,p and p.min_hp or floor),
-        max_load=p and (p.role=="support" and 0 or p.max_load) or c.max_load,
-        weight=preset and preset.weight or 1,target_id=p and p.target_id,target_name=p and p.target_name}
+    local role=p and M.role(p.role) or (id==s.self_id and M.role(c.role) or "zrownowazony")
+    local preset=M.presets[role]
+    return {role=role,enabled=not p or p.enabled~=false,
+        min_hp=p and p.min_hp or preset.min_hp,
+        max_load=p and p.max_load or preset.max_load,
+        weight=preset.weight}
 end
 -- Roster detection is deliberately independent from Combat.State (also works out of combat).
 function M.roster(api)
