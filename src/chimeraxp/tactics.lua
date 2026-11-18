@@ -131,7 +131,7 @@ function T.new(ctx,M,integration,patrol,changed)
         if value==false or (value==nil and S.on) then E.stop();return true end
         local reason=integration.check(nil)
         if reason then phase("BLOKADA",reason);return false,reason end
-        S.on=true;S.pending=nil;S.barrier=now()+0.5
+        S.on=true;S.pending=nil;S.barrier=now()+5
         -- The current, room-validated GMCP snapshot is sufficient to start.
         -- Waiting for three *new* packets can stall protection indefinitely.
         local current=snapshot()
@@ -258,7 +258,9 @@ function T.new(ctx,M,integration,patrol,changed)
             else S.pending=nil;phase("NIEPOTWIERDZONA","Brak potwierdzenia; zachowuję odstęp przed kolejną próbą.") end
             return
         end
-        if t<S.barrier then return end
+        -- Emergency protection does not wait for initial idle-sync delay.
+        -- Normal orders keep the original five-second safety barrier.
+        if t<S.barrier and not (S.threat and S.threat.level=="critical") then return end
         local blocked={math.max(S.blocked[1],actor_ready(s.self_id))>t,
             {cover=math.max(S.blocked[2],actor_ready(config.minions[1].id))>t,
              support=S.support[2]>t},
