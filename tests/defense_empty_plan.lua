@@ -55,9 +55,9 @@ do
     assert(M.command(decision,s):match("^rozkaz pet%a+ zaslonic ciebie$"))
     -- Actual engine processing must send the same order on updated GMCP.
     assert(h.api.toggle(true))
-    h.fresh();h.advance(.3)
+    h.fresh();h.advance(5.2)
     assert(h.sent[1] and h.sent[1]:match("^rozkaz pet%a+ zaslonic ciebie$"),
-        "urgent self defense must work without awaiting 5-second startup barrier")
+        "wounded leader must be rescued once initial synchronization completes")
     h.dispose()
 end
 
