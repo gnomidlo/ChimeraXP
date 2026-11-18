@@ -3433,7 +3433,12 @@ local function ready_member(m) return m and m.hp and m.hp>0 and not m.stunned en
 local function can_take(s,id,n,c)
     local m=s.members[id]
     local policy=M.policy(s,c,id)
-    return policy.enabled and ready_member(m) and m.hp>=policy.min_hp and count(s,id)+n<=policy.max_load
+    -- Do not save a threatened member by transferring attackers onto another
+    -- member who is already losing HP at a critical rate.
+    local danger=s.risk and s.risk[id]
+    return policy.enabled and ready_member(m) and m.hp>=policy.min_hp
+        and not (danger and danger.level=="critical")
+        and count(s,id)+n<=policy.max_load
 end
 local function risk(s,id,n)
     local m=s.members[id]
@@ -3490,7 +3495,8 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     for id in pairs(s.members) do s.weights[id]=M.policy(s,c,id).weight end
     local tank_id=M.main_tank(s,c)
     local function cover(channel,actor,protected,priority,why,allow_mass)
-        if unavailable(channel,"cover") or actor==protected or not ready_member(s.members[protected]) then return end
+        if unavailable(channel,"cover") or (s.maneuver_locked and s.maneuver_locked[actor])
+            or actor==protected or not ready_member(s.members[protected]) then return end
         if channel==1 and priority<100 and s.members[protected].hp>=c.min_hp then
             for i,p in ipairs(c.minions) do
                 local task=M.task(s,c,i)
@@ -3502,6 +3508,9 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         end
         local policy=M.policy(s,c,actor)
         if not policy.enabled then return end
+        local danger=s.risk and s.risk[protected]
+        local critical=danger and danger.level=="critical"
+        local warning=danger and danger.level=="warning"
         if policy.target_id==protected and policy.target_name==s.members[protected].name then priority=priority+5 end
         if M.policy(s,c,protected).role=="support" then priority=priority+5 end
         if channel>1 and c.protect and c.protect_id==actor and protected==s.self_id then
@@ -3514,7 +3523,9 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         if broad and not can_take(s,actor,#enemies,c) then return end
         local improvement=gain(s,protected,actor,1)
         if broad then improvement=math.min(improvement,gain(s,protected,actor,#enemies)) end
-        if channel>1 and (channel==4 or c.minions[channel-1].task=="auto") and (c.role=="standard" or policy.role) and improvement<0.12 then return end
+        if channel>1 and not (critical or warning)
+            and (channel==4 or c.minions[channel-1].task=="auto")
+            and (c.role=="standard" or policy.role) and improvement<0.12 then return end
         local enemy=enemies[1]
         if focus then
             local found=false;for _,id in ipairs(enemies) do if id==focus.enemy then found=true end end
@@ -3524,8 +3535,12 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
             and can_take(s,actor,#enemies,c)
         if mass and c.role=="standard" and priority<100 and gain(s,protected,actor,#enemies)<0.12 then mass=false end
         local emergency=s.members[protected].minion and s.members[protected].hp<c.minion_cover_hp and improvement>=0.12
-        out[#out+1]={channel=channel,actor=actor,protected=protected,enemy=enemy,emergency=emergency,broad=broad,
-            kind=mass and "mass" or "cover",priority=s.members[protected].hp<40 and improvement>=0.12 and 120 or (emergency and math.max(priority,110) or priority),safety_gain=broad and improvement or gain(s,protected,actor,mass and #enemies or 1),reason=why,room=s.room,
+        local urgency=critical and (190+math.max(0,math.floor((50-s.members[protected].hp)/5)))
+            or warning and 125 or nil
+        out[#out+1]={channel=channel,actor=actor,protected=protected,enemy=enemy,emergency=critical or emergency,broad=broad,
+            kind=mass and "mass" or "cover",priority=urgency or (s.members[protected].hp<40 and improvement>=0.12 and 120 or (emergency and math.max(priority,110) or priority)),
+            safety_gain=broad and improvement or gain(s,protected,actor,mass and #enemies or 1),
+            reason=(critical and "RATUNEK: " or warning and "Zagrozenie: " or "")..why,room=s.room,
             before_targets=(mass or broad) and enemies or {enemy}}
     end
     local me=s.self_id
@@ -3546,9 +3561,14 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                     if accept then cover(1,me,id,60+math.min(20,count(s,id)*4),"Odciążenie: "..s.members[id].name,true) end
                 end
             end
-        elseif c.role=="asekuracja" and count(s,me)==0 then
+        elseif c.role=="asekuracja" then
             for _,id in ipairs(ordered(s.members)) do
-                if count(s,id)>=3 and gain(s,id,me,1)>=0.12 then cover(1,me,id,60,"Asekuracja przeciążonego sojusznika.",false) end
+                local danger=s.risk and s.risk[id]
+                if id~=me and count(s,id)>0 and
+                    ((danger and danger.level~="stable")
+                    or (count(s,me)==0 and count(s,id)>=3 and gain(s,id,me,1)>=0.12)) then
+                    cover(1,me,id,60,"Asekuracja zagrozonego sojusznika.",false)
+                end
             end
         end
         if c.retreat and count(s,me)>0 then
@@ -3576,9 +3596,15 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         local p=c.minions[i];local actor=p.id;local ch=i+1
         local task=M.task(s,c,i)
         if enabled[ch] and M.policy(s,c,actor).enabled and blocked[ch]~=true and actor and s.minions[actor] and ready_member(s.minions[actor]) then
-            if p.task=="auto" and M.policy(s,c,actor).role~="support" and (c.role=="standard" or M.policy(s,c,actor).role) then
+            if p.task=="auto" and M.policy(s,c,actor).role~="support"
+                and (c.role=="standard" or M.policy(s,c,actor).role) then
+                -- Auto means actual auto protection, including the leader's
+                -- "Chroń mnie" assignment, not just general redistribution.
+                if task=="self" then
+                    cover(ch,actor,me,99,"Pacholek "..i..": ochrona postaci.",false)
+                end
                 for _,protected in ipairs(ordered(s.members)) do
-                    cover(ch,actor,protected,95,"Pachołek "..i..": odciążenie "..s.members[protected].name..".",false)
+                    cover(ch,actor,protected,95,"Pacholek "..i..": odciazenie "..s.members[protected].name..".",false)
                 end
             elseif task=="self" then cover(ch,actor,me,95,"Pachołek "..i..": ochrona postaci.",false)
             elseif task=="protect" and s.members[p.target_id] and (not p.target_name or s.members[p.target_id].name==p.target_name) then cover(ch,actor,p.target_id,95,"Pachołek "..i..": ochrona wskazanej osoby.",false)
@@ -3624,23 +3650,32 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     if s.group_complete and c.team_orders and c.team_broadcast and enabled[4] and not unavailable(4,"cover") and s.leader==me and not focus then
         for _,protected in ipairs(ordered(s.members)) do
             local enemies=s.attackers[protected] or {}
-            local recipients={};local safe=#enemies>0 and (c.role=="standard" or protected==me)
+            local recipients={};local threat=s.risk and s.risk[protected]
+            local safe=#enemies>0 and (c.role=="standard" or protected==me
+                or (threat and threat.level~="stable"))
             local benefit=1
             for _,id in ipairs(ordered(s.members)) do
-                if id~=protected then
+                -- The issuer does not perform a cover when ordering the
+                -- group. Only actual recipients consume maneuver readiness.
+                if id~=protected and id~=me then
                     local m=s.members[id]
-                    -- Include issuer in safety checks: never rely on the server excluding a wounded member.
-                    if not available_for_broadcast(id,true) or not ready_member(m) or m.hp<50 or m.casting or not can_take(s,id,#enemies,c)
+                    if not available_for_broadcast(id,true) or (s.maneuver_locked and s.maneuver_locked[id])
+                        or not ready_member(m) or m.hp<50 or m.casting or not can_take(s,id,#enemies,c)
                         or (s.covers[protected] and s.covers[protected][id]) then safe=false end
                     local improvement=math.min(gain(s,protected,id,1),gain(s,protected,id,#enemies))
-                    if improvement<0.12 then safe=false end
+                    if not (threat and threat.level~="stable") and improvement<0.12 then safe=false end
                     benefit=math.min(benefit,improvement)
-                    if id~=me then recipients[#recipients+1]=id end
+                    recipients[#recipients+1]=id
                 end
             end
             if safe and #recipients>1 then
                 out[#out+1]={channel=4,actor=me,protected=protected,kind="team_cover",broad=true,
-                    priority=s.members[protected].hp<40 and 121 or 96,safety_gain=benefit,room=s.room,
+                    -- Collective rescue is valuable with multiple attackers
+                    -- and two verified, healthy executors; normal balancing
+                    -- continues to prefer the targeted maneuver.
+                    priority=threat and threat.level=="critical" and #enemies>1 and 210
+                        or threat and threat.level=="warning" and #enemies>1 and 145 or 96,
+                    safety_gain=benefit,room=s.room,
                     recipients=recipients,before_targets=enemies,reason="Drużyna: wspólna osłona "..s.members[protected].name.."."}
             end
         end
@@ -3694,6 +3729,9 @@ function M.command(d,s)
         local prefix="parozkaz "..d.actor.." "
         if d.kind=="support" and M.id(d.enemy) then return prefix.."wesprzyj" end
         if d.kind=="cover" and M.id(d.enemy) and M.id(d.protected) then
+            if d.protected==s.self_id and s.leader==s.self_id then
+                return "rozkaz "..d.actor.." zaslonic ciebie"
+            end
             return prefix.."zaslon "..d.protected.." przed "..d.enemy
         end
     end
@@ -3741,7 +3779,9 @@ function M.manual(command,s,c)
         if #found==1 then channels[found[1]]=true
         elseif verb=="parozkaz" or recipient=="druzynie" or not s then channels[2]=true;channels[3]=true
         elseif not (recipient and s.members[recipient]) then channels[2]=true;channels[3]=true end
-        return {kind=kind,channels=channels}
+        return {kind=kind,channels=channels,
+            actor=recipient and s and s.members[recipient] and recipient or nil,
+            group=recipient=="druzynie"}
     end
     if kinds[verb]=="support" then return {kind="support",channels={[2]=true,[3]=true,[4]=true}} end
 end
@@ -3833,12 +3873,81 @@ function T.new(ctx,M,integration,patrol,changed)
     if not persisted then config.team_broadcast=false end
     local S={on=false,phase="WYŁĄCZONA",detail="Automatyka po uruchomieniu jest wyłączona.",
         enabled={true,true,true,true},received={},blocked={0,0,0,0},support={0,0,0,0},
-        retreat_until=0,last={},transfers={},pending=nil,barrier=0,destroyed=false,sending=false}
+        retreat_until=0,last={},transfers={},pending=nil,barrier=0,destroyed=false,sending=false,
+        actor_ready_at={},health={},threat=nil}
     local E={}
     local function now() return type(getEpoch)=="function" and getEpoch() or os.time() end
     local function notify() if not S.destroyed and changed then changed() end end
     local function save() ctx:save("tactics",config) end
     local function phase(name,detail) S.phase=name;S.detail=detail;notify() end
+    local function actor_ready(id)
+        return id and (S.actor_ready_at[id] or 0) or 0
+    end
+    local function lock_actor(id,t,duration)
+        if id then S.actor_ready_at[id]=math.max(actor_ready(id),t+(duration or 15)) end
+    end
+    local function unlock_actor(id)
+        if id then S.actor_ready_at[id]=now() end
+    end
+    -- Health telemetry remains session-local. A hit is a negative HP delta
+    -- observed in live GMCP, not damage inferred from the number of attackers.
+    local function observe_health(s,t)
+        if not s or not s.members then return end
+        for id,member in pairs(s.members) do
+            if type(member.hp)=="number" then
+                local value=math.max(0,math.min(100,member.hp))
+                local h=S.health[id]
+                if not h or t<h.at or t-h.at>45 then
+                    S.health[id]={hp=value,at=t,hits={}}
+                else
+                    if value<h.hp then
+                        h.hits[#h.hits+1]={at=t,damage=h.hp-value}
+                    end
+                    h.hp=value;h.at=t
+                    local kept={}
+                    for _,hit in ipairs(h.hits) do
+                        if hit.at>=t-30 then kept[#kept+1]=hit end
+                    end
+                    h.hits=kept
+                end
+            end
+        end
+    end
+    local function evaluate_health(s,t)
+        local risk,most={},nil
+        for id,member in pairs(s.members or {}) do
+            local hp=member.hp or 100
+            local h=S.health[id];local short,long=0,0
+            if h then
+                for _,hit in ipairs(h.hits) do
+                    if hit.at>=t-5 then short=short+hit.damage end
+                    if hit.at>=t-25 then long=long+hit.damage end
+                end
+            end
+            -- Use fixed windows; a pair of near-simultaneous GMCP packets
+            -- cannot create an unbounded damage-per-second estimate.
+            local rate=math.max(short/5,long/25)
+            local eta=rate>0 and math.max(0,(hp-35)/rate) or nil
+            local level="stable"
+            if hp<=35 or short>=18 or (hp<=80 and eta and eta<=15) then level="critical"
+            elseif hp<=55 or short>=8 or (eta and eta<=30) then level="warning" end
+            local data={level=level,hp=hp,damage5=short,damage25=long,
+                rate=rate,eta=eta,attackers=#(s.attackers[id] or {})}
+            risk[id]=data
+            if data.attackers>0 and (not most or
+                (level=="critical" and most.level~="critical") or
+                (level=="warning" and most.level=="stable") or
+                (level==most.level and hp<most.hp)) then
+                most={id=id,name=member.name,level=level,hp=hp,rate=rate,eta=eta}
+            end
+        end
+        S.threat=most
+        return risk
+    end
+    local function collect_health()
+        local s=M.party(api)
+        if s then observe_health(s,now()) end
+    end
     local function snapshot() return M.snapshot(api) end
     local function display() return snapshot() or M.party(api) end
     local function detect()
@@ -3858,9 +3967,11 @@ function T.new(ctx,M,integration,patrol,changed)
                 end
                 if candidate then
                     p.id,p.name=candidate.id,candidate.name;used[p.id]=true
-                    S.blocked[i+1]=math.max(S.blocked[i+1],now()+15);dirty=true
-                    -- Discovery is not an attack attempt. Keep existing manual/support
-                    -- locks, but do not impose the formation cooldown on target alignment.
+                    -- A changed slot must never inherit the previous owner's
+                    -- 15s maneuver cooldown; those locks follow GMCP IDs.
+                    S.blocked[i+1]=0;dirty=true
+                    -- Discovery is not an attack attempt. Keep support's
+                    -- short command guard separate from maneuver cooldown.
                     S.support[i+1]=math.max(S.support[i+1],now()+1)
                     if S.pending and S.pending.channel==i+1 then S.pending=nil end
                 end
@@ -3878,8 +3989,13 @@ function T.new(ctx,M,integration,patrol,changed)
         if value==false or (value==nil and S.on) then E.stop();return true end
         local reason=integration.check(nil)
         if reason then phase("BLOKADA",reason);return false,reason end
-        S.on=true;S.received={};S.pending=nil;S.barrier=math.max(S.barrier,now()+5)
-        phase("SYNCHRONIZACJA","Czekam na nowe dane drużyny i walki.")
+        S.on=true;S.pending=nil;S.barrier=now()+0.5
+        -- The current, room-validated GMCP snapshot is sufficient to start.
+        -- Waiting for three *new* packets can stall protection indefinitely.
+        local current=snapshot()
+        S.received=current and {entities=now(),group=now(),combat=now()} or {}
+        collect_health()
+        phase("SYNCHRONIZACJA",current and "Oceniam zagrozenia druzyny." or "Czekam na aktualne dane GMCP.")
         return true
     end
     function E.rows()
@@ -3893,7 +4009,7 @@ function T.new(ctx,M,integration,patrol,changed)
                 enabled=policy.enabled and S.enabled[ch],channel=ch,slot=slot,
                 min_hp=policy.min_hp,max_load=policy.max_load,task=slot and config.minions[slot].task,
                 target_name=policy.target_name,target_id=policy.target_id,
-                cooldown=math.max(0,math.ceil((S.blocked[ch] or 0)-now())),
+                cooldown=math.max(0,math.ceil(math.max(S.blocked[ch] or 0,actor_ready(id))-now())),
                 self=id==s.self_id}
         end
         add(s.self_id)
@@ -3957,11 +4073,11 @@ function T.new(ctx,M,integration,patrol,changed)
     end
     function E.status()
         return {on=S.on,phase=S.phase,detail=S.detail,pending=S.pending and S.pending.kind,
-            ambiguous=S.ambiguous,team_orders=config.team_orders,team_broadcast=config.team_broadcast,
-            retreat=config.retreat,mass=config.mass}
+            threat=S.threat,ambiguous=S.ambiguous,team_orders=config.team_orders,
+            team_broadcast=config.team_broadcast,retreat=config.retreat,mass=config.mass}
     end
     local function invalid_room()
-        S.received={};S.pending=nil
+        S.received={};S.pending=nil;S.health={};S.threat=nil
         if S.on then phase("SYNCHRONIZACJA","Nowa lokacja: czekam na aktualne dane.") end
     end
     local function evaluate()
@@ -3972,12 +4088,21 @@ function T.new(ctx,M,integration,patrol,changed)
         if xp.dry then return end
         local t=now()
         for _,key in ipairs({"entities","group","combat"}) do
-            if not S.received[key] or t-S.received[key]>15 then
-                phase("SYNCHRONIZACJA","Brak świeżych danych: "..key);return
+            if not S.received[key] then
+                phase("SYNCHRONIZACJA","Brak danych: "..key);return
             end
         end
+        -- Group and entity packets are event-driven, not heartbeats: an
+        -- unchanged roster need not be re-sent every fifteen seconds.
+        -- M.snapshot validates all three against the current room.
         local s,err=snapshot()
         if not s then phase("BLOKADA GMCP",err);return end
+        observe_health(s,t)
+        s.risk=evaluate_health(s,t)
+        s.maneuver_locked={}
+        for id in pairs(s.members) do
+            if actor_ready(id)>t then s.maneuver_locked[id]=true end
+        end
         if S.pending then
             local p=S.pending
             if M.confirmed(p,s) then
@@ -3992,8 +4117,12 @@ function T.new(ctx,M,integration,patrol,changed)
             return
         end
         if t<S.barrier then return end
-        local blocked={S.blocked[1]>t,{cover=S.blocked[2]>t,support=S.support[2]>t},
-            {cover=S.blocked[3]>t,support=S.support[3]>t},{cover=S.blocked[4]>t,support=S.blocked[4]>t or S.support[4]>t}}
+        local blocked={math.max(S.blocked[1],actor_ready(s.self_id))>t,
+            {cover=math.max(S.blocked[2],actor_ready(config.minions[1].id))>t,
+             support=S.support[2]>t},
+            {cover=math.max(S.blocked[3],actor_ready(config.minions[2].id))>t,
+             support=S.support[3]>t},
+            {cover=S.blocked[4]>t,support=S.support[4]>t}}
         if S.ambiguous then
             for i,pet in ipairs(config.minions) do
                 local confirmed=config.confirmed_minions[i]
@@ -4033,6 +4162,13 @@ function T.new(ctx,M,integration,patrol,changed)
                     or "sprawdź udział jednostek, rezerwę i blokady pachołków"
                 detail="Inny cel lub brak ataku: "..table.concat(missing,", ").."; "..why.."."
             end
+            if S.threat and S.threat.level~="stable" then
+                detail=(S.threat.level=="critical" and "ALARM: " or "Uwaga: ")
+                    ..S.threat.name.." "..math.floor(S.threat.hp+0.5)
+                    .."% HP; brak bezpiecznego manewru lub wykonawcy."
+            elseif detail=="Nie potrzeba zmiany szyku." then
+                detail="Szyk bezpieczny; monitoruje HP."
+            end
             phase("AUTO",detail);return
         end
         for _,enemy in ipairs(d.before_targets or {}) do
@@ -4046,20 +4182,18 @@ function T.new(ctx,M,integration,patrol,changed)
         local command=M.command(d,s)
         if not command then phase("BLOKADA","Nie można zbudować poprawnego rozkazu.");return end
         d.sent_at=t;S.pending=d
-        if d.kind=="support" then S.support[d.channel]=t+4
-        elseif d.kind~="team_attack" then
-            S.blocked[d.channel]=t+(d.channel==1 and d.kind~="retreat" and 8 or 15)
+        -- A maneuver locks the *actor* for fifteen seconds, never the
+        -- command issuer or the slot used to address that actor.
+        if d.kind=="team_cover" then
+            for _,id in ipairs(d.recipients or {}) do
+                if id~=s.self_id then lock_actor(id,t,15) end
+            end
+        elseif d.kind=="cover" or d.kind=="mass" or d.kind=="retreat" then
+            lock_actor(d.actor,t,15)
+        elseif d.kind=="support" then
+            S.support[d.channel]=t+1 -- command flood guard, not formation CD
         end
         if d.kind=="retreat" then S.retreat_until=t+15 end
-        if d.kind=="team_cover" or d.kind=="team_attack" then
-            for i,p in ipairs(config.minions) do
-                for _,id in ipairs(d.recipients or {}) do if p.id==id then
-                    if d.kind=="team_cover" then S.blocked[i+1]=math.max(S.blocked[i+1],t+15)
-                    end -- Team attacks do not consume the minion formation cooldown.
-                end end
-            end
-            if d.kind=="team_cover" and d.protected~=s.self_id then S.blocked[1]=math.max(S.blocked[1],t+8) end
-        end
         S.sending=true;local ok,problem=pcall(function() ctx:send(command,true) end);S.sending=false
         if not ok then S.pending=nil;S.enabled[d.channel]=false;phase("BŁĄD",tostring(problem));return end
         phase("PRÓBA",d.reason)
@@ -4076,9 +4210,13 @@ function T.new(ctx,M,integration,patrol,changed)
     end
     for _,pair in ipairs({{"entities","chimera.room.entities"},{"group","chimera.group.state"},{"combat","chimera.combat.state"}}) do
         local key,event=pair[1],pair[2]
-        ctx:on(event,function() S.received[key]=now();detect();schedule();notify() end)
+        ctx:on(event,function()
+            S.received[key]=now()
+            if key=="entities" or key=="group" then collect_health() end
+            detect();schedule();notify()
+        end)
     end
-    ctx:on("chimera.char.vitals",schedule)
+    ctx:on("chimera.char.vitals",function() collect_health();schedule() end)
     ctx:on("chimera.room.changed",invalid_room)
     ctx:on("chimera.step.manual",function() if not S.sending then invalid_room() end end)
     ctx:on("chimera.session.end",function() E.stop("Rozłączono. Taktyka pozostaje wyłączona.") end)
@@ -4088,13 +4226,30 @@ function T.new(ctx,M,integration,patrol,changed)
         local manual=M.manual(command,snapshot(),config)
         if manual then
             local t=now()
-            -- Only formation maneuvers use formation cooldowns. A support
-            -- command has its own short in-flight guard, not a 15s cover lock.
             local focus=manual.kind=="support" or manual.kind=="target"
-            for ch in pairs(manual.channels) do
-                local locks=focus and S.support or S.blocked
-                local duration=manual.kind=="support" and 1 or 15
-                locks[ch]=math.max(locks[ch] or 0,t+duration)
+            if focus then
+                -- Attacks/orders have no maneuver cooldown. Only guard
+                -- against duplicate commands during the next GMCP frame.
+                for ch in pairs(manual.channels) do
+                    S.support[ch]=math.max(S.support[ch] or 0,t+1)
+                end
+            elseif manual.actor then
+                lock_actor(manual.actor,t,15)
+            elseif manual.group then
+                -- A collective cover is performed by the recipients,
+                -- never by the character issuing the order.
+                local current=snapshot()
+                if current then
+                    for id in pairs(current.members) do
+                        if id~=current.self_id then lock_actor(id,t,15) end
+                    end
+                end
+            else
+                -- Unknown target: do not guess; protect both known minions
+                -- from conflicting fresh manual commands.
+                for i,p in ipairs(config.minions) do
+                    if manual.channels[i+1] then lock_actor(p.id,t,15) end
+                end
             end
             local pending=S.pending
             if pending then
@@ -4109,12 +4264,15 @@ function T.new(ctx,M,integration,patrol,changed)
                 end
                 if same and affected then S.pending=nil end
             end
-            phase("RĘCZNIE","Ręczny rozkaz: odpowiedni manewr wstrzymany na 15 s.")
+            phase("RĘCZNIE",focus and "Ręczny rozkaz ataku/wsparcia: bez odnowienia szyku."
+                or "Ręczny rozkaz osłony: czekam na gotowość wykonawcy.")
         elseif text:match("^zaslon%s") or text:match("^wycofaj%s") or text:match("^przelam%s") then
             -- Manual commands never disable automation. Let the server
             -- readiness message clear the maneuver cooldown early.
             if text:match("^wycofaj%s") then S.retreat_until=math.max(S.retreat_until,now()+15) end
-            S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8)
+            local current=snapshot()
+            if current then lock_actor(current.self_id,now(),15) end
+            S.blocked[1]=math.max(S.blocked[1],now()+15)
             if S.pending and S.pending.channel==1 then S.pending=nil end
             phase("RĘCZNIE","Ręczny manewr: czekam na odnowienie, automatyka nadal działa.")
         end
@@ -4123,12 +4281,18 @@ function T.new(ctx,M,integration,patrol,changed)
         for _,text in ipairs({"Jestes gotowa do zmiany w szyku.","Jestes gotowy do zmiany w szyku.",
             "Jestes gotowa do kolejnej zmiany w szyku.","Jestes gotowy do kolejnej zmiany w szyku."}) do
             ctx:trigger_exact(text,function()
-                S.blocked[1]=math.min(S.blocked[1],math.max(now(),S.retreat_until))
+                local current=snapshot()
+                if current then unlock_actor(current.self_id) end
+                S.retreat_until=now()
+                S.blocked[1]=now()
                 schedule()
             end)
         end
         ctx:trigger_exact("Musisz chwile odpoczac po ostatniej zmianie w szyku.",function()
-            S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8);if S.pending and S.pending.channel==1 then S.pending=nil end
+            local current=snapshot()
+            if current then lock_actor(current.self_id,now(),15) end
+            S.blocked[1]=math.max(S.blocked[1],now()+15)
+            if S.pending and S.pending.channel==1 then S.pending=nil end
             phase("ODNOWIENIE","MUD odmówił manewru; czekam na gotowość.")
         end)
         ctx:trigger_exact("Komu i jaki rozkaz chcesz wydac?",function()
@@ -4142,30 +4306,35 @@ function T.new(ctx,M,integration,patrol,changed)
     -- Do not clear the wrong minion if names are ambiguous.
     ctx:trigger([[^(.+) jest gotow[ay] do kolejnej zmiany w szyku\.$]],function()
         local name=tostring(matches and matches[2] or ""):lower():gsub("^%s+",""):gsub("%s+$","")
-        local channels={}
+        local matches_by_name={}
         for _,row in ipairs(E.rows()) do
-            if not row.self and row.kind=="npc" and row.name:lower()==name and row.channel<4 then
-                channels[#channels+1]=row.channel
+            if not row.self and row.name:lower()==name then
+                matches_by_name[#matches_by_name+1]=row
             end
         end
-        if #channels==1 then
-            S.blocked[channels[1]]=now()
-            if S.pending and S.pending.channel==channels[1] then S.pending=nil end
+        if #matches_by_name==1 then
+            local row=matches_by_name[1]
+            unlock_actor(row.id)
+            if row.channel<4 then S.blocked[row.channel]=now() end
+            if S.pending and (S.pending.actor==row.id or S.pending.channel==row.channel) then S.pending=nil end
             phase("GOTOWA","Pachołek gotowy do kolejnego manewru.")
             schedule()
-        elseif #channels>1 then
-            phase("BLOKADA","Niejednoznaczna nazwa pachołka; nie kasuję blokad.")
+        elseif #matches_by_name>1 then
+            phase("BLOKADA","Niejednoznaczna nazwa postaci; nie kasuję blokad.")
         end
     end)
     ctx:trigger([[^(.+) wciaz lapie rownowage po ostatniej zmianie w szyku\.$]],function()
         local name=tostring(matches and matches[2] or ""):lower():gsub("^%s+",""):gsub("%s+$","")
-        local channels={}
+        local matches_by_name={}
         for _,row in ipairs(E.rows()) do
-            if not row.self and row.name:lower()==name then channels[#channels+1]=row.channel end
+            if not row.self and row.name:lower()==name then
+                matches_by_name[#matches_by_name+1]=row
+            end
         end
-        if #channels==1 then
-            local channel=channels[1];S.blocked[channel]=math.max(S.blocked[channel],now()+15)
-            if S.pending and S.pending.channel==channel then S.pending=nil end
+        if #matches_by_name==1 then
+            local row=matches_by_name[1]
+            lock_actor(row.id,now(),15)
+            if S.pending and S.pending.actor==row.id then S.pending=nil end
             phase("ODNOWIENIE","Jednostka nadal łapie równowagę; lokalny odstęp przedłużony.")
         else phase("BLOKADA","Nie rozpoznano jednoznacznie jednostki z komunikatu równowagi.") end
     end)
@@ -4556,8 +4725,8 @@ function H.new(ctx,patrol,tactics,stop)
         self.root:move(0,0);self.root:resize(w,height)
         self.used={}
         widget("background",self.root,0,0,w,height,"",P.text,P.bg,nil,nil,"bar")
-        local small=w<500
-        local tight=w<390 or (st.started and w<700)
+        local small=w<900
+        local tight=w<560
         local cw=32
         cw=math.min(cw,math.max(3,math.floor(w*.09)))
         local right=w-8-cw*3
@@ -4591,7 +4760,15 @@ function H.new(ctx,patrol,tactics,stop)
         widget("settings",self.root,right+cw*2,y,cw-3,bh,ICON.gear,
             P.text,self.menu and self.anchor=="settings" and P.raised or P.bg,
             function() self:open("settings") end,nil,"toolbar")
-        if st.started or st.phase=="DARK_STOP" then
+        -- From left to right: combat state, live Defense reasoning, and
+        -- terrain + timer immediately beside the right-hand control buttons.
+        -- No second row, even at narrow widths.
+        local free=math.max(1,right-x-8)
+        local running=st.started or st.phase=="DARK_STOP"
+        local badgewidth=running and math.min(math.max(1,free-2),
+            math.max(80,math.min(215,math.floor(free*.42)))) or 0
+        local badge_x=right-badgewidth-6
+        if running then
             local name=snap.profile and snap.profile.name or "Brak terenu"
             local earn=snap.profile and snap.profile.economy and snap.profile.economy.enabled
             local stages={DARK_STOP="STOP · CIEMNO",DARK_RETREAT="ODWRÓT",INTERVENTION="ALARM",
@@ -4602,24 +4779,41 @@ function H.new(ctx,patrol,tactics,stop)
                 st.phase=="LOOTING" and "ŁUPY" or "PATROL"
             local tint=st.paused and P.yellow or st.emergency and P.rose or
                 st.phase=="COMBAT" and P.mint or P.lavender
-            local space=math.max(1,right-x-12)
-            local chipw=w>=850 and space>230 and 82 or 0
-            local badgewidth=math.max(1,space-chipw-(chipw>0 and 8 or 0))
-            local badge_x=right-badgewidth-8
-            if chipw>0 then
-                widget("stage",self.root,badge_x-chipw-8,y+4,chipw,bh-8,
+            local stagewidth=free>=295 and 77 or 0
+            if stagewidth>0 then
+                widget("stage",self.root,x,y+4,stagewidth,bh-8,
                     "● "..label,tint,P.card,
                     function() self:open("session") end,nil,"chip")
             end
-            local reserved=earn and w>=960 and 13 or 0
-            local clipped=short(name,math.max(1,math.floor((badgewidth-106)/7)-reserved))
+            local namechars=math.max(1,math.floor((badgewidth-77)/7))
+            local clipped=short(name,namechars)
             local html="<font color='"..P.text.."'><b>"..esc(clipped).."</b></font>"
                 .."  <font face='Consolas' color='"..P.mint.."'>"..clock(st.elapsed).."</font>"
-                ..(earn and w>=960 and "<font color='"..P.soft.."'> · zarobek</font>" or "")
-                ..(chipw==0 and " <font color='"..tint.."'>· "..esc(label).."</font>" or "")
+                ..(earn and badgewidth>180 and " <font color='"..P.soft.."'>· zarobek</font>" or "")
             widget("badge",self.root,badge_x,y,badgewidth,bh,"",tint,P.bg,
                 function() self:open("session") end,html,"nav")
             self.badge=self.labels.badge.widget
+            self.stage_end=x+stagewidth+(stagewidth>0 and 5 or 0)
+        else
+            self.stage_end=x
+        end
+        if ts.on then
+            local thought_x=self.stage_end
+            local thought_end=running and badge_x-5 or right-6
+            local thought_width=math.max(0,thought_end-thought_x)
+            if thought_width>=50 then
+                local threat=ts.threat
+                local severe=threat and threat.level=="critical"
+                local warn=threat and threat.level=="warning"
+                local tint=severe and P.rose or warn and P.yellow or
+                    (ts.phase=="BLOKADA" or ts.phase=="BLOKADA GMCP") and P.yellow or P.mint
+                local detail=ts.detail or "Monitoruje druzyne"
+                local prefix=severe and "⚠ " or warn and "◷ " or ICON.shield.." "
+                local maxchars=math.max(1,math.floor((thought_width-14)/7))
+                local label=prefix..short(detail,maxchars-2)
+                widget("defense_thought",self.root,thought_x,y+4,thought_width,bh-8,
+                    label,tint,P.card,function() self:open("tactics") end,nil,"chip")
+            end
         end
         if self.menu then
             local items,title,note=items_for(snap,rows,ts)
