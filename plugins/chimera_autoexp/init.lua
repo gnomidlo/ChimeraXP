@@ -3601,7 +3601,7 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                 -- Auto means actual auto protection, including the leader's
                 -- "Chroń mnie" assignment, not just general redistribution.
                 if task=="self" then
-                    cover(ch,actor,me,99,"Pacholek "..i..": ochrona postaci.",false)
+                    cover(ch,actor,me,96,"Pacholek "..i..": ochrona postaci.",false)
                 end
                 for _,protected in ipairs(ordered(s.members)) do
                     cover(ch,actor,protected,95,"Pacholek "..i..": odciazenie "..s.members[protected].name..".",false)
@@ -4102,6 +4102,13 @@ function T.new(ctx,M,integration,patrol,changed)
         s.maneuver_locked={}
         for id in pairs(s.members) do
             if actor_ready(id)>t then s.maneuver_locked[id]=true end
+        end
+        -- A queued routine attack/support is never allowed to delay a
+        -- newly detected life-saving maneuver for its full 3s ack window.
+        -- Keep protection/retreat attempts serialized until confirmed.
+        if S.pending and S.threat and S.threat.level=="critical"
+            and (S.pending.kind=="support" or S.pending.kind=="team_attack") then
+            S.pending=nil
         end
         if S.pending then
             local p=S.pending
