@@ -90,7 +90,9 @@ do
     local d=M.plan(s,c,{true,true,true,true})
     assert(d and d.kind=="team_cover","collective cover available for multiple enemies")
     assert(M.command(d,s)=="rozkaz druzynie zaslonic ciebie")
-    assert(#d.recipients==2)
+    assert(#d.recipients>=2,"group may include other friendly players")
+    local included={};for _,id in ipairs(d.recipients) do included[id]=true end
+    assert(included.petone and included.pettwo,"both retainers are group executors")
     h.dispose()
 end
 
