@@ -64,7 +64,8 @@ end
 do
  local h=setup();h.p.entities.entities={mob('g','goblin'),mob('o','ork')}
  h.api.request('start');h.advance(5)
- assert(h.sent[1]=='zabij g' and h.api.status().fallback,'unconfirmed priority attack retreats')
+ assert(h.sent[1]=='zabij g' and h.api.status().paused and not h.api.status().fallback,
+    'unconfirmed opening attack pauses safely; it never starts a retreat loop')
  for _,s in ipairs(h.sent)do assert(s~='zabij o','never skip living priority target')end
  h.dispose()
 end
