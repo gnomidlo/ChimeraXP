@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.26",
+    version = "0.7.0-beta.27",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -295,6 +295,10 @@ return {
         end
         -- The trade commands have no reliable success messages yet; serialize
         -- them with a short adjustable delay, never as one multi-command send.
+        local function clock()
+            return type(getEpoch) == "function" and getEpoch() or os.time()
+        end
+
         -- Prefer the stored mapper number, but allow old profiles that only
         -- contained the GMCP hash. Never trust a stale map number after a remap.
         local function mapped_shelter(p)
@@ -917,11 +921,9 @@ return {
             end
             return true
         end
-        -- Official /idz and walker.go are the SAME implementation. Let that
-        -- walker handle gates, fatigue and mapper route confirmation instead
-        -- of guessing a succession of GMCP exits under attack.
+        -- One native mapped step at a time. Even if combat stops the official
+        -- walker, the next call replans from CONFIRMED mapper/GMCP position.
         local function start_native_retreat(p, r)
-            if native_retreat then return true end
             local destination = mapped_shelter(p)
             if not destination then return false, "Brak zweryfikowanego numeru schronienia na mapie" end
             local from = mapper.current_room()
@@ -930,38 +932,80 @@ return {
             if not from or from ~= expected then
                 return false, "Pozycja mappera nie zgadza sie z GMCP"
             end
-            if type(getPath) ~= "function" or not getPath(from, destination) then
+            if from == destination or state.owns_walk then return true end
+
+            local nav = native_retreat
+            local now = clock()
+            if nav then
+                if nav.origin ~= r.id then
+                    nav.origin = r.id
+                    nav.attempts = 0
+                    nav.wait_from, nav.wait_target, nav.wait_until = nil, nil, nil
+                    nav.visits[r.id] = (nav.visits[r.id] or 0) + 1
+                    if nav.visits[r.id] > 3 then
+                        pause("ALARM: odwrot chodzikiem wraca wielokrotnie do "..r.id)
+                        return true
+                    end
+                end
+                if nav.wait_until and now < nav.wait_until then
+                    announce("RETREAT")
+                    queue(math.max(0.05, nav.wait_until - now))
+                    return true
+                end
+                nav.wait_from, nav.wait_target, nav.wait_until = nil, nil, nil
+                if nav.attempts >= 4 then
+                    pause("ALARM: chodzik 4 razy przerwal odwrot w tym samym pokoju ("..r.id..")")
+                    return true
+                end
+            end
+
+            if type(getPath) ~= "function" or not getPath(from, destination)
+                or type(speedWalkPath) ~= "table" then
                 return false, "Mapper nie zna trasy do schronienia"
             end
-            local cfg = ctx.app and ctx.app.config
-            if not cfg or type(cfg.get) ~= "function" or type(cfg.set) ~= "function" then
-                return false, "Nie mozna bezpiecznie zmienic ustawien chodzika"
+            local hop = tonumber(speedWalkPath[1])
+            local hop_hash = type(getRoomHashByID) == "function"
+                and hop and getRoomHashByID(hop) or nil
+            if not hop or hop == from or not valid_id(hop_hash) then
+                return false, "Brak potwierdzonego pierwszego pokoju trasy"
             end
-            local ok1, old_delay = pcall(cfg.get, cfg, "walker", "opoznienie")
-            local ok2, old_attack = pcall(cfg.get, cfg, "walker", "przy_ataku")
-            if not ok1 or not ok2 or old_delay == nil or old_attack == nil then
-                return false, "Nie udalo sie odczytac ustawien chodzika"
+
+            if not nav then
+                local cfg = ctx.app and ctx.app.config
+                if not cfg or type(cfg.get) ~= "function" or type(cfg.set) ~= "function" then
+                    return false, "Nie mozna bezpiecznie zmienic ustawien chodzika"
+                end
+                local ok1, old_delay = pcall(cfg.get, cfg, "walker", "opoznienie")
+                local ok2, old_attack = pcall(cfg.get, cfg, "walker", "przy_ataku")
+                if not ok1 or not ok2 or old_delay == nil or old_attack == nil then
+                    return false, "Nie udalo sie odczytac ustawien chodzika"
+                end
+                -- Save BEFORE editing; restore options even after Mudlet crash.
+                ctx:save("walker_restore", {delay=old_delay, attack=old_attack})
+                nav = {cfg=cfg, delay=old_delay, attack=old_attack,
+                    origin=r.id, attempts=0, visits={[r.id]=1}}
+                native_retreat = nav
+                local ok3, changed_delay = pcall(cfg.set, cfg, "walker", "opoznienie", 0.6)
+                local ok4, changed_attack = pcall(cfg.set, cfg, "walker", "przy_ataku", "ignoruj")
+                if not ok3 or changed_delay ~= true or not ok4 or changed_attack ~= true then
+                    restore_native_retreat()
+                    return false, "Nie udalo sie ustawic awaryjnego tempa chodzika"
+                end
+                note("AutoExp: odwrot do /idz "..destination..
+                     "; jeden krok na raz, 0.6 s, ponawianie po ataku.", "warn")
             end
-            -- Persist FIRST, so a Mudlet crash never leaves "ignoruj" behind.
-            ctx:save("walker_restore", {delay=old_delay, attack=old_attack})
-            native_retreat = {cfg=cfg, delay=old_delay, attack=old_attack}
-            local ok3, changed_delay = pcall(cfg.set, cfg, "walker", "opoznienie", 0.6)
-            local ok4, changed_attack = pcall(cfg.set, cfg, "walker", "przy_ataku", "ignoruj")
-            if not ok3 or changed_delay ~= true or not ok4 or changed_attack ~= true then
-                restore_native_retreat()
-                return false, "Nie udalo sie ustawic bezpiecznego trybu chodzika"
-            end
-            move = { id=p.safeRoom, map=destination, purpose="safe_native", origin=r.id }
-            state.owns_walk = true -- walker.go emits started synchronously
+
+            nav.attempts = nav.attempts + 1
+            move = {id=hop_hash, map=hop, purpose="safe_native", origin=r.id}
+            state.owns_walk = true -- walker emits started synchronously
             announce("RETREAT")
-            local sent, result, detail = pcall(walker.go, destination)
-            if not sent or not result then
+            local sent, result, detail = pcall(walker.go, hop)
+            if not sent or result ~= true then
                 state.owns_walk, move = false, nil
                 restore_native_retreat()
-                return false, "Chodzik odmowil drogi do schronienia: "..tostring(detail or result)
+                return false, "Chodzik odmowil kroku "..tostring(hop)..
+                    ": "..tostring(detail or result)
             end
-            note("AutoExp: odwrot chodzikiem do pokoju "..destination..
-                 " (jak /opoz 0.6 i /idz "..destination..").", "warn")
             return true
         end
 
@@ -1368,6 +1412,7 @@ return {
                     end
                     return
                 end
+                if native_retreat and not state.owns_walk then restore_native_retreat() end
                 local fatigue=tonumber((gmcp_api.vitals() or {}).fatigue)
                 local missing=active==nil or not ready_entities() or not fatigue or fatigue<0 or fatigue>100
                 if missing then
@@ -1768,6 +1813,12 @@ return {
             observed_key=key
             entities_ready=false
             if r and latest and latest.id == r.id then record_room(latest) end
+            local late_native = native_retreat and r and native_retreat.wait_from
+                and native_retreat.wait_target == r.id
+                and clock() <= (native_retreat.wait_until or 0) + 0.2
+            if late_native then
+                native_retreat.wait_from, native_retreat.wait_target, native_retreat.wait_until = nil, nil, nil
+            end
             if emergency and r and valid_id(r.id) then
                 emergency.visits[r.id] = (emergency.visits[r.id] or 0) + 1
             end
@@ -1818,7 +1869,8 @@ return {
             if started and not paused and not state.owns_walk then
                 -- Manual navigation while running is not treated as a patrol step.
                 if r and r.how == "reczny" and not was_escaping
-                    and not was_emergency and not was_trade_step and not safety.dark then
+                    and not was_emergency and not was_trade_step
+                    and not late_native and not safety.dark then
                     pause("Wykryto ruch reczny gracza")
                     safety.manual_at=os.time(); safety.manual_confirmed=true
                     announce("MANUAL_MOVE")
@@ -1872,30 +1924,69 @@ return {
                 patrol_leg.crossed[move.origin]=true
                 if move.id==patrol_leg.target then patrol_leg=nil end
             end
+            local native_hop = move.purpose == "safe_native"
             state.owns_walk = false
             move = nil
-            restore_native_retreat()
-            announce("WAIT_ENTITIES")
+            if native_hop then
+                if native_retreat then
+                    native_retreat.wait_from = nil
+                    native_retreat.wait_target = nil
+                    native_retreat.wait_until = nil
+                end
+                if room_id() == (profile() and profile().safeRoom) then
+                    restore_native_retreat()
+                end
+                announce("RETREAT")
+                queue(0.6)
+            else
+                restore_native_retreat()
+                announce("WAIT_ENTITIES")
+                queue(0)
+            end
             last_visited = os.time()
-            queue(0)
         end)
         ctx:on("chimera.walk.stopped", function(event)
             external_walk = false
             if not state.owns_walk or stop_ours then return end
-            if event and event.reason=="atak" and move and move.sent and move.origin==room_id() then
+            local last = move
+            local native_hop = native_retreat and last and last.purpose == "safe_native"
+            local interrupted_attack = event and event.reason == "atak"
+
+            if native_hop then
+                state.owns_walk, move = false, nil
+                if interrupted_attack then
+                    local nav = native_retreat
+                    -- The MUD may confirm a step AFTER its walker stops.
+                    -- Wait for Room.Info instead of dispatching a second direction.
+                    if last.sent and last.origin == room_id() then
+                        nav.wait_from, nav.wait_target = last.origin, last.id
+                        nav.wait_until = clock() + 3
+                    else
+                        nav.wait_from, nav.wait_target = nil, nil
+                        nav.wait_until = clock() + 0.6
+                    end
+                    announce("RETREAT")
+                    note("AutoExp: chodzik przerwany atakiem; przelicze kolejny krok po GMCP.", "warn")
+                    queue(0.6)
+                    return
+                end
+                restore_native_retreat()
+                if started and not paused then
+                    retreat_wait("Chodzik przerwal awaryjny krok: "..
+                        tostring(event and event.reason or "przerwanie reczne"))
+                end
+                return
+            end
+
+            if interrupted_attack and last and last.sent and last.origin==room_id() then
                 safety.after_walk={origin=room_id(),deadline=os.time()+25}
             end
-            local retreat_interrupted = native_retreat ~= nil
             state.owns_walk = false
             move = nil
             restore_native_retreat()
             if started and not paused then
-                if retreat_interrupted then
-                    retreat_wait("Chodzik przerwal odwrot: "..tostring(event and event.reason or "brak powodu"))
-                    return
-                end
                 if fallback then fallback.health=false end
-                if event and event.reason == "atak" then
+                if interrupted_attack then
                     local cfg=ctx.app and ctx.app.config
                     if cfg and type(cfg.get)=="function" then
                         local ok,mode=pcall(cfg.get,cfg,"walker","przy_ataku")
@@ -1903,9 +1994,6 @@ return {
                             safety.after_walk={origin=room_id(),deadline=os.time()+25}
                         end
                     end
-                    -- Keep the merchant goal. During ordinary patrol a fight
-                    -- starts combat; during commerce we continue with GMCP
-                    -- single steps, never restarting the walker into combat.
                     if economy_run then
                         economy_run.combat_transit = true
                         note("AutoExp HANDEL: atak przerwal chodzik; zachowuje cel kursu i kontynuuje krokami GMCP.", "warn")
@@ -2075,7 +2163,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.26 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.27 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2202,7 +2290,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.26"},
+                {"Wersja", "0.7.0-beta.27"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
