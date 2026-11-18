@@ -39,8 +39,13 @@ do
     h.dispose()
 end
 do
-    local h=fixture();h.api.configure("me","role","tank");h.api.option("team_orders",false)
+    local h=fixture();h.api.configure("me","role","obronca");h.api.option("team_orders",false)
     h.api.configure("petone","enabled",false);h.api.configure("pettwo","enabled",false)
+    -- With one brain a healthy ally is left alone against a harmless mob.
+    -- A wounded ally still receives a cover.
+    for _,list in ipairs({h.p.group.members,h.p.entities.entities}) do
+        for _,m in ipairs(list) do if m.id=="friend" then m.hp=60 end end
+    end
     h.p.combat.relations={{attacker="enemy1",defender="friend"}}
     h.api.toggle(true);h.fresh();h.advance(5.2);assert(#h.sent==1)
     h.triggers["Musisz chwile odpoczac po ostatniej zmianie w szyku."]()
@@ -57,20 +62,20 @@ do
     local h=fixture();local old=h.api.rows()[2]
     for _,member in ipairs(h.p.group.members) do if member.id==old.id then member.name="someone_else" end end
     for _,member in ipairs(h.p.entities.entities) do if member.id==old.id then member.name="someone_else" end end
-    assert(not h.api.configure(old.id,"role","tank",old),"stale identity must not receive a role")
+    assert(not h.api.configure(old.id,"role","obronca",old),"stale identity must not receive a role")
     h.api.stop();h.api.toggle(true);h.fresh();h.dispose()
     for _,timer in ipairs(h.timers) do timer.fn() end
     assert(#h.sent==0,"queued callbacks remain inert after disposal")
 end
 do
-    local h=fixture();h.api.configure("tank","role","support");h.api.configure("tank","enabled",false)
+    local h=fixture();h.api.configure("tank","role","chroniony");h.api.configure("tank","enabled",false)
     h.p.combat.relations={{attacker="enemy1",defender="tank"},{attacker="enemy2",defender="tank"}}
     local c=M.defaults(h.saved.tactics);local s=assert(M.snapshot(h.gmcp))
     assert(M.main_tank(s,c)~="tank","disabled Support cannot become fallback tank")
     c.tank_id="tank";assert(M.main_tank(s,c)~="tank","legacy manual choice obeys safety too")
     assert(M.command({channel=4,kind="team_cover",actor="me",protected="me",room=s.room},s)=="rozkaz druzynie zaslonic ciebie")
-    h.api.configure("friend","role","support");h.api.configure("friend","role","auto")
-    for _,r in ipairs(h.api.rows()) do if r.id=="friend" then assert(r.max_load==3,"Automat restores the generic load policy") end end
+    h.api.configure("friend","role","chroniony");h.api.configure("friend","role","zrownowazony")
+    for _,r in ipairs(h.api.rows()) do if r.id=="friend" then assert(r.max_load==2,"Zrównoważony uses a two-attacker limit") end end
     h.dispose()
 end
 do
@@ -105,8 +110,8 @@ do
     h.ctx.app.storage={get_state=function(_,module,key) assert(module=="tacticus_ng" and key=="config");return old end}
     local api=T.new(h.ctx,M,I.new(h.ctx),{status=function() return {started=false} end},function() end)
     assert(not api.status().on and not api.status().team_broadcast,"migration copies settings, never AUTO or collective commands")
-    local me=api.rows()[1];assert(me.role=="support" and me.max_load==0,"legacy Support role remains non-tanking")
-    api.configure("me","role","tank");assert(old.role=="support","old addon settings remain intact")
+    local me=api.rows()[1];assert(me.role=="chroniony" and me.max_load==0,"legacy Support migrates to non-covering Chroniony")
+    api.configure("me","role","obronca");assert(old.role=="support","old addon settings remain intact")
     h.dispose()
 end
 print("PASS tactical rework: sequential decisions, patrol cooperation, readiness, identity, STOP, binding and migration")
