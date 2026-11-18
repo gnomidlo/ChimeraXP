@@ -105,7 +105,7 @@ do
     assert(h.api.bind(1,"petone"));h.api.configure("petone","enabled",true)
     h.advance(14.9);h.fresh();h.advance(0.7)
     assert(#h.sent==1 and h.sent[1]=="rozkaz petone zaslonic ciebie",
-        "explicit binding authorizes a correctly addressed leader cover order")
+        "explicit binding authorizes a correctly addressed leader cover order; sent="..table.concat(h.sent," | ").." phase="..h.api.status().phase.." reason="..h.api.status().detail)
     h.dispose()
 end
 do
