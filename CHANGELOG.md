@@ -1,3 +1,11 @@
+## 0.7.0-beta.26 — schronienie na mapperze i odwrot chodzikiem
+
+- `/exp bezpieczna` zapisuje teraz oba identyfikatory: GMCP oraz zweryfikowany numer pokoju Mudleta (`safeMap`). Stare profile z samym hashem GMCP nadal dzialaja, jesli mapper umie rozpoznac lokacje.
+- Przy awaryjnym odwrocie AutoExp preferuje natywny `walker.go(numer)` (ta sama implementacja co `/idz numer`), tymczasowo ustawia opoznienie na 0,6 s i tryb ataku `ignoruj`, a po dojsciu, przerwaniu lub zatrzymaniu odtwarza poprzednie opcje. Zapis zabezpieczajacy pozwala odtworzyc je takze po restarcie Mudleta.
+- Przy braku trasy natywnej pozostaje awaryjne przejscie GMCP, ale po wykryciu powracania do tych samych pokoi automat alarmuje i wstrzymuje odwrot zamiast bez konca odbijac sie miedzy pomieszczeniami.
+- Puste `Room.Info.exits` wyzwala detekcje naglej ciemnosci tylko, gdy wyjscia zniknely w **tej samej lokacji aktywnego expowiska**. Puste wyjscia na trasie do sklepu lub banku nie zrywaja automatu. Komunikat `Ciemne miejsce.` pozostaje niezaleznym alarmem.
+- Nowy test regresji `tests/native_shelter_mapper.lua`.
+
 # Zmiany
 
 ## 0.7.0-beta.25
