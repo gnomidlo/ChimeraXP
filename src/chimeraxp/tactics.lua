@@ -426,7 +426,10 @@ function T.new(ctx,M,integration,patrol,changed)
             "Jestes gotowa do kolejnej zmiany w szyku.","Jestes gotowy do kolejnej zmiany w szyku."}) do
             ctx:trigger_exact(text,function()
                 local current=snapshot()
-                if current then unlock_actor(current.self_id) end
+                if current then
+                    unlock_actor(current.self_id)
+                    if S.pending and S.pending.actor==current.self_id then S.pending=nil end
+                end
                 S.retreat_until=now()
                 S.blocked[1]=now()
                 schedule()
