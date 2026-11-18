@@ -368,13 +368,30 @@ function T.new(ctx,M,integration,patrol,changed)
         local manual=M.manual(command,snapshot(),config)
         if manual then
             local t=now()
-            -- Only formation maneuvers use formation cooldowns. A support
-            -- command has its own short in-flight guard, not a 15s cover lock.
             local focus=manual.kind=="support" or manual.kind=="target"
-            for ch in pairs(manual.channels) do
-                local locks=focus and S.support or S.blocked
-                local duration=manual.kind=="support" and 1 or 15
-                locks[ch]=math.max(locks[ch] or 0,t+duration)
+            if focus then
+                -- Attacks/orders have no maneuver cooldown. Only guard
+                -- against duplicate commands during the next GMCP frame.
+                for ch in pairs(manual.channels) do
+                    S.support[ch]=math.max(S.support[ch] or 0,t+1)
+                end
+            elseif manual.actor then
+                lock_actor(manual.actor,t,15)
+            elseif manual.group then
+                -- A collective cover is performed by the recipients,
+                -- never by the character issuing the order.
+                local current=snapshot()
+                if current then
+                    for id in pairs(current.members) do
+                        if id~=current.self_id then lock_actor(id,t,15) end
+                    end
+                end
+            else
+                -- Unknown target: do not guess; protect both known minions
+                -- from conflicting fresh manual commands.
+                for i,p in ipairs(config.minions) do
+                    if manual.channels[i+1] then lock_actor(p.id,t,15) end
+                end
             end
             local pending=S.pending
             if pending then
@@ -389,12 +406,15 @@ function T.new(ctx,M,integration,patrol,changed)
                 end
                 if same and affected then S.pending=nil end
             end
-            phase("RĘCZNIE","Ręczny rozkaz: odpowiedni manewr wstrzymany na 15 s.")
+            phase("RĘCZNIE",focus and "Ręczny rozkaz ataku/wsparcia: bez odnowienia szyku."
+                or "Ręczny rozkaz osłony: czekam na gotowość wykonawcy.")
         elseif text:match("^zaslon%s") or text:match("^wycofaj%s") or text:match("^przelam%s") then
             -- Manual commands never disable automation. Let the server
             -- readiness message clear the maneuver cooldown early.
             if text:match("^wycofaj%s") then S.retreat_until=math.max(S.retreat_until,now()+15) end
-            S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8)
+            local current=snapshot()
+            if current then lock_actor(current.self_id,now(),15) end
+            S.blocked[1]=math.max(S.blocked[1],now()+15)
             if S.pending and S.pending.channel==1 then S.pending=nil end
             phase("RĘCZNIE","Ręczny manewr: czekam na odnowienie, automatyka nadal działa.")
         end
@@ -403,12 +423,18 @@ function T.new(ctx,M,integration,patrol,changed)
         for _,text in ipairs({"Jestes gotowa do zmiany w szyku.","Jestes gotowy do zmiany w szyku.",
             "Jestes gotowa do kolejnej zmiany w szyku.","Jestes gotowy do kolejnej zmiany w szyku."}) do
             ctx:trigger_exact(text,function()
-                S.blocked[1]=math.min(S.blocked[1],math.max(now(),S.retreat_until))
+                local current=snapshot()
+                if current then unlock_actor(current.self_id) end
+                S.retreat_until=now()
+                S.blocked[1]=now()
                 schedule()
             end)
         end
         ctx:trigger_exact("Musisz chwile odpoczac po ostatniej zmianie w szyku.",function()
-            S.blocked[1]=math.max(S.blocked[1],S.retreat_until,now()+8);if S.pending and S.pending.channel==1 then S.pending=nil end
+            local current=snapshot()
+            if current then lock_actor(current.self_id,now(),15) end
+            S.blocked[1]=math.max(S.blocked[1],now()+15)
+            if S.pending and S.pending.channel==1 then S.pending=nil end
             phase("ODNOWIENIE","MUD odmówił manewru; czekam na gotowość.")
         end)
         ctx:trigger_exact("Komu i jaki rozkaz chcesz wydac?",function()
@@ -422,30 +448,35 @@ function T.new(ctx,M,integration,patrol,changed)
     -- Do not clear the wrong minion if names are ambiguous.
     ctx:trigger([[^(.+) jest gotow[ay] do kolejnej zmiany w szyku\.$]],function()
         local name=tostring(matches and matches[2] or ""):lower():gsub("^%s+",""):gsub("%s+$","")
-        local channels={}
+        local matches_by_name={}
         for _,row in ipairs(E.rows()) do
-            if not row.self and row.kind=="npc" and row.name:lower()==name and row.channel<4 then
-                channels[#channels+1]=row.channel
+            if not row.self and row.name:lower()==name then
+                matches_by_name[#matches_by_name+1]=row
             end
         end
-        if #channels==1 then
-            S.blocked[channels[1]]=now()
-            if S.pending and S.pending.channel==channels[1] then S.pending=nil end
+        if #matches_by_name==1 then
+            local row=matches_by_name[1]
+            unlock_actor(row.id)
+            if row.channel<4 then S.blocked[row.channel]=now() end
+            if S.pending and (S.pending.actor==row.id or S.pending.channel==row.channel) then S.pending=nil end
             phase("GOTOWA","Pachołek gotowy do kolejnego manewru.")
             schedule()
-        elseif #channels>1 then
-            phase("BLOKADA","Niejednoznaczna nazwa pachołka; nie kasuję blokad.")
+        elseif #matches_by_name>1 then
+            phase("BLOKADA","Niejednoznaczna nazwa postaci; nie kasuję blokad.")
         end
     end)
     ctx:trigger([[^(.+) wciaz lapie rownowage po ostatniej zmianie w szyku\.$]],function()
         local name=tostring(matches and matches[2] or ""):lower():gsub("^%s+",""):gsub("%s+$","")
-        local channels={}
+        local matches_by_name={}
         for _,row in ipairs(E.rows()) do
-            if not row.self and row.name:lower()==name then channels[#channels+1]=row.channel end
+            if not row.self and row.name:lower()==name then
+                matches_by_name[#matches_by_name+1]=row
+            end
         end
-        if #channels==1 then
-            local channel=channels[1];S.blocked[channel]=math.max(S.blocked[channel],now()+15)
-            if S.pending and S.pending.channel==channel then S.pending=nil end
+        if #matches_by_name==1 then
+            local row=matches_by_name[1]
+            lock_actor(row.id,now(),15)
+            if S.pending and S.pending.actor==row.id then S.pending=nil end
             phase("ODNOWIENIE","Jednostka nadal łapie równowagę; lokalny odstęp przedłużony.")
         else phase("BLOKADA","Nie rozpoznano jednoznacznie jednostki z komunikatu równowagi.") end
     end)
