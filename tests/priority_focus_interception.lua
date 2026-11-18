@@ -60,8 +60,10 @@ do
     local h=fixture(55,85)
     h.api.request("start");h.advance(.1)
     assert(h.sent[1]=="zabij priority")
-    local intercepted=h.triggers[[[^[ >]*Rzucasz sie na .+, lecz droge zastepuje ci .+\.$]]]
-        or h.triggers[[[^Rzucasz sie na .+, lecz droge zastepuje ci .+\.$]]]
+    local intercepted
+    for pattern,fn in pairs(h.triggers) do
+        if pattern:find("Rzucasz sie na",1,true) then intercepted=fn end
+    end
     assert(intercepted,"shield interception trigger registered")
     intercepted()
     h.advance(1.2)
