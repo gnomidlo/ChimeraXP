@@ -205,3 +205,19 @@ wczesniej — skrypt nie jest gwarancja bezpiecznego odwrotu w kazdym MUDzie.
 pojawia sie, gdy wyjscia znikaja z **tej samej** lokacji zapisanej
 w trasie biezacego expowiska, poza kursem sklepowym/bankowym.
 Tekst `Ciemne miejsce.` nadal wyzwala alarm niezaleznie od tego warunku.
+
+
+## Beta.27 — wznowienie oficjalnego chodzika po ataku
+
+W trakcie odwrotu AutoExp zleca oficjalnemu `walker.go` **pojedynczy
+kolejny pokoj z trasy mappera**. Po potwierdzonym dotarciu do pokoju
+wyznacza nastepny krok do zapisanego `safeMap`. Jesli oficjalny chodzik
+przerywa ruch z powodu walki (`chimera.walk.stopped: atak`), automat
+zachowuje cel, czeka na spoznione GMCP, po czym ponawia ruch z aktualnej
+pozycji. Nie ponawia slepo kroku przy braku potwierdzenia; liczba prob
+oraz ponownych odwiedzin lokacji jest ograniczona.
+
+`Ciemne miejsce.` i brak wyjsc na expowisku nadal koncza sie
+wymaganym recznym uruchomieniem po dotarciu do schronienia. Zwykla
+pauza, reczne zatrzymanie oraz bledy chodzika inne niz `atak` nie
+wyzwalaja samoczynnego restartu.
