@@ -1,3 +1,14 @@
+## 0.7.0-beta.33 — Obrona 3.0: jeden planner, cztery role, prostsze menu
+
+- Zastapiono role TANK/OFF TANK/STANDARD/ASEKURACJA/SUPPORT czterema zrozumialymi rolami: **Obronca**, **Asekurant**, **Zrownowazony** (domyslna) i **Chroniony**. Chroniony normalnie uczestniczy w walce, ale nie przejmuje przeciwnikow i otrzymuje dodatkowy priorytet ochrony.
+- **Jeden planner** ocenia stan HP i tempo obrazen, zagrozenie, role, indywidualne limity napastnikow i gotowosc do manewru kazdej postaci. Usunieto niezalezne zadania `Chroń mnie`, `Chroń osobe`, `Wsparcie`, `Rezerwa`, stare wskazania celu i wszystkie ich ukryte blokady.
+- Migracja zapisanej konfiguracji (schema 3) przepisuje stare role do nowych; historyczna **Rezerwa** jest wylaczana zamiast automatycznie wysylana do walki. Stare wskazania chronionych osob sa kasowane, a zaawansowane reczne progi sa zachowywane.
+- Role i indywidualne opcje NPC sa zapamietywane; po zmianie ID w GMCP profil odtwarzany jest tylko przy **jednoznacznie rozpoznanym imieniu i typie NPC**, bez zgadywania przy identycznych imionach.
+- Menu postaci zawiera w jednym panelu przelacznik uczestnictwa, cztery role wybierane radiowo i ustawienia zaawansowane HP/obciazenia. Ogolne ustawienia rozkazow zbiorowych, wycofania i masowych zaslon nadal sa dostepne.
+- Na pasku **Ochrona ●** oznacza aktywny system kolorem zielonym, a nieaktywny zoltym. Klikniecie poza rozwijanym menu zamyka je, nie przechwytujac klikniec w oknie walki, Kondycjach i mapperze.
+- Zasady odnowienia szyku (15 s dla wykonawcy) i priorytet ratowania zagrozonej postaci pozostaja zachowane. Komendy ataku nie zuzywaja odnowienia zaslony.
+- Testy: `tests/defense_unified_roles.lua` (migracja, ratunek dowodcy, ochrona priorytetowa, pamiec profili), `tests/hud_rework.lua` (role inline, dioda i klikniecie poza menu).
+
 ## 0.7.0-beta.32 — diagnostyka brakujacych zaslon i awaryjna ochrona dowodcy
 
 - Gdy `/exp taktyka status` pokazuje zagrozenie, ale nie ma planu, raport podaje **ile napastnikow widzi sam planner w Combat.State**, liczbe relacji GMCP oraz dla kazdego pacholka efektywna role, zadanie i konkretny powod odrzucenia. Nie przedstawia juz niesprawdzonego stwierdzenia `gotowa; brak planu` jako wyjasnienia.
