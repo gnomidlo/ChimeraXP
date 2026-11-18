@@ -56,15 +56,36 @@ do
     api.hud:open("settings");visible_item(h,"Walka i cele").widget.click()
     api.hud.labels.settings.widget.click();assert(not api.hud.menu,"parent tab closes an open submenu")
     assert(api.hud.labels.areas.html:find("#C2CCDB",1,true),"stopped expedition has a grey indicator")
-    assert(api.hud.labels.tactics.html:find("#C2CCDB",1,true),"disabled tactics have a grey indicator")
+    assert(api.hud.labels.tactics.html:find("#EFD8A6",1,true),"disabled protection has a yellow LED")
     api.tactics.toggle(true)
-    assert(api.hud.labels.tactics.html:find("#A8DCC2",1,true),"enabled tactics have a green indicator")
+    assert(api.hud.labels.tactics.html:find("#A8DCC2",1,true),"enabled protection has a green LED")
     api.hud.labels.pause.widget.click();assert(api.status().started,"play starts the selected terrain")
     assert(api.hud.labels.areas.html:find("#A8DCC2",1,true))
     api.hud.labels.pause.widget.click();assert(api.status().paused)
     assert(api.hud.labels.areas.html:find("#EFD8A6",1,true) and api.hud.labels.tactics.html:find("#A8DCC2",1,true),"patrol pause leaves protection green")
     assert(h.border==44 and #h.roots==2,"pause never adds a separate status strip")
     api.hud.labels.pause.widget.click();assert(not api.status().paused)
+    api.hud:open("party")
+    assert(not visible_item(h,"Kogo chronić"))
+    local pet
+    for _,item in pairs(api.hud.labels) do
+        if not item.widget.hidden and item.html:find("petone",1,true)
+            and item.html:find("Zrównoważony",1,true) then pet=item;break end
+    end
+    assert(pet and pet.widget.click,"party shows canonical role for recognized retainer")
+    pet.widget.click()
+    assert(api.hud.menu=="member")
+    assert(visible_item(h,"Obrońca") and visible_item(h,"Asekurant")
+        and visible_item(h,"Chroniony"),"four roles are inline, not in a nested chooser")
+    assert(not visible_item(h,"Zadanie pachołka") and not visible_item(h,"Kogo chronić"),
+        "legacy task and targeted protection are absent from the compact member menu")
+    local pick=visible_item(h,"Chroniony")
+    assert(pick and pick.widget.click)
+    pick.widget.click()
+    for _,row in ipairs(api.tactics.rows()) do
+        if row.id=="petone" then assert(row.role=="chroniony") end
+    end
+    api.hud.menu=nil;api.hud:render()
     api.stop_all();h.dispose()
 end
 do
@@ -135,6 +156,18 @@ do
         "all popup menus share a rounded Obsidian container")
     assert(api.hud.labels.header_icon and api.hud.labels.header_icon.html:find("⚙",1,true),
         "settings menu has a dedicated icon")
+    api.hud:open("party")
+    -- Clicking the game outside the popup closes it without a screen-sized
+    -- event-catching overlay. Clicking inside leaves the menu usable.
+    local rect=api.hud.menu_rect
+    assert(rect and api.hud.menu=="party")
+    h.emit("sysWindowMousePressEvent","sysWindowMousePressEvent",1,
+        rect.x+15,rect.y+20,"main")
+    assert(api.hud.menu=="party","click inside the dropdown keeps it open")
+    h.emit("sysWindowMousePressEvent","sysWindowMousePressEvent",1,
+        h.width-50,h.height-50,"main")
+    assert(api.hud.menu==nil and api.hud.overlay.hidden,
+        "click anywhere outside the box closes the whole dropdown")
     api.hud:open("party")
     assert(api.hud.labels.item1_state.css:find("border-radius:7px",1,true),
         "toggle uses the compact status-chip style")

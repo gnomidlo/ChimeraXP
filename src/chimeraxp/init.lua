@@ -42,7 +42,7 @@ return function(module)
         ctx:command{"exp okno reset",help="Przywróć zwięzły HUD",fn=function() view:visible(true);view:open("areas") end}
         ctx:command{"exp rola",args="<ID rola>",help="Rola obecnej jednostki",fn=function(arg)
             local id,role=tostring(arg or ""):match("^(%S+)%s+(%S+)$")
-            if not tactics.configure(id,"role",role) then ctx.log.warn("Użycie: /exp rola ID tank|offtank|standard|asekuracja|support") end
+            if not tactics.configure(id,"role",role) then ctx.log.warn("Użycie: /exp rola ID obronca|asekurant|zrownowazony|chroniony") end
         end}
         -- The engine's CLI stop must stop tactics too, not just HUD/API clicks.
         -- Register only one alias by supplying this hook at engine construction.

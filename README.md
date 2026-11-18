@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.31** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.33** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Aktualizacja przez Mudlet
 
@@ -29,6 +29,18 @@ Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy aut
 ## Sytuacje awaryjne: wielu napastnikow (beta.30)
 
 Obrona wykorzystuje dostepny snapshot Group.State, jesli sklad druzyny nie zmienil sie po wejsciu do pokoju; jednoczesnie sprawdza, czy dane istot i relacje walki pochodza z biezacej lokacji. Przy 5+ napastnikach i HP <= 85% zwieksza czujnosc, a przy HP <= 65% podnosi priorytet ratunku. Rozkaz oslonienia dowodcy po ID nie wybiera konkretnego wroga, wiec potwierdzenie czeka na przeniesienie *dowolnego* dotychczasowego napastnika. Jesli bezpieczna osłona zbiorowa nie jest mozliwa, sprobuje indywidualnych zaslon w granicach limitow i cooldownow.
+
+## Obrona 3.0 — jeden planner, cztery role (beta.33)
+
+W nowej Obronie wybierasz jedynie role **Obronca** (przejmuje napastnikow), **Asekurant** (ratuje zagrozonych), **Zrownowazony** (domyslna) albo **Chroniony** (postac o priorytetowej ochronie, nieprzejmujaca nowych napastnikow). Rol nie laczymy z dawnymi zadaniami `Chroń mnie / Chroń osobe / Rezerwa`. Wszystkie decyzje defensywne podejmuje pojedynczy planner na podstawie stanu GMCP, dynamiki HP, limitow i odnowien manewrow. Nadal mozesz wlaczyc i wylaczyc ochrone globalnie i dla kazdej postaci, a zaawansowane ustawienia HP i liczby przeciwnikow sa zachowane.
+
+Dawne role sa automatycznie migrowane; zadania nie sa ukrywane, tylko usuwane z zapisu. Stara Rezerwa jest domyslnie wylaczana. Profile NPC pamietamy przy jego kolejnym dolaczeniu, a po zmianie GMCP ID przywracamy wyłącznie przy jednoznacznej zgodnosci imienia i rodzaju postaci.
+
+Menu postaci ma cztery role na jednej stronie. Na pasku zielona dioda oznacza wlaczona Ochrone, zolta — wylaczona. Klikniecie w okno gry poza ramka zamyka rozwijane menu. **Automatyka nie jest domyslnie wlaczana po ponownym polaczeniu**, nawet jesli role zostaly zapisane.
+
+## Obrona — kiedy nic nie planuje (beta.32)
+
+Jesli pasek pokazuje zagrozenie, ale zaslony nie zostaja wykonane, wpisz `/exp taktyka status`. Raport zawiera teraz liczbe rzeczywistych **nadchodzacych atakow wedlug Combat.State**, stan rozpoznania obu NPC, role i zadania; wyjasnia np. nieobecny albo niedopasowany obiekt, inny cel ochrony, brak napastnikow w GMCP, limit obciazenia czy odnowienie. Samo `gotowa` nie bylo weryfikacja, ze mozna utworzyc plan. Przy zagrozeniu dowodcy na HP <=55% bezpieczny wojownik nie zostanie pominięty tylko z powodu dawnego zadania ochrony innej osoby. `Rezerwa`, `Wsperaj mój cel` i rola Wsparcie nadal nie sa samowolnie aktywowane.
 
 ## Obrona — ratowanie pachołków (beta.31)
 
