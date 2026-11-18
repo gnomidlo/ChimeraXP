@@ -1,3 +1,10 @@
+## 0.7.0-beta.31 — ratowanie pachołka mimo przydzielonej roli osłony
+
+- Poprawiono logikę `asekuracja`: przydział pierwszego pachołka do ochrony lidera nie blokuje już ratunkowej zasłony tego pachołka, gdy jego HP spada do 50% i algorytm wykrywa zagrożenie. Poprzednio próg `minion_cover_hp=50` traktował pachołka na 50% HP jak zdrowego obrońcę i zakazywał liderowi osłony.
+- Reguła zachowania przydziału ochrony nadal działa dla stabilnego, zdrowego pachołka. Ratunek nadal respektuje rzeczywiste limity HP/obciążenia wykonawcy.
+- Gdy planner nie znajdzie możliwości bezpiecznej zasłony, tekst decyzji Obrony wyjaśnia powód osobno dla dowódcy i pachołków: HP poniżej progu, limit napastników, cooldown, wyłączenie lub brak przydziału. Dostępny ratownik bez planu zostaje jawnie zasygnalizowany.
+- Nowy test `tests/defense_ally_rescue.lua`: jeden silny mob, pierwszy pachołek HP 50%, dowódca asekuracja, stabilny vs alarmowy stan i zachowanie progu bezpieczeństwa 75%.
+
 ## 0.7.0-beta.30 — zaslony przy wielu napastnikach
 
 - Obrona nie czeka na ponowny pakiet `Group.State` po przejsciu do nowego pokoju: niezmieniony sklad druzyny moze nie generowac nowego zdarzenia. Zanim podejmie decyzje, nadal wymaga danych `Room.Entities` i `Combat.State` z aktualnej lokacji oraz poprawnego, kompletnego snapshotu GMCP.
