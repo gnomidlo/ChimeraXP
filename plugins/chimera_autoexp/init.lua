@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.31",
+    version = "0.7.0-beta.32",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2276,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.31 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.32 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.31"},
+                {"Wersja", "0.7.0-beta.32"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3349,7 +3349,7 @@ function M.snapshot(api)
     local function same_room(v) return type(v)=="string" and v:lower()==room.id:lower() end
     if not same_room(entities.room) or not same_room(combat.room) then return nil,"Niezgodna lokacja danych walki." end
     if type(entities.entities)~="table" or type(combat.relations)~="table" then return nil,"Niepełny stan walki." end
-    local s={room=room.key or room.id, members={}, entities={}, attackers={}, targets={}, enemies={}, minions={},leader=M.id(group.leader),covers={},group_complete=true}
+    local s={room=room.key or room.id, members={}, entities={}, attackers={}, targets={}, enemies={}, minions={},leader=M.id(group.leader),covers={},group_complete=true,relations_count=#combat.relations}
     local char=api.char() or {}
     s.self_id=M.id(char.id)
     for _,e in ipairs(entities.entities) do
@@ -3486,6 +3486,60 @@ function M.task(s,c,i)
     end
     return "support"
 end
+-- Explain the very same inputs the planner sees. A GUI can display several
+-- incoming attackers while the planner has no legal plan: 'ready' used to hide
+-- invalid NPC classification, a stale protection task, or zero GMCP attackers.
+function M.explain_cover(s,c,enabled,blocked,protected)
+    enabled,blocked=enabled or {},blocked or {}
+    local incoming=count(s,protected)
+    local result={string.format("GMCP: %d napastnikow (%d relacji)",incoming,s.relations_count or 0)}
+    local danger=s.risk and s.risk[protected]
+    local urgent=danger and (danger.level=="critical"
+        or (danger.level=="warning" and (s.members[protected] or {}).hp<=55))
+    for i,p in ipairs(c.minions or {}) do
+        local id=p.id
+        local member=id and s.members[id]
+        local entity=id and s.entities[id]
+        local policy=id and M.policy(s,c,id)
+        local task=M.task(s,c,i)
+        local slot=i+1
+        local block=blocked[slot]
+        local blocked_cover=block==true or (type(block)=="table" and block.cover==true)
+        local reason
+        if not id then reason="brak przypisania ID"
+        elseif not member then reason="nieobecna w GMCP"
+        elseif not s.minions[id] then
+            reason="brak rozpoznania jako NPC sojusznik (kind="
+                ..tostring(entity and entity.kind)..", relation="
+                ..tostring(entity and entity.relation)..")"
+        elseif not enabled[slot] or not policy.enabled then reason="ochrona wylaczona"
+        elseif blocked_cover or (s.maneuver_locked and s.maneuver_locked[id]) then
+            reason="manewr zablokowany"
+        elseif not ready_member(member) then reason="niegotowa/ogluszona"
+        elseif member.hp<policy.min_hp then
+            reason=string.format("HP %.0f%% < prog %.0f%%",member.hp,policy.min_hp)
+        elseif count(s,id)+1>policy.max_load then
+            reason=string.format("limit %d/%d",count(s,id),policy.max_load)
+        elseif incoming==0 then reason="brak napastnikow celu wg GMCP"
+        elseif p.task=="reserve" or p.task=="support" or policy.role=="support" then
+            reason="zadanie/rola: "..tostring(p.task).."/"..tostring(policy.role)
+        elseif task=="protect" and p.target_id~=protected and not urgent then
+            reason="chroni inny cel: "..tostring(p.target_name or p.target_id)
+        elseif c.protect and c.protect_id==id and protected==s.self_id and not urgent then
+            reason="ochrona lidera koliduje z przydzialem JA"
+        elseif p.task=="auto" and policy.role==nil and c.role~="standard"
+            and task~="self" and not urgent then
+            reason="auto przechodzi we wsparcie; brak dopasowanej roli"
+        else
+            reason="warunki spelnione; planner nie utworzyl planu"
+        end
+        result[#result+1]=(member and member.name or p.name or ("P"..i))
+            .." ["..tostring(policy and policy.role or "auto")
+            ..", zadanie="..tostring(p.task).."/"..tostring(task).."]: "..reason
+    end
+    return table.concat(result,"; ")
+end
+
 function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     blocked=blocked or {}
     local function unavailable(ch,kind)
@@ -3519,8 +3573,9 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         if not policy.enabled then return end
         if policy.target_id==protected and policy.target_name==s.members[protected].name then priority=priority+5 end
         if M.policy(s,c,protected).role=="support" then priority=priority+5 end
-        if channel>1 and c.protect and c.protect_id==actor and protected==s.self_id then
-            return -- Explicit JA protection takes precedence over the reciprocal guard task.
+        if channel>1 and c.protect and c.protect_id==actor and protected==s.self_id
+            and not (critical or (warning and s.members[protected].hp<=55)) then
+            return -- Routine explicit protection has priority; not above a life-saving cover.
         end
         if focus and protected~=focus.protected then return end
         local enemies=s.attackers[protected] or {}
@@ -3598,6 +3653,34 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                     if accept then out[#out+1]={channel=1,actor=me,protected=id,kind="retreat",
                         room=s.room,priority=s.members[me].hp<c.min_hp and 110 or 80,
                         before_targets=s.attackers[me],reason="Wycofanie za "..s.members[id].name} end
+                end
+            end
+        end
+    end
+    -- Mandatory life-saving fallback: a wounded commander must not be
+    -- left unprotected solely because a warrior has a stale "protect"
+    -- target or the auto-task switch chose support. Reserve/support
+    -- remain explicit opt-outs; minion identity and normal safety limits
+    -- are still checked by cover()/can_take().
+    local self_danger=s.risk and s.risk[me]
+    local rescue_self=self_danger and (self_danger.level=="critical"
+        or (self_danger.level=="warning" and s.members[me].hp<=55))
+        and count(s,me)>0
+    if rescue_self then
+        for i=1,2 do
+            local p=c.minions[i]
+            local actor=p.id
+            local policy=actor and M.policy(s,c,actor)
+            if enabled[i+1] and p.task~="reserve" and p.task~="support"
+                and actor and s.minions[actor] and policy.enabled
+                and policy.role~="support" and not unavailable(i+1,"cover") then
+                -- Unknown/custom-less roles get a conservative warrior
+                -- envelope, not the broader generic 50%/3-load defaults.
+                local safe_role=policy.role~=nil or
+                    (s.members[actor].hp>=65 and count(s,actor)<2)
+                if safe_role then
+                    cover(i+1,actor,me,170,
+                        "Ratunek: oslona zagrozonego dowodcy.",false)
                 end
             end
         end
@@ -4197,40 +4280,14 @@ function T.new(ctx,M,integration,patrol,changed)
                 detail="Inny cel lub brak ataku: "..table.concat(missing,", ").."; "..why.."."
             end
             if S.threat and S.threat.level~="stable" then
-                -- Explain the concrete reason for refusal. "Brak bezpiecznego
-                -- manewru" was misleading even while a healthy rescuer was
-                -- available and the planner had suppressed a guard rescue.
-                local notes={}
-                local endangered=S.threat.id
-                local function candidate(id,ch,task)
-                    if not id or id==endangered then return end
-                    local m=s.members[id]
-                    local name=m and m.name or (ch==1 and "JA" or "P"..(ch-1))
-                    local p=m and M.policy(s,config,id)
-                    local unavailable=blocked[ch]==true
-                        or (type(blocked[ch])=="table" and blocked[ch].cover==true)
-                    local cd=math.max(0,math.ceil(actor_ready(id)-t))
-                    local enemy_count=m and #(s.attackers[id] or {}) or 0
-                    local reason
-                    if not m then reason="nieobecna"
-                    elseif not S.enabled[ch] or not p.enabled then reason="wylaczona"
-                    elseif ch>1 and (task=="reserve" or task=="support") then reason="zadanie "..task
-                    elseif unavailable or cd>0 then reason="odnowienie "..cd.." s"
-                    elseif m.stunned then reason="ogluszona"
-                    elseif m.hp and m.hp<p.min_hp then reason="HP "..math.floor(m.hp).." < "..p.min_hp.."%"
-                    elseif enemy_count+1>p.max_load then
-                        reason="limit napastnikow "..enemy_count.."/"..p.max_load
-                    else reason="gotowa; brak planu (sprawdz role)" end
-                    notes[#notes+1]=name..": "..reason
-                end
-                candidate(s.self_id,1)
-                for i,pet in ipairs(config.minions) do
-                    candidate(pet.id,i+1,pet.task)
-                end
-                local reason=#notes>0 and table.concat(notes,"; ") or "brak innych czlonkow"
+                -- Report the *planner's actual inputs*, not 'ready; no
+                -- plan'. The latter checked cooldown/HP but missed stale
+                -- tasks, invalid NPC classification and zero incoming
+                -- enemies in Combat.State.
+                local explanation=M.explain_cover(s,config,S.enabled,blocked,S.threat.id)
                 detail=(S.threat.level=="critical" and "ALARM: " or "Uwaga: ")
                     ..S.threat.name.." "..math.floor(S.threat.hp+0.5)
-                    .."% HP; brak osłony — "..reason
+                    .."% HP; brak osłony — "..explanation
             elseif detail=="Nie potrzeba zmiany szyku." then
                 detail="Szyk bezpieczny; monitoruje HP."
             end
