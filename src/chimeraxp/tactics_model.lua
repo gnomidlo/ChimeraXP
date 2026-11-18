@@ -326,6 +326,16 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
             actors[#actors+1]={id=p.id,channel=i+1}
         end
     end
+    -- Optional manual-authorized orders to other *players* remain supported.
+    -- They are considered by the same defensive planner, not a separate
+    -- task controller, and only when the character leads the party.
+    if c.team_orders and enabled[4] and s.leader==me and s.group_complete then
+        for _,id in ipairs(ordered(s.members)) do
+            if id~=me and s.members[id].kind=="player" then
+                actors[#actors+1]={id=id,channel=4}
+            end
+        end
+    end
 
     local function proposal(actor,protected,reason)
         local id,ch=actor.id,actor.channel
@@ -340,6 +350,7 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         if #enemies==0 then return end
         if focus and (focus.protected~=protected or
             not s.enemies[focus.enemy]) then return end
+        if ch==4 and performer.casting then return end
         local victim_risk=s.risk and s.risk[protected]
         local urgent=victim_risk and victim_risk.level~="stable"
             or victim.hp<=55
