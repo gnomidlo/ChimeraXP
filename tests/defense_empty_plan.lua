@@ -103,9 +103,10 @@ do
     s.risk={me={level="warning",hp=54}}
     local result=M.explain_cover(s,c,{true,true,true,false},{},s.self_id)
     assert(result:find("GMCP: 3 napastnikow",1,true))
-    assert(result:find("zadanie=protect/protect",1,true))
-    assert(result:find("warunki spelnione",1,true),
-        "give factual reasons and do not pretend assigned roles are cooldowns")
+    assert(result:find("[zrownowazony]",1,true),
+        "migrated fighters have exactly one role, not lingering target tasks")
+    assert(result:find("gotowa",1,true),
+        "diagnostics identify a ready rescuer rather than pretending a cooldown")
     h.dispose()
 end
 
