@@ -227,7 +227,8 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     for id in pairs(s.members) do s.weights[id]=M.policy(s,c,id).weight end
     local tank_id=M.main_tank(s,c)
     local function cover(channel,actor,protected,priority,why,allow_mass)
-        if unavailable(channel,"cover") or actor==protected or not ready_member(s.members[protected]) then return end
+        if unavailable(channel,"cover") or (s.maneuver_locked and s.maneuver_locked[actor])
+            or actor==protected or not ready_member(s.members[protected]) then return end
         if channel==1 and priority<100 and s.members[protected].hp>=c.min_hp then
             for i,p in ipairs(c.minions) do
                 local task=M.task(s,c,i)
@@ -390,7 +391,8 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                 -- group. Only actual recipients consume maneuver readiness.
                 if id~=protected and id~=me then
                     local m=s.members[id]
-                    if not available_for_broadcast(id,true) or not ready_member(m) or m.hp<50 or m.casting or not can_take(s,id,#enemies,c)
+                    if not available_for_broadcast(id,true) or (s.maneuver_locked and s.maneuver_locked[id])
+                        or not ready_member(m) or m.hp<50 or m.casting or not can_take(s,id,#enemies,c)
                         or (s.covers[protected] and s.covers[protected][id]) then safe=false end
                     local improvement=math.min(gain(s,protected,id,1),gain(s,protected,id,#enemies))
                     if not (threat and threat.level~="stable") and improvement<0.12 then safe=false end
@@ -505,7 +507,9 @@ function M.manual(command,s,c)
         if #found==1 then channels[found[1]]=true
         elseif verb=="parozkaz" or recipient=="druzynie" or not s then channels[2]=true;channels[3]=true
         elseif not (recipient and s.members[recipient]) then channels[2]=true;channels[3]=true end
-        return {kind=kind,channels=channels}
+        return {kind=kind,channels=channels,
+            actor=recipient and s and s.members[recipient] and recipient or nil,
+            group=recipient=="druzynie"}
     end
     if kinds[verb]=="support" then return {kind="support",channels={[2]=true,[3]=true,[4]=true}} end
 end
