@@ -65,8 +65,10 @@ do
         if r.id=="petone" then assert(r.role=="obronca") end
         if r.id=="pettwo" then assert(r.role=="zrownowazony") end
     end
-    assert(h.saved.tactics==nil or h.saved.tactics.minions[1].task,
-        "in-memory migration doesn't mutate saved preferences until explicitly saved")
+    assert(h.saved.tactics and h.saved.tactics.schema==3
+        and h.saved.tactics.minions[1].task==nil
+        and h.saved.tactics.minions[1].target_id==nil,
+        "legacy tasks and protection targets are permanently removed on migration")
     h.dispose()
 end
 
@@ -109,6 +111,23 @@ do
     local reason=M.explain_cover(s,c,{false,false,true,false},{}, "petone")
     assert(reason:find("rola Chroniony",1,true),
         "explicit role and safety limit are visible in diagnostics")
+    h.dispose()
+end
+
+do
+    local h=new()
+    local c=M.defaults({team_orders=true,team_broadcast=false,
+        minions={{id="petone"},{id="pettwo"}}})
+    h.p.vitals.hp=50
+    h.p.combat.relations={{attacker="enemy1",defender="me"}}
+    local snap=assert(M.snapshot(h.gmcp))
+    snap.risk={me={level="critical",hp=50}}
+    local plan=M.plan(snap,c,{true,false,false,true})
+    assert(plan and plan.channel==4 and plan.kind=="cover"
+        and (plan.actor=="friend" or plan.actor=="tank"),
+        "when opted in, players also take individual covers under the same planner")
+    assert(M.command(plan,snap)=="rozkaz "..plan.actor.." zaslonic ciebie",
+        "player-directed rescue uses the proper untargeted leader-cover command")
     h.dispose()
 end
 
