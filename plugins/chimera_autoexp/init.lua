@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.29",
+    version = "0.7.0-beta.30",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2276,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.29 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.30 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.29"},
+                {"Wersja", "0.7.0-beta.30"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3541,7 +3541,12 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
             kind=mass and "mass" or "cover",priority=urgency or (s.members[protected].hp<40 and improvement>=0.12 and 120 or (emergency and math.max(priority,110) or priority)),
             safety_gain=broad and improvement or gain(s,protected,actor,mass and #enemies or 1),
             reason=(critical and "RATUNEK: " or warning and "Zagrozenie: " or "")..why,room=s.room,
-            before_targets=(mass or broad) and enemies or {enemy}}
+            before_targets=(mass or broad) and enemies or {enemy},
+            -- "rozkaz ID zaslonic ciebie" does not name an enemy.
+            -- The MUD may pick *any* of the attackers; confirm what actually
+            -- transferred, not the alphabetically first one we guessed.
+            confirmation_targets=(channel>1 and channel<4 and protected==me and s.leader==me)
+                and enemies or nil}
     end
     local me=s.self_id
     if enabled[1] and M.policy(s,c,me).enabled and not blocked[1] and ready_member(s.members[me]) then
@@ -3749,7 +3754,15 @@ function M.confirmed(d,s)
         return false
     end
     if d.kind=="support" then return s.targets[d.actor]==d.enemy end
-    if d.kind=="cover" and not d.broad then return s.targets[d.enemy]==d.actor end
+    if d.kind=="cover" and not d.broad then
+        if d.confirmation_targets then
+            for _,enemy in ipairs(d.confirmation_targets) do
+                if s.targets[enemy]==d.actor then return true end
+            end
+            return false
+        end
+        return s.targets[d.enemy]==d.actor
+    end
     local target=d.kind=="retreat" and d.protected or d.actor
     for _,enemy in ipairs(d.before_targets or {}) do if s.targets[enemy]==target then return true end end
     return false
@@ -3928,11 +3941,16 @@ function T.new(ctx,M,integration,patrol,changed)
             -- cannot create an unbounded damage-per-second estimate.
             local rate=math.max(short/5,long/25)
             local eta=rate>0 and math.max(0,(hp-35)/rate) or nil
+            local attackers=#(s.attackers[id] or {})
             local level="stable"
-            if hp<=35 or short>=18 or (hp<=80 and eta and eta<=15) then level="critical"
-            elseif hp<=55 or short>=8 or (eta and eta<=30) then level="warning" end
+            -- Massive aggro is a threat multiplier once HP is already low;
+            -- eight weak mobs at full HP alone do not force a panic maneuver.
+            if hp<=35 or short>=18 or (hp<=80 and eta and eta<=15)
+                or (attackers>=5 and hp<=65) then level="critical"
+            elseif hp<=55 or short>=8 or (eta and eta<=30)
+                or (attackers>=5 and hp<=85) then level="warning" end
             local data={level=level,hp=hp,damage5=short,damage25=long,
-                rate=rate,eta=eta,attackers=#(s.attackers[id] or {})}
+                rate=rate,eta=eta,attackers=attackers}
             risk[id]=data
             if data.attackers>0 and (not most or
                 (level=="critical" and most.level~="critical") or
@@ -4087,14 +4105,16 @@ function T.new(ctx,M,integration,patrol,changed)
         local xp=patrol.status()
         if xp.dry then return end
         local t=now()
-        for _,key in ipairs({"entities","group","combat"}) do
+        -- Group.State is a *state*, not a guaranteed room-change event.
+        -- After moving, an unchanged group may never send another packet.
+        -- Require fresh room entities and combat from the new room, but
+        -- trust the existing Group.State once M.snapshot has validated it.
+        for _,key in ipairs({"entities","combat"}) do
             if not S.received[key] then
                 phase("SYNCHRONIZACJA","Brak danych: "..key);return
             end
         end
-        -- Group and entity packets are event-driven, not heartbeats: an
-        -- unchanged roster need not be re-sent every fifteen seconds.
-        -- M.snapshot validates all three against the current room.
+        -- M.snapshot validates room identity, membership and live relations.
         local s,err=snapshot()
         if not s then phase("BLOKADA GMCP",err);return end
         observe_health(s,t)
@@ -4114,7 +4134,7 @@ function T.new(ctx,M,integration,patrol,changed)
             local p=S.pending
             if M.confirmed(p,s) then
                 S.last[p.channel]=p;S.pending=nil
-                for _,enemy in ipairs(p.before_targets or {}) do
+                for _,enemy in ipairs(p.confirmation_targets or p.before_targets or {}) do
                     local target=p.kind=="retreat" and p.protected or p.actor
                     if s.targets[enemy]==target then S.transfers[enemy]={from=p.kind=="retreat" and p.actor or p.protected,until_at=t+12} end
                 end
