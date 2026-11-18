@@ -229,14 +229,16 @@ function T.new(ctx,M,integration,patrol,changed)
         local xp=patrol.status()
         if xp.dry then return end
         local t=now()
-        for _,key in ipairs({"entities","group","combat"}) do
+        -- Group.State is a *state*, not a guaranteed room-change event.
+        -- After moving, an unchanged group may never send another packet.
+        -- Require fresh room entities and combat from the new room, but
+        -- trust the existing Group.State once M.snapshot has validated it.
+        for _,key in ipairs({"entities","combat"}) do
             if not S.received[key] then
                 phase("SYNCHRONIZACJA","Brak danych: "..key);return
             end
         end
-        -- Group and entity packets are event-driven, not heartbeats: an
-        -- unchanged roster need not be re-sent every fifteen seconds.
-        -- M.snapshot validates all three against the current room.
+        -- M.snapshot validates room identity, membership and live relations.
         local s,err=snapshot()
         if not s then phase("BLOKADA GMCP",err);return end
         observe_health(s,t)
