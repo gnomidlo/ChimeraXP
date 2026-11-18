@@ -8,7 +8,7 @@ function T.new(ctx,M,integration,patrol,changed)
     local imported=persisted or integration.migrate_tactics()
     local config=M.defaults(imported or {})
     if not config.self_profile then
-        config.self_profile=M.profile_defaults({role=config.role,min_hp=imported and config.min_hp or nil,max_load=imported and config.max_load or nil})
+        config.self_profile=M.profile_defaults({role=config.role})
     end
     config.confirmed_minions=type(persisted)=="table" and type(persisted.confirmed_minions)=="table" and persisted.confirmed_minions or {}
     -- Collective commands need live server verification before opt-in.
@@ -97,30 +97,80 @@ function T.new(ctx,M,integration,patrol,changed)
     end
     local function snapshot() return M.snapshot(api) end
     local function display() return snapshot() or M.party(api) end
+    -- Remember a pet's role when its server entity ID changes. Reuse a
+    -- profile only for a unique exact name+kind match; never infer from a
+    -- declension or assign a role to two identically named NPCs.
+    local function restore_profile(member,roster)
+        if config.profiles[member.id] then return false end
+        local same_present=0
+        for _,other in ipairs(roster) do
+            if other.name==member.name then same_present=same_present+1 end
+        end
+        if same_present~=1 then return false end
+        local previous,profile
+        for old_id,p in pairs(config.profiles) do
+            if p.name==member.name and p.kind=="npc" then
+                if previous then return false end
+                previous,profile=old_id,p
+            end
+        end
+        if not previous then return false end
+        config.profiles[member.id]=M.profile_defaults(profile)
+        if previous~=member.id then config.profiles[previous]=nil end
+        return true
+    end
     local function detect()
         local roster=M.roster(api)
         if not roster then return end
         S.ambiguous=#roster>2
+        -- Never guess which two NPCs to command in a larger party.
         if S.ambiguous then return end
         local used,dirty={},false
+        for _,member in ipairs(roster) do
+            if restore_profile(member,roster) then dirty=true end
+        end
         for _,p in ipairs(config.minions) do
-            for _,member in ipairs(roster) do if member.id==p.id then used[p.id]=true end end
+            for _,member in ipairs(roster) do
+                if member.id==p.id then used[p.id]=true end
+            end
+        end
+        -- Prefer the previous name over the alphabetical roster position.
+        for _,p in ipairs(config.minions) do
+            if not used[p.id] then
+                for _,member in ipairs(roster) do
+                    if not used[member.id] and member.name==p.name then
+                        p.id,p.name=member.id,member.name
+                        used[member.id]=true
+                        dirty=true
+                        break
+                    end
+                end
+            end
         end
         for i,p in ipairs(config.minions) do
             if not used[p.id] then
                 local candidate
                 for _,member in ipairs(roster) do
-                    if not used[member.id] and (not candidate or member.name==p.name) then candidate=member end
+                    if not used[member.id] then candidate=member;break end
                 end
                 if candidate then
-                    p.id,p.name=candidate.id,candidate.name;used[p.id]=true
-                    -- A changed slot must never inherit the previous owner's
-                    -- 15s maneuver cooldown; those locks follow GMCP IDs.
-                    S.blocked[i+1]=0;dirty=true
-                    -- Discovery is not an attack attempt. Keep support's
-                    -- short command guard separate from maneuver cooldown.
+                    p.id,p.name=candidate.id,candidate.name
+                    used[p.id]=true;dirty=true
+                    -- Readiness belongs to an entity ID, never a slot.
+                    S.blocked[i+1]=0
                     S.support[i+1]=math.max(S.support[i+1],now()+1)
+                    S.enabled[i+1]=true
                     if S.pending and S.pending.channel==i+1 then S.pending=nil end
+                else
+                    p.id=nil
+                    p.name=nil
+                end
+            end
+            if p.id and used[p.id] then
+                local member=nil
+                for _,m in ipairs(roster) do if m.id==p.id then member=m end end
+                if member then
+                    config.confirmed_minions[i]={id=p.id,name=p.name}
                 end
             end
         end
@@ -154,8 +204,7 @@ function T.new(ctx,M,integration,patrol,changed)
             for i,p in ipairs(config.minions) do if p.id==id then ch=i+1;slot=i end end
             rows[#rows+1]={id=id,name=m.name,kind=m.kind,role=id==s.self_id and config.role or policy.role,
                 enabled=policy.enabled and S.enabled[ch],channel=ch,slot=slot,
-                min_hp=policy.min_hp,max_load=policy.max_load,task=slot and config.minions[slot].task,
-                target_name=policy.target_name,target_id=policy.target_id,
+                min_hp=policy.min_hp,max_load=policy.max_load,
                 cooldown=math.max(0,math.ceil(math.max(S.blocked[ch] or 0,actor_ready(id))-now())),
                 self=id==s.self_id}
         end
@@ -167,31 +216,39 @@ function T.new(ctx,M,integration,patrol,changed)
     end
     function E.configure(id,key,value,expected)
         if S.destroyed then return false end
-        local s=display();local member=s and s.members[id]
+        local current=display()
+        local member=current and current.members[id]
         if not member then return false end
-        if expected and (member.name~=expected.name or member.kind~=expected.kind) then return false end
-        local own=id==s.self_id;local old=own and config.self_profile or config.profiles[id]
-        if old and not own and (old.name~=member.name or old.kind~=member.kind) then old=nil end
-        local p=M.profile_defaults(old or {name=member.name,kind=member.kind,min_hp=own and config.min_hp or 50,max_load=config.max_load})
+        if expected and (member.name~=expected.name or member.kind~=expected.kind) then
+            return false
+        end
+        local own=id==current.self_id
+        local old=own and config.self_profile or config.profiles[id]
+        if old and not own and (old.name~=member.name or old.kind~=member.kind) then
+            old=nil
+        end
+        local p=M.profile_defaults(old or {name=member.name,kind=member.kind})
+        p.name,p.kind=member.name,member.kind
         if key=="role" then
-            if value~="auto" and not M.labels[value] then return false end
-            if own and value=="auto" then return false end
-            p.role=value~="auto" and value or nil
-            if p.role then p.min_hp=M.presets[p.role].min_hp;p.max_load=M.presets[p.role].max_load end
-            if not p.role then p.min_hp=50;p.max_load=config.max_load end
+            if not M.labels[value] then return false end
+            p.role=value
+            p.min_hp=M.presets[value].min_hp
+            p.max_load=M.presets[value].max_load
             if own then config.role=value end
         elseif key=="enabled" then p.enabled=value==true
-        elseif key=="min_hp" then p.min_hp=math.max(own and 40 or 50,math.min(100,tonumber(value) or p.min_hp))
-        elseif key=="max_load" then p.max_load=math.max(0,math.min(5,math.floor(tonumber(value) or p.max_load)))
-        elseif key=="target_id" then
-            local target=value and s.members[value]
-            if value and (not target or value==id) then return false end
-            p.target_id=value;p.target_name=target and target.name
-            if own then config.protect=value~=nil;config.protect_id=value;config.protect_name=p.target_name end
-            for _,pet in ipairs(config.minions) do if pet.id==id then pet.target_id=value;pet.target_name=p.target_name end end
+        elseif key=="min_hp" then
+            p.min_hp=math.max(40,math.min(100,math.floor(tonumber(value) or p.min_hp)))
+        elseif key=="max_load" then
+            p.max_load=math.max(0,math.min(5,math.floor(tonumber(value) or p.max_load)))
         else return false end
         if own then config.self_profile=p else config.profiles[id]=p end
-        for _,row in ipairs(E.rows()) do if row.id==id and key=="enabled" and row.channel<4 then S.enabled[row.channel]=p.enabled end end
+        if key=="enabled" then
+            for _,row in ipairs(E.rows()) do
+                if row.id==id and row.channel<4 then
+                    S.enabled[row.channel]=p.enabled
+                end
+            end
+        end
         save();notify();return true
     end
     function E.option(key,value)
@@ -201,13 +258,6 @@ function T.new(ctx,M,integration,patrol,changed)
         end
         return false
     end
-    function E.task(id,value,expected)
-        if S.destroyed or not M.task_labels[value] then return false end
-        local s=display();local member=s and s.members[id]
-        if not member or (expected and (member.name~=expected.name or member.kind~=expected.kind)) then return false end
-        for _,p in ipairs(config.minions) do if p.id==id then p.task=value;save();notify();return true end end
-        return false
-    end
     function E.bind(slot,id,expected)
         if S.destroyed or (slot~=1 and slot~=2) then return false end
         local s=display();local member=s and s.minions[id]
@@ -215,8 +265,9 @@ function T.new(ctx,M,integration,patrol,changed)
         if config.minions[3-slot].id==id then return false end
         local pet=config.minions[slot];pet.id=id;pet.name=member.name
         config.confirmed_minions[slot]={id=id,name=member.name}
-        S.enabled[slot+1]=false;S.blocked[slot+1]=math.max(S.blocked[slot+1],now()+15)
-        save();phase("PRZYPISANO","Pachołek przypisany. Włącz jego udział po sprawdzeniu roli.");return true
+        S.enabled[slot+1]=true;S.blocked[slot+1]=0
+        restore_profile({id=id,name=member.name},M.roster(api) or {})
+        save();phase("PRZYPISANO","Pachołek przypisany. Rola zapamiętana; automat wybierze manewr.");return true
     end
     function E.status()
         return {on=S.on,phase=S.phase,detail=S.detail,pending=S.pending and S.pending.kind,
