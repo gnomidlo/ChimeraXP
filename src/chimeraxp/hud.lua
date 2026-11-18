@@ -417,7 +417,8 @@ function H.new(ctx,patrol,tactics,stop)
         -- No second row, even at narrow widths.
         local free=math.max(1,right-x-8)
         local running=st.started or st.phase=="DARK_STOP"
-        local badgewidth=running and math.max(1,math.min(215,math.floor(free*.42))) or 0
+        local badgewidth=running and math.min(math.max(1,free-2),
+            math.max(80,math.min(215,math.floor(free*.42)))) or 0
         local badge_x=right-badgewidth-6
         if running then
             local name=snap.profile and snap.profile.name or "Brak terenu"
