@@ -245,6 +245,13 @@ function T.new(ctx,M,integration,patrol,changed)
         for id in pairs(s.members) do
             if actor_ready(id)>t then s.maneuver_locked[id]=true end
         end
+        -- A queued routine attack/support is never allowed to delay a
+        -- newly detected life-saving maneuver for its full 3s ack window.
+        -- Keep protection/retreat attempts serialized until confirmed.
+        if S.pending and S.threat and S.threat.level=="critical"
+            and (S.pending.kind=="support" or S.pending.kind=="team_attack") then
+            S.pending=nil
+        end
         if S.pending then
             local p=S.pending
             if M.confirmed(p,s) then
