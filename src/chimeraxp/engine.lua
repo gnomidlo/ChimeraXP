@@ -1762,6 +1762,9 @@ return {
                 and clock() <= (native_retreat.wait_until or 0) + 0.2
             if late_native then
                 native_retreat.wait_from, native_retreat.wait_target, native_retreat.wait_until = nil, nil, nil
+                -- The earlier retry timer belongs to the PREVIOUS room. A
+                -- confirmed late arrival can replan immediately, not in 3 s.
+                if pending then ctx:cancel(pending); pending = nil end
             end
             if emergency and r and valid_id(r.id) then
                 emergency.visits[r.id] = (emergency.visits[r.id] or 0) + 1
