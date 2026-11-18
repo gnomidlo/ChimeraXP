@@ -30,6 +30,10 @@ Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy aut
 
 Obrona wykorzystuje dostepny snapshot Group.State, jesli sklad druzyny nie zmienil sie po wejsciu do pokoju; jednoczesnie sprawdza, czy dane istot i relacje walki pochodza z biezacej lokacji. Przy 5+ napastnikach i HP <= 85% zwieksza czujnosc, a przy HP <= 65% podnosi priorytet ratunku. Rozkaz oslonienia dowodcy po ID nie wybiera konkretnego wroga, wiec potwierdzenie czeka na przeniesienie *dowolnego* dotychczasowego napastnika. Jesli bezpieczna osłona zbiorowa nie jest mozliwa, sprobuje indywidualnych zaslon w granicach limitow i cooldownow.
 
+## Obrona — kiedy nic nie planuje (beta.32)
+
+Jesli pasek pokazuje zagrozenie, ale zaslony nie zostaja wykonane, wpisz `/exp taktyka status`. Raport zawiera teraz liczbe rzeczywistych **nadchodzacych atakow wedlug Combat.State**, stan rozpoznania obu NPC, role i zadania; wyjasnia np. nieobecny albo niedopasowany obiekt, inny cel ochrony, brak napastnikow w GMCP, limit obciazenia czy odnowienie. Samo `gotowa` nie bylo weryfikacja, ze mozna utworzyc plan. Przy zagrozeniu dowodcy na HP <=55% bezpieczny wojownik nie zostanie pominięty tylko z powodu dawnego zadania ochrony innej osoby. `Rezerwa`, `Wsperaj mój cel` i rola Wsparcie nadal nie sa samowolnie aktywowane.
+
 ## Obrona — ratowanie pachołków (beta.31)
 
 Jeżeli pierwszy pachołek pełni automatycznie zadanie ochrony lidera, stan zagrożenia (ostrzeżenie lub alarm) znosi dotychczasową blokadę zasłaniania go przez dowódcę. To ważne przy jego HP około 50%, które wcześniej błędnie uznawano za wystarczająco wysokie do zakazu interwencji. Przed wykonaniem ratunku nadal sprawdzany jest próg HP osoby zasłaniającej i jej maksymalna liczba napastników. Gdy automatyka odmawia zasłony, `/exp taktyka status` podaje powody odrębnie dla potencjalnych ratowników; sam komunikat o czerwonym alarmie nie oznacza, że wykonanie manewru jest bezpieczne.
