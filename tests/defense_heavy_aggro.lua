@@ -64,7 +64,12 @@ do
     local next_actor=first=="petone" and "pettwo" or "petone"
     local pending=M.plan(s,M.defaults(h.saved.tactics),{true,true,true,false})
     assert(pending and pending.confirmation_targets
-        and #pending.confirmation_targets==8)
+        and #pending.confirmation_targets==8,
+        "bad plan: "..tostring(pending and pending.kind)
+            .." protected="..tostring(pending and pending.protected)
+            .." leader="..tostring(s.leader)
+            .." role="..tostring(c and c.role)
+            .." targets="..tostring(pending and pending.confirmation_targets and #pending.confirmation_targets))
     -- The MUD chooses enemy9, NOT the first enemy chosen locally.
     for _,r in ipairs(h.p.combat.relations) do
         if r.attacker=="enemy9" then r.defender=first end
