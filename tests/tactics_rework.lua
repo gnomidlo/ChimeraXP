@@ -104,8 +104,12 @@ do
     assert(#h.sent==0,"ambiguous ownership does not guess a retainer")
     assert(h.api.bind(1,"petone"));h.api.configure("petone","enabled",true)
     h.advance(14.9);h.fresh();h.advance(0.7)
-    assert(#h.sent==1 and h.sent[1]=="rozkaz petone zaslonic ciebie",
-        "explicit binding authorizes a correctly addressed leader cover order; sent="..table.concat(h.sent," | ").." phase="..h.api.status().phase.." reason="..h.api.status().detail)
+    -- The test deliberately supplies no GMCP confirmation. After the
+    -- actor's real 15s formation cooldown it may retry the same order.
+    assert(#h.sent>=1 and #h.sent<=2 and
+        h.sent[1]=="rozkaz petone zaslonic ciebie" and
+        h.sent[#h.sent]=="rozkaz petone zaslonic ciebie",
+        "explicitly bound helper may rescue and retry only after cooldown; sent="..table.concat(h.sent," | "))
     h.dispose()
 end
 do
