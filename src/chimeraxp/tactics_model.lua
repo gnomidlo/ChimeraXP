@@ -351,7 +351,7 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         if not urgent and victim_role~="chroniony" then
             -- A healthy ally with one weak attacker is not an emergency.
             -- Avoid moving a harmless enemy solely to optimize tiny ratios.
-            if #enemies==1 and victim.hp>=85 then return end
+            if #enemies<=2 and victim.hp>=75 and role~="obronca" then return end
             if role=="obronca" then
                 if count(s,protected)<=count(s,id) and improvement<0.12 then return end
             elseif improvement<0.12 then return end
