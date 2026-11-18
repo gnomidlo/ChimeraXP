@@ -1668,12 +1668,23 @@ return {
             end
             if phase == "ENGAGING" and pending_attack then
                 if os.time() - pending_attack.since < p.rules.attackWait then return end
-                -- If no combat began, do not mistake a rejected attack for
-                -- life-threatening danger. Stop initiation and let the user
-                -- inspect a blocker rather than entering a retreat loop.
-                pause("Nie potwierdzono rozpoczecia walki z "..pending_attack.id..
-                    "; sprawdz cel lub oslone.")
-                return
+                -- When a corpse has already disappeared from Room.Entities,
+                -- the opening target was resolved without a fresh Combat.State:
+                -- continue to the next enemy instead of pausing.
+                local still_here=false
+                for _,e in ipairs(gmcp_api.entities().entities or {}) do
+                    if tostring(e.id or "")==tostring(pending_attack.id)
+                        and not bool(e.dead) then still_here=true; break end
+                end
+                if still_here then
+                    -- No combat and target still alive: this is not a reason
+                    -- to flee, but neither may we blindly keep issuing kills.
+                    pause("Nie potwierdzono rozpoczecia walki z "..pending_attack.id..
+                        "; sprawdz cel lub oslone.")
+                    return
+                end
+                pending_attack=nil
+                announce("READY")
             end
             if r.id == p.safeRoom and hp < p.rules.returnHP then
                 announce("RECOVERY"); return
