@@ -29,6 +29,7 @@ def run():
         for file in files:
             subprocess.run([executable, file], cwd=ROOT, check=True)
         return
+    errors = []
     for runtime in runtimes:
         for file in files:
             print('RUN', runtime.__module__, Path(file).name, flush=True)
@@ -74,7 +75,17 @@ def run():
                         return {read=function(_,mode) if mode=='*l' then return data:match('([^\\r\\n]+)') else return data end end,
                             close=function() return true end}
                     end''')
-                lua.execute('dofile(...)', file)
+                try:
+                    lua.execute('dofile(...)', file)
+                except Exception as exc:
+                    label = f'{runtime.__module__}/{Path(file).name}'
+                    errors.append((label, str(exc)))
+                    print(f'FAIL {label}: {exc}', flush=True)
+    if errors:
+        print(f'\\n{len(errors)} Lua regression(s) failed:', flush=True)
+        for label, reason in errors:
+            print(f' - {label}: {reason.splitlines()[0]}', flush=True)
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':
