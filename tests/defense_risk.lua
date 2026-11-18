@@ -67,6 +67,23 @@ end
 
 do
     local h=fixture()
+    h.p.combat.relations={{attacker="me",defender="enemy1"},
+        {attacker="petone",defender="enemy2"}}
+    assert(h.api.toggle(true));report(h)
+    h.advance(5)
+    assert(h.sent[1]=="parozkaz petone wesprzyj",
+        "routine target alignment starts in a calm fight")
+    h.p.combat.relations[#h.p.combat.relations+1]={
+        attacker="enemy2",defender="me"}
+    change_hp(h,"me",50)
+    report(h)
+    assert(h.sent[2] and h.sent[2]:match("^rozkaz %S+ zaslonic ciebie$"),
+        "a critical HP drop must preempt an unrelated support confirmation")
+    h.dispose()
+end
+
+do
+    local h=fixture()
     local c=M.defaults(h.saved.tactics)
     local s=assert(M.snapshot(h.gmcp))
     s.risk={friend={level="critical",hp=30},me={level="stable",hp=80}}
