@@ -134,8 +134,6 @@ return {
         local patrol_leg -- final waypoint and rooms crossed on the way to it
         local move = nil -- { id, map, purpose }
         local pending_attack = nil -- { id, room, since }
-        local priority_hold = nil -- {room, id, until_at}: shielded/unconfirmed target
-        local last_party_order = nil -- {room, target, at}: bounded party focus
         local attacked_in_room = {}
         local last_seen = {} -- room ID -> time at which room was checked and empty
         -- Temporary, session-only quarantine: moving NPCs may leave again.
@@ -439,7 +437,7 @@ return {
         -- A combat target is not necessarily reachable: a guard may intercept
         -- 'zabij'. Align everyone on the ACTUAL target when the leader's
         -- priority change did not land. Never use this to command non-leaders.
-        local function order_party_target(p, id, force)
+        function safety.order_party_target(p, id, force)
             if not (p.partyAttack and started and not paused and not dry) or
                 safety.blind or safety.dark or not valid_id(id) or not ready_entities() then return end
             local packet=gmcp_api.entities()
@@ -470,14 +468,14 @@ return {
                 end
             end
             if not party or (not force and aligned) then return end
-            local previous=last_party_order
+            local previous=safety.last_party_order
             if previous and previous.room==room_id() and previous.target==id
                 and os.time()-previous.at<7 then return end
             safety.ordering=true
             local ok,err=pcall(ctx.send,ctx,"rozkaz druzynie zaatakowac "..id,true)
             safety.ordering=false
             if ok then
-                last_party_order={room=room_id(),target=id,at=os.time()}
+                safety.last_party_order={room=room_id(),target=id,at=os.time()}
             else
                 note("AutoExp: nie udalo sie skierowac druzyny: "..tostring(err),"warn")
             end
@@ -490,7 +488,7 @@ return {
             safety.attacking=false
             if not ok then return false,tostring(err) end
             if not safety.dark and not paused and started and order_now then
-                order_party_target(p,id,true)
+                safety.order_party_target(p,id,true)
             end
             return true
         end
@@ -698,7 +696,7 @@ return {
             engaged_here = false
             recent_rooms, recent_room = {}, nil
             phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
-            priority_hold, last_party_order = nil, nil
+            safety.priority_hold, safety.last_party_order = nil, nil
             post_combat_at = nil
             last_reason = reason or "Zatrzymano"
             if stop_ours == false and state.owns_walk then
@@ -732,7 +730,7 @@ return {
             state.owns_walk = false
             restore_native_retreat()
             move, pending_attack, escape, emergency = nil, nil, nil, nil
-            priority_hold, last_party_order = nil, nil
+            safety.priority_hold, safety.last_party_order = nil, nil
             note("AutoExp WSTRZYMANY: " .. reason, "warn")
         end
         -- Room.Entities does not reliably contain corpses. Ask the MUD to
@@ -1341,7 +1339,7 @@ return {
             if observed_room ~= r.id then
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
-                priority_hold, last_party_order = nil, nil
+                safety.priority_hold, safety.last_party_order = nil, nil
                 last_visited = os.time()
             end
             if safety.dark and not fatigue_rest then dark_return(p,r); return end
@@ -1534,31 +1532,31 @@ return {
                     if tostring(pending_attack.id)==current_target then
                         -- GMCP confirmed that our attack actually switched.
                         pending_attack=nil
-                        priority_hold=nil
+                        safety.priority_hold=nil
                     elseif os.time()-pending_attack.since<p.rules.attackWait
                         and not pending_attack.blocked then
                         -- Keep the actual party focus while waiting, but do not
                         -- send a second 'zabij' until this one has settled.
-                        order_party_target(p,current_target,false)
+                        safety.order_party_target(p,current_target,false)
                         return
                     else
                         -- Interception / missing confirmation is NOT a reason to
                         -- flee. The current combat stays in charge for 15 s.
                         local failed=pending_attack
                         pending_attack=nil
-                        priority_hold={room=r.id,id=failed.id,until_at=os.time()+15}
+                        safety.priority_hold={room=r.id,id=failed.id,until_at=os.time()+15}
                         note("AutoExp: cel "..failed.id..
                              " niedostepny lub oslaniany; kontynuuje walke z biezacym celem.", "warn")
                     end
                 end
-                if priority_hold and priority_hold.room==r.id then
-                    if priority_hold.until_at>os.time() and current_target
-                        and target and tostring(target.id)==priority_hold.id then
+                if safety.priority_hold and safety.priority_hold.room==r.id then
+                    if safety.priority_hold.until_at>os.time() and current_target
+                        and target and tostring(target.id)==safety.priority_hold.id then
                         -- This is a temporary tactical choice, not a permanent
                         -- blacklist: a dead guard may expose the priority later.
                         target=nil
-                    elseif priority_hold.until_at<=os.time() then
-                        priority_hold=nil
+                    elseif safety.priority_hold.until_at<=os.time() then
+                        safety.priority_hold=nil
                     end
                 end
                 if target and tostring(target.id)~=current_target and
@@ -1575,7 +1573,7 @@ return {
                     -- Align the party with the currently fought NPC. A failed
                     -- attempt to reach the best-ranked enemy does not override
                     -- the server's real combat target.
-                    order_party_target(p,current_target,false)
+                    safety.order_party_target(p,current_target,false)
                 end
                 return
             end
@@ -1739,7 +1737,7 @@ return {
             started, paused, dry = true, false, test_mode == true
             fallback, fallback_count = nil, 0
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
-            priority_hold, last_party_order = nil, nil
+            safety.priority_hold, safety.last_party_order = nil, nil
             cancel_economy_timers()
             economy_run, loot_run = nil, nil
             attacked_in_room, last_seen, skip_exit_history = {}, {}, {}
@@ -1910,7 +1908,7 @@ return {
                 engaged_here = false
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
-                priority_hold, last_party_order = nil, nil
+                safety.priority_hold, safety.last_party_order = nil, nil
                 last_visited = os.time()
             end
             maybe_record(room())
