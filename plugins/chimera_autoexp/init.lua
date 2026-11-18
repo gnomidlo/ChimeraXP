@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.27",
+    version = "0.7.0-beta.28",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -1638,16 +1638,17 @@ return {
                 announce("POST_COMBAT")
             end
             if post_combat_at then
-                -- Keep the existing seven-second grace for combat-only mode.
-                -- Economy mode can safely start its OWN sequential loot a bit
-                -- earlier, but still waits for the game to settle after a kill.
-                local grace = p.economy and p.economy.enabled and not dry
-                    and (tonumber(p.rules.economyLootGrace) or DEFAULT.economyLootGrace)
-                    or (tonumber(p.rules.lootGrace) or DEFAULT.lootGrace)
-                if os.time() - post_combat_at < grace then return end
+                -- Only loot collection needs a post-combat grace period.
+                -- With zarobek off (or an empty loot list), GMCP already
+                -- confirms the fight ended: advance on THIS evaluation.
+                local collecting = p.economy and p.economy.enabled and not dry
+                    and type(p.loot) == "table" and #p.loot > 0
+                if collecting then
+                    local grace = tonumber(p.rules.economyLootGrace) or DEFAULT.economyLootGrace
+                    if os.time() - post_combat_at < grace then return end
+                end
                 post_combat_at = nil
-                if p.economy and p.economy.enabled and type(p.loot) == "table"
-                    and #p.loot > 0 and not dry then
+                if collecting then
                     -- Count physical corpses first, since a group may leave
                     -- several and Room.Entities does not expose their IDs.
                     begin_counted_loot(p, r)
@@ -2275,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.27 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.28 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2402,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.27"},
+                {"Wersja", "0.7.0-beta.28"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},

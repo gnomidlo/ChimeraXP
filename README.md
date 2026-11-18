@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.25** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.28** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Aktualizacja przez Mudlet
 
@@ -12,7 +12,7 @@ Przy pierwszej instalacji w profilu z oficjalną Chimerą 5.x wpisz w Mudlecie:
 lua installPackage("https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/packages/ChimeraXP.xml")
 ```
 
-## Instalacja wersji beta.25 z ZIP-a
+## Instalacja z ZIP-a
 
 Rozpakuj cały ZIP, uruchom `install.cmd` i wybierz katalog profilu Mudleta. Po instalacji wpisz `/przeladuj`. W `/exp status` sprawdź wersję. W profilu korzystającym z instancji zapisz schronienie poleceniem `/exp bezpieczna` w docelowym pokoju, aby przypisać konkretną instancję.
 
