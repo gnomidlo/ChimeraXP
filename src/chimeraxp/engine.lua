@@ -134,6 +134,8 @@ return {
         local patrol_leg -- final waypoint and rooms crossed on the way to it
         local move = nil -- { id, map, purpose }
         local pending_attack = nil -- { id, room, since }
+        local priority_hold = nil -- {room, id, until_at}: shielded/unconfirmed target
+        local last_party_order = nil -- {room, target, at}: bounded party focus
         local attacked_in_room = {}
         local last_seen = {} -- room ID -> time at which room was checked and empty
         -- Temporary, session-only quarantine: moving NPCs may leave again.
@@ -367,76 +369,128 @@ return {
         local function target_info(p, group_ids)
             if not ready_entities() then return nil, nil end
             local entities = gmcp_api.entities().entities
-            local found, count, best_rank = nil, 0, math.huge
+            local found, count, best_rank, best_health = nil, 0, math.huge, nil
             local me = me_and_group()
             local current
             local combat = gmcp_api.combat() or {}
+            local our_targets = {}
             for _, rel in ipairs(combat.relations or {}) do
                 if me and tostring(rel.attacker) == tostring(me.id) then
-                    current = tostring(rel.defender)
+                    local id = tostring(rel.defender or "")
+                    if valid_id(id) then
+                        our_targets[id] = true
+                        current = id
+                    end
                 end
             end
+            -- In multi-target combat relations the primary is the most
+            -- meaningful current focus, provided it belongs to our attacks.
+            local primary = tostring(combat.primary or "")
+            if our_targets[primary] then current = primary end
             for _, e in ipairs(entities) do
                 local id = e.id and tostring(e.id) or nil
                 local friendly = bool(e.self) or e.relation == "self"
                     or e.relation == "group" or e.relation == "ally"
                     or e.group_role == "leader" or e.group_role == "member"
                     or (id and group_ids and group_ids[id])
-                -- Limit counts only configured EXP targets, not harmless
-                -- wildlife or unrelated NPCs in the same room. An avoided
-                -- NPC triggers its own escape rule in avoided_npc().
                 if e.kind == "npc" and not friendly and not bool(e.dead)
                     and contains(e.name, p.targets)
                     and not contains(e.name, p.avoid) then
                     count = count + 1
-                    -- Resolve overlapping names (goblin / goblinka) by the
-                    -- most specific matching entry, then use its list position.
-                    local rank,length=math.huge,0
+                    -- Overlapping names still use the longest matching rule;
+                    -- only NPCs of the SAME list rank compete on wounded HP.
+                    local rank, length = math.huge, 0
+                    local name = normalized(e.name)
                     for index,pattern in ipairs(p.targets) do
                         pattern=normalized(pattern)
-                        if normalized(e.name):find(pattern,1,true) and #pattern>length then
+                        if name:find(pattern,1,true) and #pattern>length then
                             rank,length=index,#pattern
                         end
                     end
-                    if id and valid_id(id) and (rank<best_rank or (rank==best_rank and id==current)) then
-                        found,best_rank = e,rank
+                    local hp,maxhp=tonumber(e.hp),tonumber(e.maxhp)
+                    local health=hp and maxhp and maxhp>0
+                        and math.max(0,math.min(1,hp/maxhp)) or nil
+                    if id and valid_id(id) then
+                        local better = not found or rank < best_rank
+                        if found and rank == best_rank then
+                            if health and best_health then
+                                if health < best_health then better=true
+                                elseif health == best_health then
+                                    -- Same health: prefer confirmed focus, then stable ID.
+                                    better = (id==current and tostring(found.id)~=current)
+                                        or (id~=current and tostring(found.id)~=current
+                                            and id<tostring(found.id))
+                                end
+                            elseif health then
+                                better=true -- comparable GMCP HP wins over missing data
+                            elseif not best_health then
+                                better=(id==current and tostring(found.id)~=current)
+                                    or (id~=current and tostring(found.id)~=current
+                                        and id<tostring(found.id))
+                            end
+                        end
+                        if better then found,best_rank,best_health=e,rank,health end
                     end
                 end
             end
             return found, count, current
         end
-        -- NPCs on the NEXT room are not known from GMCP. On spotting an
-        -- avoided NPC in our current room, leave immediately without issuing
-        -- a combat command. During combat the native walker auto-stops, so
-        -- this escape uses a single direct room exit (GMCP), not walker.go().
-        -- Issue exactly one party order for each AutoExp attack, never on GMCP refresh.
-        -- Tactics handles formation maneuvers; this command only aligns attack targets.
-        local function attack_target(p, id)
+
+        -- A combat target is not necessarily reachable: a guard may intercept
+        -- 'zabij'. Align everyone on the ACTUAL target when the leader's
+        -- priority change did not land. Never use this to command non-leaders.
+        local function order_party_target(p, id, force)
+            if not (p.partyAttack and started and not paused and not dry) or
+                safety.blind or safety.dark or not valid_id(id) or not ready_entities() then return end
+            local packet=gmcp_api.entities()
+            local enemy
+            for _,e in ipairs(packet.entities) do
+                if tostring(e.id or "")==id and e.kind=="npc" and not bool(e.dead)
+                    and e.relation~="self" and e.relation~="group"
+                    and e.relation~="ally" then enemy=true;break end
+            end
+            if not enemy then return end
+            local group=gmcp_api.group() or {}
+            local members=type(group.members)=="table" and group.members or {}
+            local me=me_and_group()
+            if not me or tostring(group.leader)~=tostring(me.id) or
+                os.time()<(safety.manual_party_until or 0) then return end
+            local party,aligned=false,true
+            local relations=(gmcp_api.combat() or {}).relations or {}
+            for _,member in ipairs(members) do
+                if not bool(member.self) and bool(member.here) and valid_id(tostring(member.id or "")) then
+                    party=true
+                    local matching,other=false,false
+                    for _,rel in ipairs(relations) do
+                        if tostring(rel.attacker)==tostring(member.id) then
+                            if tostring(rel.defender)==id then matching=true else other=true end
+                        end
+                    end
+                    if not matching or other then aligned=false end
+                end
+            end
+            if not party or (not force and aligned) then return end
+            local previous=last_party_order
+            if previous and previous.room==room_id() and previous.target==id
+                and os.time()-previous.at<7 then return end
+            safety.ordering=true
+            local ok,err=pcall(ctx.send,ctx,"rozkaz druzynie zaatakowac "..id,true)
+            safety.ordering=false
+            if ok then
+                last_party_order={room=room_id(),target=id,at=os.time()}
+            else
+                note("AutoExp: nie udalo sie skierowac druzyny: "..tostring(err),"warn")
+            end
+        end
+
+        local function attack_target(p, id, order_now)
             if not valid_id(id) then return false, "Niepoprawne ID celu" end
             safety.attacking=true
-            local ok, err = pcall(ctx.send, ctx, "zabij " .. id, true)
+            local ok,err=pcall(ctx.send,ctx,"zabij "..id,true)
             safety.attacking=false
-            if safety.dark or paused or not started then return true end
-            if not ok then return false, tostring(err) end
-            if p.partyAttack and not dry and not safety.blind then
-                local group = gmcp_api.group() or {}
-                local me = me_and_group()
-                local members = type(group.members) == "table" and group.members or {}
-                local has_party = false
-                for _, member in ipairs(members) do
-                    if not bool(member.self) and bool(member.here) then has_party = true; break end
-                end
-                -- Never issue a leader-only order as a party member or when solo.
-                if has_party and me and tostring(group.leader) == tostring(me.id) and
-                    os.time()>=(safety.manual_party_until or 0) then
-                    safety.ordering=true
-                    local ordered, order_err = pcall(ctx.send, ctx,
-                        "rozkaz druzynie zaatakowac " .. id, true)
-                    safety.ordering=false
-                    if not ordered then
-                        note("AutoExp: nie udalo sie wydac rozkazu druzynie: " .. tostring(order_err), "warn")
-                    end
-                end
+            if not ok then return false,tostring(err) end
+            if not safety.dark and not paused and started and order_now then
+                order_party_target(p,id,true)
             end
             return true
         end
