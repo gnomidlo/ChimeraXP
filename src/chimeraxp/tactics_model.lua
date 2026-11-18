@@ -94,7 +94,7 @@ function M.policy(s,c,id)
     local preset=M.presets[role]
     return {role=role,enabled=not p or p.enabled~=false,
         min_hp=p and p.min_hp or preset.min_hp,
-        max_load=p and p.max_load or preset.max_load,
+        max_load=role=="chroniony" and 0 or (p and p.max_load or preset.max_load),
         weight=preset.weight}
 end
 -- Roster detection is deliberately independent from Combat.State (also works out of combat).
