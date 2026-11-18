@@ -21,8 +21,14 @@ return function(module)
         })
         tactics=Tactics.new(ctx,Model,integration,patrol,changed)
         local stop_patrol=patrol.stop
+        -- Patrol and formation are independent toggles. /exp stop (including
+        -- the HUD STOP button) must never turn off an enabled Obrona.
         local function stop()
-            tactics.stop("STOP ChimeraXP");stop_patrol("STOP ChimeraXP")
+            stop_patrol("STOP AutoExp")
+        end
+        local function stop_all()
+            tactics.stop("STOP ChimeraXP")
+            stop_patrol("STOP ChimeraXP")
         end
         patrol.stop=stop
         view=HUD.new(ctx,patrol,tactics,stop)
@@ -40,7 +46,7 @@ return function(module)
         end}
         -- The engine's CLI stop must stop tactics too, not just HUD/API clicks.
         -- Register only one alias by supplying this hook at engine construction.
-        patrol.stop_all=stop
+        patrol.stop_all=stop_all
         patrol.tactics=tactics
         patrol.hud=view
         return patrol
