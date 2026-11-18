@@ -67,7 +67,11 @@ do
     assert(#h.moves==1 and not h.api.status().paused,"no second step before GMCP confirms the first")
     h.place("junction")
     h.advance(.7)
-    assert(h.moves[2]==3 and not h.api.status().paused,"next mapped hop after late arrival")
+    assert(h.moves[2]==3 and not h.api.status().paused,
+        "next mapped hop after late arrival: #moves="..#h.moves..
+        " phase="..tostring(h.api.status().phase)..
+        " reason="..tostring(h.api.status().reason)..
+        " log="..table.concat(h.messages," | "))
     -- Attack stop emitted AFTER room changed, without an arrived event.
     h.place("passage")
     h.emit("chimera.walk.stopped",{reason="atak"})
