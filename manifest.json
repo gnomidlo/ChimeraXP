@@ -7,7 +7,7 @@
   "files": [
     {
       "path": "plugins/chimera_autoexp/init.lua",
-      "sha256": "35d6c962765d054f8f857b0294f1fdbaf6370e2058e367dc60a5aed16ebaee2f"
+      "sha256": "d16c9e3ab9bb2010fa37b8cb111d54435cec78d66fb3384c8ccfbe44212cf741"
     }
   ]
 }
