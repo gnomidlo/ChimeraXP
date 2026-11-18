@@ -3619,7 +3619,7 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         if not urgent and victim_role~="chroniony" then
             -- A healthy ally with one weak attacker is not an emergency.
             -- Avoid moving a harmless enemy solely to optimize tiny ratios.
-            if #enemies==1 and victim.hp>=85 then return end
+            if #enemies<=2 and victim.hp>=75 and role~="obronca" then return end
             if role=="obronca" then
                 if count(s,protected)<=count(s,id) and improvement<0.12 then return end
             elseif improvement<0.12 then return end
@@ -4118,7 +4118,13 @@ function T.new(ctx,M,integration,patrol,changed)
                 end
             end
         end
-        if dirty then save() end
+        if dirty then
+            -- A new GMCP identity can arrive between group/entity packets.
+            -- Hold only routine party target orders for one second; urgent
+            -- individual protection remains fully available.
+            S.support[4]=math.max(S.support[4],now()+1)
+            save()
+        end
     end
     function E.stop(reason)
         S.on=false;S.pending=nil;S.received={}
