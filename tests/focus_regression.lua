@@ -30,7 +30,9 @@ for _,M in ipairs(models) do
     c.profiles.petone=nil
     h.p.combat.relations[#h.p.combat.relations+1]={attacker="enemy3",defender="me"}
     h.p.combat.relations[#h.p.combat.relations+1]={attacker="enemy4",defender="me"}
-    assert(plan().kind=="cover","protection outranks focus")
+    h.p.vitals.hp=55
+    assert(plan().kind=="cover","wounded character's protection outranks focus")
+    h.p.vitals.hp=80
     h.p.combat.relations={{attacker="me",defender="enemy1"},{attacker="petone",defender="enemy2"},
         {attacker="pettwo",defender="enemy2"},{attacker="tank",defender="enemy2"},{attacker="friend",defender="enemy2"}}
     c.team_orders=true;c.team_broadcast=true
@@ -91,6 +93,7 @@ do
     local h=fixture()
     h.emit("sysDataSendRequest","sysDataSendRequest","parozkaz petone zabij enemy2")
     h.p.combat.relations={{attacker="enemy1",defender="me"},{attacker="enemy2",defender="me"}}
+    h.p.vitals.hp=50
     h.fresh();h.advance(.2)
     assert(h.sent[1]=="rozkaz petone zaslonic ciebie","manual attack does not disable protection")
     for _,r in ipairs(h.api.rows()) do assert(r.enabled) end
