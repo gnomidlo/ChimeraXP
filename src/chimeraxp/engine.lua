@@ -698,6 +698,7 @@ return {
             engaged_here = false
             recent_rooms, recent_room = {}, nil
             phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
+            priority_hold, last_party_order = nil, nil
             post_combat_at = nil
             last_reason = reason or "Zatrzymano"
             if stop_ours == false and state.owns_walk then
@@ -731,6 +732,7 @@ return {
             state.owns_walk = false
             restore_native_retreat()
             move, pending_attack, escape, emergency = nil, nil, nil, nil
+            priority_hold, last_party_order = nil, nil
             note("AutoExp WSTRZYMANY: " .. reason, "warn")
         end
         -- Room.Entities does not reliably contain corpses. Ask the MUD to
@@ -1339,6 +1341,7 @@ return {
             if observed_room ~= r.id then
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
+                priority_hold, last_party_order = nil, nil
                 last_visited = os.time()
             end
             if safety.dark and not fatigue_rest then dark_return(p,r); return end
@@ -1527,19 +1530,52 @@ return {
             if active then
                 post_combat_at = nil
                 announce("COMBAT")
-                if target and tostring(target.id) ~= current_target and os.time()>=(safety.manual_target_until or 0) then
-                    -- One outstanding attack; never flood commands on GMCP bursts.
-                    if pending_attack and os.time() - pending_attack.since < p.rules.attackWait then return end
-                    if pending_attack and tostring(pending_attack.id) == tostring(target.id) then
-                        begin_fallback("Brak potwierdzenia zmiany priorytetowego celu")
+                if pending_attack and pending_attack.room==r.id then
+                    if tostring(pending_attack.id)==current_target then
+                        -- GMCP confirmed that our attack actually switched.
+                        pending_attack=nil
+                        priority_hold=nil
+                    elseif os.time()-pending_attack.since<p.rules.attackWait
+                        and not pending_attack.blocked then
+                        -- Keep the actual party focus while waiting, but do not
+                        -- send a second 'zabij' until this one has settled.
+                        order_party_target(p,current_target,false)
                         return
+                    else
+                        -- Interception / missing confirmation is NOT a reason to
+                        -- flee. The current combat stays in charge for 15 s.
+                        local failed=pending_attack
+                        pending_attack=nil
+                        priority_hold={room=r.id,id=failed.id,until_at=os.time()+15}
+                        note("AutoExp: cel "..failed.id..
+                             " niedostepny lub oslaniany; kontynuuje walke z biezacym celem.", "warn")
                     end
+                end
+                if priority_hold and priority_hold.room==r.id then
+                    if priority_hold.until_at>os.time() and current_target
+                        and target and tostring(target.id)==priority_hold.id then
+                        -- This is a temporary tactical choice, not a permanent
+                        -- blacklist: a dead guard may expose the priority later.
+                        target=nil
+                    elseif priority_hold.until_at<=os.time() then
+                        priority_hold=nil
+                    end
+                end
+                if target and tostring(target.id)~=current_target and
+                    os.time()>=(safety.manual_target_until or 0) then
                     if dry then return end
-                    pending_attack = {id=target.id, room=r.id, since=os.time()}
-                    local ok, err = attack_target(p, target.id)
-                    if not ok then begin_fallback("Blad zmiany celu: " .. tostring(err)) end
+                    pending_attack={id=tostring(target.id),room=r.id,since=os.time()}
+                    local ok,err=attack_target(p,tostring(target.id),false)
+                    if not ok then
+                        pending_attack=nil
+                        note("AutoExp: nie udalo sie zmienic celu: "..tostring(err),"warn")
+                    end
                 else
-                    pending_attack = nil
+                    pending_attack=nil
+                    -- Align the party with the currently fought NPC. A failed
+                    -- attempt to reach the best-ranked enemy does not override
+                    -- the server's real combat target.
+                    order_party_target(p,current_target,false)
                 end
                 return
             end
@@ -1578,12 +1614,12 @@ return {
             end
             if phase == "ENGAGING" and pending_attack then
                 if os.time() - pending_attack.since < p.rules.attackWait then return end
-                if target and tostring(target.id) == tostring(pending_attack.id) then
-                    begin_fallback("Brak potwierdzenia ataku na priorytetowy cel")
-                    return
-                end
-                pending_attack = nil
-                announce("READY")
+                -- If no combat began, do not mistake a rejected attack for
+                -- life-threatening danger. Stop initiation and let the user
+                -- inspect a blocker rather than entering a retreat loop.
+                pause("Nie potwierdzono rozpoczecia walki z "..pending_attack.id..
+                    "; sprawdz cel lub oslone.")
+                return
             end
             if r.id == p.safeRoom and hp < p.rules.returnHP then
                 announce("RECOVERY"); return
@@ -1603,7 +1639,7 @@ return {
                 skip_exit_history = {}
                 pending_attack = { id = target.id, room = r.id, since = os.time() }
                 attacked_in_room[target.id] = true
-                local ok, err = attack_target(p, target.id)
+                local ok, err = attack_target(p, target.id, true)
                 if not ok then begin_fallback("Blad ataku: " .. tostring(err)); return end
                 queue(0)
                 return
@@ -1703,6 +1739,7 @@ return {
             started, paused, dry = true, false, test_mode == true
             fallback, fallback_count = nil, 0
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
+            priority_hold, last_party_order = nil, nil
             cancel_economy_timers()
             economy_run, loot_run = nil, nil
             attacked_in_room, last_seen, skip_exit_history = {}, {}, {}
@@ -1719,6 +1756,15 @@ return {
         end
         -- Bus handlers: the new official Chimera API guarantees that gmcp_api
         -- state has been updated before these callbacks are emitted.
+        -- A shield interception is a tactical setback, not a reason to flee.
+        ctx:trigger([[^Rzucasz sie na .+, lecz droge zastepuje ci .+\.$]],function()
+            if not started or paused or not pending_attack or pending_attack.room~=room_id() then return end
+            -- Leave a brief GMCP grace period before treating it as confirmed.
+            pending_attack.blocked=true
+            pending_attack.since=os.time()-(tonumber(profile() and profile().rules.attackWait) or 3)+1
+            note("AutoExp: przeciwnik oslania priorytet; zostaje przy rzeczywistym celu.", "warn")
+            queue(1)
+        end)
         ctx:trigger([[^[ >]*Ciemne miejsce\.$]],function()
             safety.text_dark=room() and (room().key or room().id)
             safety.relit=nil; darkness("Ciemne miejsce")
@@ -1864,6 +1910,7 @@ return {
                 engaged_here = false
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
+                priority_hold, last_party_order = nil, nil
                 last_visited = os.time()
             end
             maybe_record(room())
