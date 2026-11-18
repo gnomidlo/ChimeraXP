@@ -1,3 +1,12 @@
+## 0.7.0-beta.27 — awaryjny odwrot natywnym chodzikiem, pokoj po pokoju
+
+- Natywny `walker.go` prowadzi od teraz do **kolejnego pokoju trasy** wyznaczonej przez mapper, nie od razu w jednej sesji do schronienia.
+- Po `chimera.walk.stopped(reason="atak")` AutoExp zachowuje docelowy numer schronienia i po potwierdzeniu pozycji GMCP/mapper uruchamia `walker.go` ponownie dla kolejnego kroku, także podczas walki.
+- Opoznione potwierdzenie ruchu nie powoduje wyslania dwoch krokow ani falszywej pauzy z powodu recznej komendy.
+- Zabezpieczenia: maksymalnie 4 przerwania na tej samej lokacji, najwyzej 3 odwiedziny danego pokoju podczas jednego odwrotu, inne powody przerwania bez automatycznego wznowienia.
+- Oryginalne ustawienia chodzika (0,6 s i reakcja na atak) odtwarzamy dopiero po dojsciu do schronienia, przerwaniu albo zatrzymaniu AutoExp.
+- Dodano regresje `tests/native_retreat_reissue.lua`.
+
 ## 0.7.0-beta.26 — schronienie na mapperze i odwrot chodzikiem
 
 - `/exp bezpieczna` zapisuje teraz oba identyfikatory: GMCP oraz zweryfikowany numer pokoju Mudleta (`safeMap`). Stare profile z samym hashem GMCP nadal dzialaja, jesli mapper umie rozpoznac lokacje.
