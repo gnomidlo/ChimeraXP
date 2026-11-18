@@ -333,7 +333,7 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                 -- Auto means actual auto protection, including the leader's
                 -- "Chroń mnie" assignment, not just general redistribution.
                 if task=="self" then
-                    cover(ch,actor,me,99,"Pacholek "..i..": ochrona postaci.",false)
+                    cover(ch,actor,me,96,"Pacholek "..i..": ochrona postaci.",false)
                 end
                 for _,protected in ipairs(ordered(s.members)) do
                     cover(ch,actor,protected,95,"Pacholek "..i..": odciazenie "..s.members[protected].name..".",false)
