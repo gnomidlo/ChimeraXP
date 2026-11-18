@@ -334,6 +334,9 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         -- No routine oscillation for a stable group. Defenders are slightly
         -- more willing to redistribute; everybody helps with real danger.
         if not urgent and victim_role~="chroniony" then
+            -- A healthy ally with one weak attacker is not an emergency.
+            -- Avoid moving a harmless enemy solely to optimize tiny ratios.
+            if #enemies==1 and victim.hp>=85 then return end
             if role=="obronca" then
                 if count(s,protected)<=count(s,id) and improvement<0.12 then return end
             elseif improvement<0.12 then return end
