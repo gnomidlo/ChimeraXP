@@ -1,5 +1,12 @@
 ## 0.7.0-beta.27 — awaryjny odwrot natywnym chodzikiem, pokoj po pokoju
 
+- `/exp stop` i przycisk STOP zatrzymuja tylko wyprawe, nie aktywna automatyke Obrona. Wylaczenie Obrony pozostaje jawne: `/exp taktyka off`.
+- Kolejnosc celow `/exp cel` pozostaje nadrzedna; NPC z tego samego poziomu priorytetu sortowane sa wg rzeczywistego procentowego HP z GMCP. Remisy zachowuja obecny cel.
+- Niepowodzenie zmiany celu podczas walki (oslanianie, brak potwierdzenia GMCP) **nie uruchamia odwrotu**. AutoExp pozwala walki trwac, zachowuje rzeczywisty cel na 15 s i stara sie ustawic na niego pozostala druzyne (tylko dowodca z `/exp druzyna on`). Rozkazy sa ograniczane czasowo i nie sa wysylane do niepotwierdzonych celow.
+- Niepotwierdzony atak otwierajacy, gdy walka nie zaczela sie w ogole, oznacza pauze zamiast odwrotu.
+- Test `tests/priority_focus_interception.lua`, regresje stopu i nieudanego ataku.
+
+
 - Natywny `walker.go` prowadzi od teraz do **kolejnego pokoju trasy** wyznaczonej przez mapper, nie od razu w jednej sesji do schronienia.
 - Po `chimera.walk.stopped(reason="atak")` AutoExp zachowuje docelowy numer schronienia i po potwierdzeniu pozycji GMCP/mapper uruchamia `walker.go` ponownie dla kolejnego kroku, także podczas walki.
 - Opoznione potwierdzenie ruchu nie powoduje wyslania dwoch krokow ani falszywej pauzy z powodu recznej komendy.
