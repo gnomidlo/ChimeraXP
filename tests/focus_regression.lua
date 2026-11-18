@@ -14,17 +14,25 @@ for _,M in ipairs(models) do
     assert(not plan({[2]={support=true}}),"manual target hold suppresses support")
     h.p.combat.relations[2]=nil
     assert(not plan(),"AUTO must not engage idle retainers")
-    c.minions[1].task="support";assert(plan(),"explicit support task retains its opt-in semantics")
-    c.minions[1].task="auto";h.p.combat.relations[2]={attacker="petone",defender="enemy2"}
+    -- With one brain, stale task values cannot make idle NPCs enter combat.
+    c.minions[1].task="support"
+    assert(not plan(),"legacy task values do not change automatic decisions")
+    c.minions[1].task=nil
+    h.p.combat.relations[2]={attacker="petone",defender="enemy2"}
     h.p.entities.entities[4].states={"casting"};assert(not plan());h.p.entities.entities[4].states={}
     h.p.entities.entities[6].relation="neutral";assert(not plan());h.p.entities.entities[6].relation="hostile"
     h.p.combat.relations[2].defender="enemy1";assert(not plan(),"aligned retainers receive no repeated support order")
     h.p.combat.relations[2].defender="enemy2"
     enabled[2]=false;assert(not plan(),"manual disable is still respected");enabled[2]=true
-    c.minions[1].task="reserve";assert(not plan(),"reserves are never drafted into focus");c.minions[1].task="auto"
+    c.profiles.petone=M.profile_defaults({name="petone",kind="npc",
+        role="zrownowazony",enabled=false})
+    assert(not plan(),"disabled pet is never drafted into focus")
+    c.profiles.petone=nil
     h.p.combat.relations[#h.p.combat.relations+1]={attacker="enemy3",defender="me"}
     h.p.combat.relations[#h.p.combat.relations+1]={attacker="enemy4",defender="me"}
-    assert(plan().kind=="cover","protection outranks focus")
+    h.p.vitals.hp=55
+    assert(plan().kind=="cover","wounded character's protection outranks focus")
+    h.p.vitals.hp=80
     h.p.combat.relations={{attacker="me",defender="enemy1"},{attacker="petone",defender="enemy2"},
         {attacker="pettwo",defender="enemy2"},{attacker="tank",defender="enemy2"},{attacker="friend",defender="enemy2"}}
     c.team_orders=true;c.team_broadcast=true
@@ -85,6 +93,7 @@ do
     local h=fixture()
     h.emit("sysDataSendRequest","sysDataSendRequest","parozkaz petone zabij enemy2")
     h.p.combat.relations={{attacker="enemy1",defender="me"},{attacker="enemy2",defender="me"}}
+    h.p.vitals.hp=50
     h.fresh();h.advance(.2)
     assert(h.sent[1]=="rozkaz petone zaslonic ciebie","manual attack does not disable protection")
     for _,r in ipairs(h.api.rows()) do assert(r.enabled) end

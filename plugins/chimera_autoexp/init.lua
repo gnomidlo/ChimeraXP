@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.32",
+    version = "0.7.0-beta.33",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2276,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.32 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.33 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.32"},
+                {"Wersja", "0.7.0-beta.33"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3269,60 +3269,116 @@ factories["tactics_model"] = function()
 -- ChimeraXP tactical planner, derived from Tacticus NG beta.15.
 -- Pure normalization and planning. Never sends commands or reads global GMCP.
 local M = {}
-M.roles = {"tank", "offtank", "standard", "asekuracja", "support"}
-M.labels = {tank="TANK", offtank="OFF TANK", standard="STANDARD", asekuracja="ASEKURACJA", support="SUPPORT"}
-M.presets={tank={min_hp=55,max_load=4,weight=0.65},offtank={min_hp=60,max_load=3,weight=0.85},
-    standard={min_hp=65,max_load=2,weight=1},asekuracja={min_hp=75,max_load=1,weight=1.25},support={min_hp=80,max_load=0,weight=2}}
-local function profile(raw)
-    raw=type(raw)=="table" and raw or {}
-    local preset=M.presets[raw.role]
-    return {name=raw.name,kind=raw.kind,role=preset and raw.role or nil,enabled=raw.enabled~=false,
-        min_hp=math.max(40,math.min(100,math.floor(tonumber(raw.min_hp) or (preset and preset.min_hp or 50)))),
-        max_load=math.max(0,math.min(5,math.floor(tonumber(raw.max_load) or (preset and preset.max_load or 3)))),
-        target_id=M.id(raw.target_id),target_name=raw.target_name}
+-- One role per character. Legacy names are normalized once on load,
+-- never consulted by combat planning after migration.
+M.roles={"obronca","asekurant","zrownowazony","chroniony"}
+M.labels={obronca="OBRONCA",asekurant="ASEKURANT",
+    zrownowazony="ZROWNOWAZONY",chroniony="CHRONIONY"}
+M.presets={
+    obronca={min_hp=55,max_load=4,weight=0.65},
+    asekurant={min_hp=70,max_load=2,weight=0.90},
+    zrownowazony={min_hp=65,max_load=2,weight=1},
+    chroniony={min_hp=80,max_load=0,weight=2.0},
+}
+local legacy_roles={tank="obronca",offtank="asekurant",standard="zrownowazony",
+    asekuracja="asekurant",support="chroniony"}
+local legacy_presets={
+    tank={min_hp=55,max_load=4},offtank={min_hp=60,max_load=3},
+    standard={min_hp=65,max_load=2},asekuracja={min_hp=75,max_load=1},
+    support={min_hp=80,max_load=0},
+}
+function M.role(value)
+    local role=legacy_roles[value] or value
+    return M.labels[role] and role or "zrownowazony"
 end
-M.profile_defaults=profile
-M.tasks = {"auto", "self", "protect", "support", "reserve"}
-M.task_labels = {auto="Dobieraj automatycznie",self="Chroń mnie", protect="Chroń wybraną osobę", support="Wspieraj mój cel", reserve="Rezerwa"}
 function M.id(v)
-    if type(v) ~= "string" or v == "" or v:find("[^%w_%-]") or v:match("^%d+$") or v:match("^ob_%d+$") then return nil end
+    if type(v) ~= "string" or v == "" or v:find("[^%w_%-]")
+        or v:match("^%d+$") or v:match("^ob_%d+$") then return nil end
     return v
 end
 local function yes(v) return v == true or v == 1 or v == "1" end
-local function pct(h, m)
-    h, m = tonumber(h), tonumber(m)
-    if not h or not m or m <= 0 then return nil end
-    return math.max(0, math.min(100, h * 100 / m))
+local function pct(h,m)
+    h,m=tonumber(h),tonumber(m)
+    if not h or not m or m<=0 then return nil end
+    return math.max(0,math.min(100,h*100/m))
 end
+local function profile(raw,migrating)
+    raw=type(raw)=="table" and raw or {}
+    local role=M.role(raw.role)
+    local preset=M.presets[role]
+    local previous=migrating and legacy_presets[raw.role]
+    local function threshold(field)
+        local value=tonumber(raw[field])
+        -- A value equal to the old role default is not a user override.
+        if previous and value==previous[field] then value=nil end
+        return value or preset[field]
+    end
+    return {name=raw.name,kind=raw.kind,role=role,enabled=raw.enabled~=false,
+        min_hp=math.max(40,math.min(100,math.floor(threshold("min_hp")))),
+        max_load=math.max(0,math.min(5,math.floor(threshold("max_load"))))}
+end
+M.profile_defaults=profile
+
 function M.defaults(raw)
-    raw = type(raw)=="table" and raw or {}
-    local c = {schema=2, team_broadcast=raw.team_broadcast==true, team_orders=raw.team_orders==true, auto_minions=true, role=M.labels[raw.role] and raw.role or "standard",
-        protect=raw.protect==true, protect_id=M.id(raw.protect_id), protect_name=raw.protect_name,
-        tank_id=M.id(raw.tank_id), tank_name=raw.tank_name,
-        mass=raw.mass==true, mass_min=math.max(2, math.min(5, math.floor(tonumber(raw.mass_min) or 2))),
-        mass_max=math.max(2, math.min(5, math.floor(tonumber(raw.mass_max) or 5))),
-        retreat=raw.retreat==true, min_hp=40, minion_cover_hp=50, max_load=3, minions={},profiles={},self_profile=type(raw.self_profile)=="table" and profile(raw.self_profile) or nil}
+    raw=type(raw)=="table" and raw or {}
+    local migrating=raw.schema~=3
+    local role=M.role(raw.role)
+    local c={schema=3,team_broadcast=raw.team_broadcast==true,
+        team_orders=raw.team_orders==true,role=role,
+        mass=raw.mass==true,mass_min=math.max(2,math.min(5,math.floor(tonumber(raw.mass_min) or 2))),
+        mass_max=math.max(2,math.min(5,math.floor(tonumber(raw.mass_max) or 5))),
+        retreat=raw.retreat==true,minions={},profiles={},
+        self_profile=type(raw.self_profile)=="table" and profile(raw.self_profile,migrating) or nil}
     if c.mass_min>c.mass_max then c.mass_max=c.mass_min end
     for i=1,2 do
         local p=type(raw.minions)=="table" and raw.minions[i] or {}
         p=type(p)=="table" and p or {}
-        c.minions[i]={id=M.id(p.id), name=p.name, task=M.task_labels[p.task] and p.task or "auto",
-            target_id=M.id(p.target_id), target_name=p.target_name}
+        c.minions[i]={id=M.id(p.id),name=p.name}
     end
     for id,p in pairs(type(raw.profiles)=="table" and raw.profiles or {}) do
-        if M.id(id) and type(p)=="table" and type(p.name)=="string" then c.profiles[id]=profile(p) end
+        if M.id(id) and type(p)=="table"
+            and (type(p.name)=="string"
+                or (p.name==nil and p.kind=="npc" and p.enabled==false)) then
+            c.profiles[id]=profile(p,migrating)
+        end
+    end
+    if migrating then
+        -- Old task/target selections must not survive as hidden vetoes.
+        -- An explicitly reserved helper is opted out until the user enables
+        -- it again. All other former tasks defer to the one role.
+        for _,p in ipairs(type(raw.minions)=="table" and raw.minions or {}) do
+            if (p.task=="reserve" or p.task=="support") and M.id(p.id) then
+                local saved=c.profiles[p.id] or profile({name=p.name,kind="npc"})
+                if p.task=="reserve" then
+                    saved.enabled=false
+                else
+                    -- Former 'support my target' never covered others;
+                    -- migrate to Chroniony (no enemy transfers) rather than
+                    -- silently drafting it into front-line protection.
+                    saved.role="chroniony"
+                    saved.min_hp=M.presets.chroniony.min_hp
+                    saved.max_load=0
+                end
+                c.profiles[p.id]=saved
+            end
+        end
     end
     return c
 end
 function M.policy(s,c,id)
     local member=s.members[id]
     local p=id==s.self_id and c.self_profile or c.profiles and c.profiles[id]
-    if p and id~=s.self_id and (not member or p.name~=member.name or p.kind~=member.kind) then p=nil end
-    local preset=p and M.presets[p.role]
-    local floor=id==s.self_id and c.min_hp or 50
-    return {role=p and p.role,enabled=not p or p.enabled~=false,min_hp=math.max(floor,p and p.min_hp or floor),
-        max_load=p and (p.role=="support" and 0 or p.max_load) or c.max_load,
-        weight=preset and preset.weight or 1,target_id=p and p.target_id,target_name=p and p.target_name}
+    -- Legacy reserve entries can be keyed by exact ID but lack a name.
+    -- Until detection fills it in, the safe *disabled* state must still win.
+    if p and id~=s.self_id and (not member
+        or (p.name~=nil and p.name~=member.name)
+        or (p.kind~=nil and p.kind~=member.kind)) then p=nil end
+    local role=p and M.role(p.role) or (id==s.self_id and M.role(c.role) or "zrownowazony")
+    local preset=M.presets[role]
+    return {role=role,enabled=not p or p.enabled~=false,
+        min_hp=p and p.min_hp or preset.min_hp,
+        max_load=role=="chroniony" and 0 or (p and p.max_load or preset.max_load),
+        weight=preset.weight}
 end
 -- Roster detection is deliberately independent from Combat.State (also works out of combat).
 function M.roster(api)
@@ -3453,368 +3509,283 @@ end
 local function ordered(t)
     local out={};for id in pairs(t) do out[#out+1]=id end;table.sort(out);return out
 end
+-- The defensive brain has one responsibility: choose the safest legal
+-- maneuver for the most endangered member. Roles are preferences and hard
+-- physical capacities; there are no independent per-pet task programs.
 function M.main_tank(s,c)
-    local function eligible(id)
-        local m=s.members[id];local p=M.policy(s,c,id)
-        return m and p.enabled and p.role~="support" and ready_member(m) and m.hp>=p.min_hp
-    end
-    if c.tank_id and eligible(c.tank_id) and (not c.tank_name or s.members[c.tank_id].name==c.tank_name) then return c.tank_id end
     for _,id in ipairs(ordered(s.members)) do
         local p=M.policy(s,c,id)
-        if p.role=="tank" and p.enabled and ready_member(s.members[id]) and s.members[id].hp>=p.min_hp then return id end
+        if p.role=="obronca" and p.enabled and ready_member(s.members[id])
+            and s.members[id].hp>=p.min_hp then return id end
     end
-    local best
-    for _,id in ipairs(ordered(s.members)) do
-        local m=s.members[id]
-        if id~=s.self_id and not m.minion and eligible(id) then
-            if not best or count(s,id)>count(s,best) or
-                (count(s,id)==count(s,best) and m.hp>s.members[best].hp) then best=id end
-        end
-    end
-    return best
+    return nil
 end
-function M.task(s,c,i)
-    local task=c.minions[i].task
-    if task=="reserve" then return task end
-    local policy=M.policy(s,c,c.minions[i].id)
-    if policy.role=="support" then return "support" end
-    if task~="auto" then return task end
-    if c.role=="support" or c.role=="asekuracja" or c.role=="standard" then
-        if count(s,s.self_id)>0 then return "self" end
-        -- Retain guard assignment even once the successful cover removed our last attacker.
-        if i==1 then return "self" end
-    end
-    return "support"
+
+local function blocked_for(blocked,channel,kind)
+    local b=blocked and blocked[channel]
+    return b==true or (type(b)=="table" and b[kind]==true)
 end
--- Explain the very same inputs the planner sees. A GUI can display several
--- incoming attackers while the planner has no legal plan: 'ready' used to hide
--- invalid NPC classification, a stale protection task, or zero GMCP attackers.
+
+local function urgency(s,c,protected)
+    local m=s.members[protected]
+    if not m or not m.hp then return 0 end
+    local p=M.policy(s,c,protected)
+    local data=s.risk and s.risk[protected]
+    local level=data and data.level or "stable"
+    local incoming=count(s,protected)
+    if incoming==0 then return 0 end
+    local base=level=="critical" and 205 or level=="warning" and 128
+        or m.hp<=40 and 190 or m.hp<=55 and 122
+        or 46+math.min(22,incoming*5)
+    -- A protected character should be evacuated early, not only at 35% HP.
+    if p.role=="chroniony" then base=base+42 end
+    if m.hp<=55 then base=base+math.floor((55-m.hp)/3) end
+    return base
+end
+
 function M.explain_cover(s,c,enabled,blocked,protected)
     enabled,blocked=enabled or {},blocked or {}
     local incoming=count(s,protected)
-    local result={string.format("GMCP: %d napastnikow (%d relacji)",incoming,s.relations_count or 0)}
-    local danger=s.risk and s.risk[protected]
-    local urgent=danger and (danger.level=="critical"
-        or (danger.level=="warning" and (s.members[protected] or {}).hp<=55))
-    -- An injured retainer might be saved by the leader's own maneuver.
-    -- Preserve the HP/role explanation that the former status contained.
-    if protected~=s.self_id then
-        local me=s.members[s.self_id]
-        local policy=me and M.policy(s,c,s.self_id)
-        local reason
-        local block=blocked[1]
-        if not me then reason="brak postaci"
-        elseif not enabled[1] or not policy.enabled then reason="ochrona wylaczona"
-        elseif block==true or (s.maneuver_locked and s.maneuver_locked[s.self_id]) then
-            reason="odnowienie manewru"
-        elseif me.hp<policy.min_hp then
-            reason=string.format("HP %.0f < %.0f%%",me.hp,policy.min_hp)
-        elseif count(s,s.self_id)+1>policy.max_load then
-            reason=string.format("limit %d/%d",count(s,s.self_id),policy.max_load)
-        elseif incoming==0 then reason="brak napastnikow celu wg GMCP"
-        else reason="gotowa; sprawdz role i zadanie"
-        end
-        result[#result+1]=(me and me.name or "JA")..": "..reason
-    end
+    local lines={string.format("GMCP: %d napastnikow (%d relacji)",incoming,s.relations_count or 0)}
+    local actors={{id=s.self_id,channel=1}}
     for i,p in ipairs(c.minions or {}) do
-        local id=p.id
-        local member=id and s.members[id]
-        local entity=id and s.entities[id]
-        local policy=id and M.policy(s,c,id)
-        local task=M.task(s,c,i)
-        local slot=i+1
-        local block=blocked[slot]
-        local blocked_cover=block==true or (type(block)=="table" and block.cover==true)
-        local reason
-        if not id then reason="brak przypisania ID"
-        elseif not member then reason="nieobecna w GMCP"
-        elseif not s.minions[id] then
-            reason="brak rozpoznania jako NPC sojusznik (kind="
-                ..tostring(entity and entity.kind)..", relation="
-                ..tostring(entity and entity.relation)..")"
-        elseif not enabled[slot] or not policy.enabled then reason="ochrona wylaczona"
-        elseif blocked_cover or (s.maneuver_locked and s.maneuver_locked[id]) then
-            reason="manewr zablokowany"
-        elseif not ready_member(member) then reason="niegotowa/ogluszona"
-        elseif member.hp<policy.min_hp then
-            reason=string.format("HP %.0f%% < prog %.0f%%",member.hp,policy.min_hp)
-        elseif count(s,id)+1>policy.max_load then
-            reason=string.format("limit %d/%d",count(s,id),policy.max_load)
-        elseif incoming==0 then reason="brak napastnikow celu wg GMCP"
-        elseif p.task=="reserve" or p.task=="support" or policy.role=="support" then
-            reason="zadanie/rola: "..tostring(p.task).."/"..tostring(policy.role)
-        elseif task=="protect" and p.target_id~=protected and not urgent then
-            reason="chroni inny cel: "..tostring(p.target_name or p.target_id)
-        elseif c.protect and c.protect_id==id and protected==s.self_id and not urgent then
-            reason="ochrona lidera koliduje z przydzialem JA"
-        elseif p.task=="auto" and policy.role==nil and c.role~="standard"
-            and task~="self" and not urgent then
-            reason="auto przechodzi we wsparcie; brak dopasowanej roli"
-        else
-            reason="warunki spelnione; planner nie utworzyl planu"
-        end
-        result[#result+1]=(member and member.name or p.name or ("P"..i))
-            .." ["..tostring(policy and policy.role or "auto")
-            ..", zadanie="..tostring(p.task).."/"..tostring(task).."]: "..reason
+        actors[#actors+1]={id=p.id,channel=i+1,name=p.name,pet=true}
     end
-    return table.concat(result,"; ")
+    for _,actor in ipairs(actors) do
+        local id=actor.id
+        if id~=protected then
+            local m=id and s.members[id]
+            local policy=m and M.policy(s,c,id)
+            local entity=id and s.entities[id]
+            local reason
+            if not id then reason="brak przypisanego ID"
+            elseif not m then reason="nieobecna w GMCP"
+            elseif actor.pet and not s.minions[id] then
+                reason="niezweryfikowany NPC (kind="..tostring(entity and entity.kind)
+                    ..", relation="..tostring(entity and entity.relation)..")"
+            elseif not enabled[actor.channel] or not policy.enabled then reason="wylaczona"
+            elseif blocked_for(blocked,actor.channel,"cover")
+                or (s.maneuver_locked and s.maneuver_locked[id]) then reason="odnowienie manewru"
+            elseif not ready_member(m) then reason="niegotowa/ogluszona"
+            elseif policy.role=="chroniony" then reason="rola Chroniony: nie przejmuje napastnikow"
+            elseif m.hp<policy.min_hp then
+                reason=string.format("HP %.0f < %.0f%%",m.hp,policy.min_hp)
+            elseif count(s,id)+1>policy.max_load then
+                reason=string.format("limit %d/%d",count(s,id),policy.max_load)
+            elseif incoming==0 then reason="brak napastnikow celu wg GMCP"
+            else reason="gotowa — brak uzasadnionej zmiany szyku"
+            end
+            lines[#lines+1]=(m and m.name or actor.name or "JA")..
+                " ["..(policy and policy.role or "bez profilu").."]: "..reason
+        end
+    end
+    return table.concat(lines,"; ")
 end
 
 function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
-    blocked=blocked or {}
-    local function unavailable(ch,kind)
-        return blocked[ch]==true or (type(blocked[ch])=="table" and blocked[ch][kind]==true)
-    end
-    local out={};s.weights={}
-    for id in pairs(s.members) do s.weights[id]=M.policy(s,c,id).weight end
-    local tank_id=M.main_tank(s,c)
+    enabled,blocked=enabled or {},blocked or {}
     local me=s.self_id
-    local function cover(channel,actor,protected,priority,why,allow_mass)
-        if unavailable(channel,"cover") or (s.maneuver_locked and s.maneuver_locked[actor])
-            or actor==protected or not ready_member(s.members[protected]) then return end
-        local danger=s.risk and s.risk[protected]
-        local critical=danger and danger.level=="critical"
-        local warning=danger and danger.level=="warning"
-        -- A quiet guard assignment must never veto a rescue. The old
-        -- threshold (>=50% HP) incorrectly described a gravely wounded
-        -- retainer as 'healthy' and suppressed JA's own cover attempt.
-        -- Preserve the assignment only while the protected member is safe.
-        if channel==1 and priority<100 and not (critical or warning)
-            and s.members[protected].hp>=c.min_hp then
-            for i,p in ipairs(c.minions) do
-                local task=M.task(s,c,i)
-                if enabled[i+1] and p.id==protected and s.members[protected].hp>=c.minion_cover_hp
-                    and not (c.role=="standard" and p.task=="auto") and (task=="self" or task=="protect") then
-                    return -- Avoid routine reshuffles of a healthy designated guard.
-                end
-            end
-        end
-        local policy=M.policy(s,c,actor)
-        if not policy.enabled then return end
-        if policy.target_id==protected and policy.target_name==s.members[protected].name then priority=priority+5 end
-        if M.policy(s,c,protected).role=="support" then priority=priority+5 end
-        if channel>1 and c.protect and c.protect_id==actor and protected==s.self_id
-            and not (critical or (warning and s.members[protected].hp<=55)) then
-            return -- Routine explicit protection has priority; not above a life-saving cover.
-        end
-        if focus and protected~=focus.protected then return end
-        local enemies=s.attackers[protected] or {}
-        if #enemies==0 or not can_take(s,actor,1,c) then return end
-        local broad=channel==4 and protected~=s.self_id
-        if broad and not can_take(s,actor,#enemies,c) then return end
-        local improvement=gain(s,protected,actor,1)
-        if broad then improvement=math.min(improvement,gain(s,protected,actor,#enemies)) end
-        if channel>1 and not (critical or warning)
-            and (channel==4 or c.minions[channel-1].task=="auto")
-            and (c.role=="standard" or policy.role) and improvement<0.12 then return end
-        local enemy=enemies[1]
-        if focus then
-            local found=false;for _,id in ipairs(enemies) do if id==focus.enemy then found=true end end
-            if not found then return end;enemy=focus.enemy
-        end
-        local mass=allow_mass and c.mass and #enemies>=c.mass_min and #enemies<=c.mass_max
-            and can_take(s,actor,#enemies,c)
-        if mass and c.role=="standard" and priority<100 and gain(s,protected,actor,#enemies)<0.12 then mass=false end
-        local emergency=s.members[protected].minion and s.members[protected].hp<c.minion_cover_hp and improvement>=0.12
-        local urgency=critical and (190+math.max(0,math.floor((50-s.members[protected].hp)/5)))
-            or warning and 125 or nil
-        out[#out+1]={channel=channel,actor=actor,protected=protected,enemy=enemy,emergency=critical or emergency,broad=broad,
-            kind=mass and "mass" or "cover",priority=urgency or (s.members[protected].hp<40 and improvement>=0.12 and 120 or (emergency and math.max(priority,110) or priority)),
-            safety_gain=broad and improvement or gain(s,protected,actor,mass and #enemies or 1),
-            reason=(critical and "RATUNEK: " or warning and "Zagrozenie: " or "")..why,room=s.room,
-            before_targets=(mass or broad) and enemies or {enemy},
-            -- "rozkaz ID zaslonic ciebie" does not name an enemy.
-            -- The MUD may pick *any* of the attackers; confirm what actually
-            -- transferred, not the alphabetically first one we guessed.
-            confirmation_targets=(channel>1 and channel<4 and protected==me and s.leader==me)
-                and enemies or nil}
-    end
-    if enabled[1] and M.policy(s,c,me).enabled and not blocked[1] and ready_member(s.members[me]) then
-        if c.protect and s.members[c.protect_id] and (not c.protect_name or s.members[c.protect_id].name==c.protect_name) then
-            cover(1,me,c.protect_id,100,"Ochrona priorytetowa: "..s.members[c.protect_id].name,true)
-        end
-        if c.role~="support" and c.role~="asekuracja" then
-            for _,id in ipairs(ordered(s.members)) do
-                if id~=me and count(s,id)>0 then
-                    local g=gain(s,id,me,1)
-                    local accept=c.role=="tank" or (c.role=="standard" and g>=0.12)
-                    if c.role=="offtank" then
-                        accept=tank_id and
-                            ((id==tank_id and count(s,id)>=count(s,me)+2)
-                            or (id~=tank_id and count(s,me)<count(s,tank_id)))
-                    end
-                    if accept then cover(1,me,id,60+math.min(20,count(s,id)*4),"Odciążenie: "..s.members[id].name,true) end
-                end
-            end
-        elseif c.role=="asekuracja" then
-            for _,id in ipairs(ordered(s.members)) do
-                local danger=s.risk and s.risk[id]
-                if id~=me and count(s,id)>0 and
-                    ((danger and danger.level~="stable")
-                    or (count(s,me)==0 and count(s,id)>=3 and gain(s,id,me,1)>=0.12)) then
-                    cover(1,me,id,60,"Asekuracja zagrozonego sojusznika.",false)
-                end
-            end
-        end
-        if c.retreat and count(s,me)>0 then
-            for _,id in ipairs(ordered(s.members)) do
-                -- In this beta we conservatively assume retreat can transfer ALL attackers.
-                local recipient=s.members[id]
-                local eligible=M.policy(s,c,id).role~="support" and recipient.hp and recipient.hp>=math.max(70,M.policy(s,c,id).min_hp)
-                    and not recipient.casting
-                for slot,pet in ipairs(c.minions) do
-                    if pet.id==id and (not enabled[slot+1] or pet.task=="reserve") then eligible=false end
-                end
-                if id~=me and eligible and can_take(s,id,count(s,me),c) then
-                    local accept=c.role=="support" or (c.role=="asekuracja" and count(s,me)>1)
-                        or (c.role=="standard" and gain(s,me,id,count(s,me))>=0.18)
-                        or (c.role=="offtank" and id==tank_id and count(s,me)>count(s,id)+1)
-                        or s.members[me].hp<c.min_hp
-                    if accept then out[#out+1]={channel=1,actor=me,protected=id,kind="retreat",
-                        room=s.room,priority=s.members[me].hp<c.min_hp and 110 or 80,
-                        before_targets=s.attackers[me],reason="Wycofanie za "..s.members[id].name} end
-                end
-            end
+    local out={}
+    s.weights={}
+    for id in pairs(s.members) do s.weights[id]=M.policy(s,c,id).weight end
+    local actors={{id=me,channel=1}}
+    for i,p in ipairs(c.minions) do
+        if p.id and s.minions[p.id] then
+            actors[#actors+1]={id=p.id,channel=i+1}
         end
     end
-    -- Mandatory life-saving fallback: a wounded commander must not be
-    -- left unprotected solely because a warrior has a stale "protect"
-    -- target or the auto-task switch chose support. Reserve/support
-    -- remain explicit opt-outs; minion identity and normal safety limits
-    -- are still checked by cover()/can_take().
-    local self_danger=s.risk and s.risk[me]
-    local rescue_self=self_danger and (self_danger.level=="critical"
-        or (self_danger.level=="warning" and s.members[me].hp<=55))
-        and count(s,me)>0
-    if rescue_self then
-        for i=1,2 do
-            local p=c.minions[i]
-            local actor=p.id
-            local policy=actor and M.policy(s,c,actor)
-            if enabled[i+1] and p.task~="reserve" and p.task~="support"
-                and actor and s.minions[actor] and policy.enabled
-                and policy.role~="support" and not unavailable(i+1,"cover") then
-                -- Unknown/custom-less roles get a conservative warrior
-                -- envelope, not the broader generic 50%/3-load defaults.
-                local safe_role=policy.role~=nil or
-                    (s.members[actor].hp>=65 and count(s,actor)<2)
-                if safe_role then
-                    cover(i+1,actor,me,170,
-                        "Ratunek: oslona zagrozonego dowodcy.",false)
-                end
-            end
-        end
-    end
-    for i=1,2 do
-        local p=c.minions[i];local actor=p.id;local ch=i+1
-        local task=M.task(s,c,i)
-        if enabled[ch] and M.policy(s,c,actor).enabled and blocked[ch]~=true and actor and s.minions[actor] and ready_member(s.minions[actor]) then
-            if p.task=="auto" and M.policy(s,c,actor).role~="support"
-                and (c.role=="standard" or M.policy(s,c,actor).role) then
-                -- Auto means actual auto protection, including the leader's
-                -- "Chroń mnie" assignment, not just general redistribution.
-                if task=="self" then
-                    cover(ch,actor,me,96,"Pacholek "..i..": ochrona postaci.",false)
-                end
-                for _,protected in ipairs(ordered(s.members)) do
-                    cover(ch,actor,protected,95,"Pacholek "..i..": odciazenie "..s.members[protected].name..".",false)
-                end
-            elseif task=="self" then cover(ch,actor,me,95,"Pachołek "..i..": ochrona postaci.",false)
-            elseif task=="protect" and s.members[p.target_id] and (not p.target_name or s.members[p.target_id].name==p.target_name) then cover(ch,actor,p.target_id,95,"Pachołek "..i..": ochrona wskazanej osoby.",false)
-            end
-            if (p.task=="auto" or task=="support") and not focus and not unavailable(ch,"support") then
-                local target=s.targets[me]
-                if target and s.enemies[target] and s.enemies[target].relation=="hostile"
-                    and s.targets[actor]~=target and not s.minions[actor].casting and not s.members[me].casting
-                    and ready_member(s.members[me]) and s.members[me].hp>=M.policy(s,c,me).min_hp
-                    and (p.task=="support" or (s.targets[actor] and s.enemies[s.targets[actor]]))
-                    and s.minions[actor].hp>=M.policy(s,c,actor).min_hp then
-                    out[#out+1]={channel=ch,actor=actor,enemy=target,kind="support",priority=40,room=s.room,
-                        reason="Pachołek "..i..": wsparcie celu postaci."}
-                end
-            end
-        end
-    end
-    if c.team_orders and enabled[4] and s.leader==me then
+    -- Optional manual-authorized orders to other *players* remain supported.
+    -- They are considered by the same defensive planner, not a separate
+    -- task controller, and only when the character leads the party.
+    if c.team_orders and enabled[4] and s.leader==me and s.group_complete then
         for _,id in ipairs(ordered(s.members)) do
-            local member=s.members[id]
-            if id~=me and M.policy(s,c,id).enabled and (M.policy(s,c,id).role or (c.role~="tank" and c.role~="offtank"))
-                and member.kind=="player" and member.hp and member.hp>=50 and not member.casting then
-                for _,protected in ipairs(ordered(s.members)) do
-                    if (c.role=="standard" or M.policy(s,c,id).role or protected==me)
-                        and not (s.covers[protected] and s.covers[protected][id]) then
-                        cover(4,id,protected,95,"Rozkaz drużynie: "..member.name.." osłania "..s.members[protected].name..".",false)
+            if id~=me and s.members[id].kind=="player" then
+                actors[#actors+1]={id=id,channel=4}
+            end
+        end
+    end
+
+    local function proposal(actor,protected,reason)
+        local id,ch=actor.id,actor.channel
+        if id==protected or blocked_for(blocked,ch,"cover")
+            or (s.maneuver_locked and s.maneuver_locked[id])
+            or not enabled[ch] or not M.policy(s,c,id).enabled then return end
+        local victim=s.members[protected]
+        local performer=s.members[id]
+        if not victim or not performer or not ready_member(victim)
+            or victim.hp==nil or not can_take(s,id,1,c) then return end
+        local enemies=s.attackers[protected] or {}
+        if #enemies==0 then return end
+        if focus and (focus.protected~=protected or
+            not s.enemies[focus.enemy]) then return end
+        if ch==4 and performer.casting then return end
+        local victim_risk=s.risk and s.risk[protected]
+        local urgent=victim_risk and victim_risk.level~="stable"
+            or victim.hp<=55
+        local victim_role=M.policy(s,c,protected).role
+        local role=M.policy(s,c,id).role
+        local improvement=gain(s,protected,id,1)
+        -- No routine oscillation for a stable group. Defenders are slightly
+        -- more willing to redistribute; everybody helps with real danger.
+        if not urgent and victim_role~="chroniony" then
+            -- A healthy ally with one weak attacker is not an emergency.
+            -- Avoid moving a harmless enemy solely to optimize tiny ratios.
+            if #enemies<=2 and victim.hp>=75 and role~="obronca" then return end
+            if role=="obronca" then
+                if count(s,protected)<=count(s,id) and improvement<0.12 then return end
+            elseif improvement<0.12 then return end
+        end
+        local score=urgency(s,c,protected)
+        if role=="obronca" then score=score+22
+        elseif role=="asekurant" then score=score+13 end
+        if victim_role=="chroniony" then score=score+10 end
+        local enemy=enemies[1]
+        if focus then enemy=focus.enemy end
+        local is_mass=ch==1 and c.mass and #enemies>=c.mass_min
+            and #enemies<=c.mass_max and can_take(s,id,#enemies,c)
+        local kind=is_mass and "mass" or "cover"
+        local before=is_mass and enemies or {enemy}
+        out[#out+1]={kind=kind,channel=ch,actor=id,protected=protected,
+            enemy=enemy,before_targets=before,room=s.room,
+            confirmation_targets=ch>1 and protected==me and s.leader==me
+                and enemies or nil,
+            priority=score+(is_mass and 2 or 0),
+            safety_gain=improvement,
+            emergency=urgent,reason=reason or
+                ("Osłona "..victim.name.." — "..(victim_risk and victim_risk.level or "rola"))}
+    end
+    -- No second controller for protect/self/support; every ready unit is
+    -- evaluated against the same threats on the same GMCP snapshot.
+    for _,actor in ipairs(actors) do
+        for _,protected in ipairs(ordered(s.members)) do
+            proposal(actor,protected)
+        end
+    end
+
+    if c.retreat and enabled[1] and not blocked_for(blocked,1,"cover")
+        and not (s.maneuver_locked and s.maneuver_locked[me])
+        and count(s,me)>0 and ready_member(s.members[me]) then
+        local endangered=s.risk and s.risk[me]
+        local danger=endangered and endangered.level~="stable"
+            or s.members[me].hp<=55
+            or M.policy(s,c,me).role=="chroniony"
+        if danger then
+            for _,id in ipairs(ordered(s.members)) do
+                if id~=me then
+                    local member=s.members[id]
+                    local allowed=true
+                    if member.minion then
+                        -- NPCs outside the verified two retainer slots cannot
+                        -- be relied on as retreat recipients.
+                        allowed=false
+                        for _,actor in ipairs(actors) do
+                            if actor.id==id and enabled[actor.channel] then
+                                allowed=true
+                            end
+                        end
+                    end
+                    if allowed and can_take(s,id,count(s,me),c)
+                        and member.hp>=math.max(70,M.policy(s,c,id).min_hp)
+                        and not member.casting then
+                        out[#out+1]={kind="retreat",channel=1,actor=me,
+                            protected=id,room=s.room,priority=urgency(s,c,me)-3,
+                            before_targets=s.attackers[me],
+                            reason="Wycofanie za "..member.name}
                     end
                 end
             end
         end
     end
-    local function available_for_broadcast(id,covering)
-        if not M.policy(s,c,id).enabled then return false end
-        if id==me then return not covering or (enabled[1] and not blocked[1]) end
-        if s.members[id].minion then
-            for slot,p in ipairs(c.minions) do
-                if p.id==id then return enabled[slot+1] and not unavailable(slot+1,covering and "cover" or "support") and p.task~="reserve" end
-            end
-            return false
-        end
-        return true
-    end
-    if s.group_complete and c.team_orders and c.team_broadcast and enabled[4] and not unavailable(4,"cover") and s.leader==me and not focus then
+
+    -- Optional group-wide order only when EVERY actual recipient can
+    -- safely accept all current attackers. No gamble with 8-enemy aggro.
+    if c.team_orders and c.team_broadcast and enabled[4]
+        and s.leader==me and s.group_complete
+        and not blocked_for(blocked,4,"cover") and not focus then
         for _,protected in ipairs(ordered(s.members)) do
             local enemies=s.attackers[protected] or {}
-            local recipients={};local threat=s.risk and s.risk[protected]
-            local safe=#enemies>0 and (c.role=="standard" or protected==me
-                or (threat and threat.level~="stable"))
-            local benefit=1
-            for _,id in ipairs(ordered(s.members)) do
-                -- The issuer does not perform a cover when ordering the
-                -- group. Only actual recipients consume maneuver readiness.
-                if id~=protected and id~=me then
-                    local m=s.members[id]
-                    if not available_for_broadcast(id,true) or (s.maneuver_locked and s.maneuver_locked[id])
-                        or not ready_member(m) or m.hp<50 or m.casting or not can_take(s,id,#enemies,c)
-                        or (s.covers[protected] and s.covers[protected][id]) then safe=false end
-                    local improvement=math.min(gain(s,protected,id,1),gain(s,protected,id,#enemies))
-                    if not (threat and threat.level~="stable") and improvement<0.12 then safe=false end
-                    benefit=math.min(benefit,improvement)
-                    recipients[#recipients+1]=id
+            if #enemies>1 then
+                local recipients={}
+                local safe=true
+                for _,id in ipairs(ordered(s.members)) do
+                    if id~=protected and id~=me then
+                        local p=M.policy(s,c,id)
+                        local ch=4
+                        for i,pet in ipairs(c.minions) do
+                            if pet.id==id then ch=i+1 end
+                        end
+                        if not p.enabled or not ready_member(s.members[id])
+                            or not can_take(s,id,#enemies,c)
+                            or (s.maneuver_locked and s.maneuver_locked[id])
+                            or blocked_for(blocked,ch,"cover")
+                            or not enabled[ch] or s.members[id].casting then
+                            safe=false
+                        end
+                        recipients[#recipients+1]=id
+                    end
+                end
+                if safe and #recipients>=2 then
+                    local risk=s.risk and s.risk[protected]
+                    local urgent=risk and risk.level=="critical"
+                        or s.members[protected].hp<=45
+                    out[#out+1]={kind="team_cover",channel=4,actor=me,
+                        protected=protected,room=s.room,broad=true,
+                        before_targets=enemies,recipients=recipients,
+                        priority=urgency(s,c,protected)+(urgent and 65 or -25),
+                        safety_gain=0,emergency=urgent,
+                        reason="Wspólna osłona "..s.members[protected].name}
                 end
             end
-            if safe and #recipients>1 then
-                out[#out+1]={channel=4,actor=me,protected=protected,kind="team_cover",broad=true,
-                    -- Collective rescue is valuable with multiple attackers
-                    -- and two verified, healthy executors; normal balancing
-                    -- continues to prefer the targeted maneuver.
-                    priority=threat and threat.level=="critical" and #enemies>1 and 210
-                        or threat and threat.level=="warning" and #enemies>1 and 145 or 96,
-                    safety_gain=benefit,room=s.room,
-                    recipients=recipients,before_targets=enemies,reason="Drużyna: wspólna osłona "..s.members[protected].name.."."}
-            end
-        end
-        local target=s.targets[me];local recipients={};local safe=not unavailable(4,"support") and target and s.enemies[target] and s.enemies[target].relation=="hostile"
-        local mismatch=false
-        for _,id in ipairs(ordered(s.members)) do
-            local m=s.members[id]
-            if not available_for_broadcast(id,false) then safe=false end
-            if id~=me then
-                recipients[#recipients+1]=id
-                -- Join idle companions to the leader's existing fight as well as align targets.
-                if s.targets[id]~=target then mismatch=true end
-            end
-        end
-        if safe and mismatch and #recipients>0 and not suppress_team_attack then
-            -- Do not let routine balancing spend the shared 15s team-order slot
-            -- before idle members join. Explicit/emergency protection stays higher.
-            out[#out+1]={channel=4,actor=me,enemy=target,kind="team_attack",priority=98,room=s.room,
-                recipients=recipients,reason="Drużyna: wspólny cel walki."}
         end
     end
+
+    -- Attack alignment is deliberately lower priority than any rescue.
+    -- "wesprzyj" and team attack orders do not consume maneuver cooldowns.
+    if not focus then
+        local target=s.targets[me]
+        local valid_target=target and s.enemies[target]
+            and s.enemies[target].relation=="hostile"
+        if valid_target and ready_member(s.members[me]) then
+            for _,actor in ipairs(actors) do
+                if actor.channel>1 and enabled[actor.channel]
+                    and M.policy(s,c,actor.id).enabled
+                    and not blocked_for(blocked,actor.channel,"support")
+                    and not s.members[actor.id].casting
+                    and s.targets[actor.id] and s.targets[actor.id]~=target
+                    and s.enemies[s.targets[actor.id]] then
+                    out[#out+1]={kind="support",channel=actor.channel,
+                        actor=actor.id,enemy=target,room=s.room,
+                        priority=40,reason="Wspieram wspólny cel"}
+                end
+            end
+        end
+        if valid_target and c.team_orders and c.team_broadcast
+            and s.group_complete and s.leader==me and enabled[4]
+            and not blocked_for(blocked,4,"support") and not suppress_team_attack then
+            local mismatch=false
+            local recipients={}
+            for _,id in ipairs(ordered(s.members)) do
+                if id~=me then
+                    recipients[#recipients+1]=id
+                    if s.targets[id]~=target then mismatch=true end
+                end
+            end
+            if mismatch and #recipients>0 then
+                out[#out+1]={kind="team_attack",channel=4,actor=me,
+                    enemy=target,room=s.room,recipients=recipients,
+                    priority=45,reason="Wspólny cel walki"}
+            end
+        end
+    end
+
     table.sort(out,function(a,b)
         if a.priority~=b.priority then return a.priority>b.priority end
-        if (a.safety_gain or 0)~=(b.safety_gain or 0) then return (a.safety_gain or 0)>(b.safety_gain or 0) end
-        local ka=a.channel.."|"..a.actor.."|"..a.kind.."|"..(a.protected or "").."|"..(a.enemy or "")
-        local kb=b.channel.."|"..b.actor.."|"..b.kind.."|"..(b.protected or "").."|"..(b.enemy or "")
+        if (a.safety_gain or 0)~=(b.safety_gain or 0) then
+            return (a.safety_gain or 0)>(b.safety_gain or 0) end
+        local ka=a.channel.."|"..a.actor.."|"..a.kind.."|"..(a.protected or "")
+            .."|"..(a.enemy or "")
+        local kb=b.channel.."|"..b.actor.."|"..b.kind.."|"..(b.protected or "")
+            .."|"..(b.enemy or "")
         return ka<kb
     end)
     return out[1]
@@ -3830,7 +3801,7 @@ function M.command(d,s)
         if d.kind=="cover" and M.id(d.protected) and s.members[d.protected] and M.id(d.enemy)
             and s.leader==s.self_id and s.members[d.actor] and s.members[d.actor].kind=="player" then
             if d.protected~=s.self_id then return "rozkaz "..d.actor.." zaslonic "..d.protected end
-            return "rozkaz "..d.actor.." zaslonic ciebie przed "..d.enemy
+            return "rozkaz "..d.actor.." zaslonic ciebie"
         end
         return nil
     elseif d.channel==1 then
@@ -3987,7 +3958,7 @@ function T.new(ctx,M,integration,patrol,changed)
     local imported=persisted or integration.migrate_tactics()
     local config=M.defaults(imported or {})
     if not config.self_profile then
-        config.self_profile=M.profile_defaults({role=config.role,min_hp=imported and config.min_hp or nil,max_load=imported and config.max_load or nil})
+        config.self_profile=M.profile_defaults({role=config.role})
     end
     config.confirmed_minions=type(persisted)=="table" and type(persisted.confirmed_minions)=="table" and persisted.confirmed_minions or {}
     -- Collective commands need live server verification before opt-in.
@@ -4076,34 +4047,95 @@ function T.new(ctx,M,integration,patrol,changed)
     end
     local function snapshot() return M.snapshot(api) end
     local function display() return snapshot() or M.party(api) end
+    -- Remember a pet's role when its server entity ID changes. Reuse a
+    -- profile only for a unique exact name+kind match; never infer from a
+    -- declension or assign a role to two identically named NPCs.
+    local function restore_profile(member,roster)
+        if config.profiles[member.id] then return false end
+        local same_present=0
+        for _,other in ipairs(roster) do
+            if other.name==member.name then same_present=same_present+1 end
+        end
+        if same_present~=1 then return false end
+        local previous,profile
+        for old_id,p in pairs(config.profiles) do
+            if p.name==member.name and p.kind=="npc" then
+                if previous then return false end
+                previous,profile=old_id,p
+            end
+        end
+        if not previous then return false end
+        config.profiles[member.id]=M.profile_defaults(profile)
+        if previous~=member.id then config.profiles[previous]=nil end
+        return true
+    end
     local function detect()
         local roster=M.roster(api)
         if not roster then return end
         S.ambiguous=#roster>2
+        -- Never guess which two NPCs to command in a larger party.
         if S.ambiguous then return end
         local used,dirty={},false
+        for _,member in ipairs(roster) do
+            local old=config.profiles[member.id]
+            if old and not old.name and old.enabled==false and old.kind=="npc" then
+                old.name=member.name
+                dirty=true
+            end
+            if restore_profile(member,roster) then dirty=true end
+        end
         for _,p in ipairs(config.minions) do
-            for _,member in ipairs(roster) do if member.id==p.id then used[p.id]=true end end
+            for _,member in ipairs(roster) do
+                if member.id==p.id then used[p.id]=true end
+            end
+        end
+        -- Prefer the previous name over the alphabetical roster position.
+        for _,p in ipairs(config.minions) do
+            if not used[p.id] then
+                for _,member in ipairs(roster) do
+                    if not used[member.id] and member.name==p.name then
+                        p.id,p.name=member.id,member.name
+                        used[member.id]=true
+                        dirty=true
+                        break
+                    end
+                end
+            end
         end
         for i,p in ipairs(config.minions) do
             if not used[p.id] then
                 local candidate
                 for _,member in ipairs(roster) do
-                    if not used[member.id] and (not candidate or member.name==p.name) then candidate=member end
+                    if not used[member.id] then candidate=member;break end
                 end
                 if candidate then
-                    p.id,p.name=candidate.id,candidate.name;used[p.id]=true
-                    -- A changed slot must never inherit the previous owner's
-                    -- 15s maneuver cooldown; those locks follow GMCP IDs.
-                    S.blocked[i+1]=0;dirty=true
-                    -- Discovery is not an attack attempt. Keep support's
-                    -- short command guard separate from maneuver cooldown.
+                    p.id,p.name=candidate.id,candidate.name
+                    used[p.id]=true;dirty=true
+                    -- Readiness belongs to an entity ID, never a slot.
+                    S.blocked[i+1]=0
                     S.support[i+1]=math.max(S.support[i+1],now()+1)
+                    S.enabled[i+1]=true
                     if S.pending and S.pending.channel==i+1 then S.pending=nil end
+                else
+                    p.id=nil
+                    p.name=nil
+                end
+            end
+            if p.id and used[p.id] then
+                local member=nil
+                for _,m in ipairs(roster) do if m.id==p.id then member=m end end
+                if member then
+                    config.confirmed_minions[i]={id=p.id,name=p.name}
                 end
             end
         end
-        if dirty then save() end
+        if dirty then
+            -- A new GMCP identity can arrive between group/entity packets.
+            -- Hold only routine party target orders for one second; urgent
+            -- individual protection remains fully available.
+            S.support[4]=math.max(S.support[4],now()+1)
+            save()
+        end
     end
     function E.stop(reason)
         S.on=false;S.pending=nil;S.received={}
@@ -4133,8 +4165,7 @@ function T.new(ctx,M,integration,patrol,changed)
             for i,p in ipairs(config.minions) do if p.id==id then ch=i+1;slot=i end end
             rows[#rows+1]={id=id,name=m.name,kind=m.kind,role=id==s.self_id and config.role or policy.role,
                 enabled=policy.enabled and S.enabled[ch],channel=ch,slot=slot,
-                min_hp=policy.min_hp,max_load=policy.max_load,task=slot and config.minions[slot].task,
-                target_name=policy.target_name,target_id=policy.target_id,
+                min_hp=policy.min_hp,max_load=policy.max_load,
                 cooldown=math.max(0,math.ceil(math.max(S.blocked[ch] or 0,actor_ready(id))-now())),
                 self=id==s.self_id}
         end
@@ -4146,31 +4177,39 @@ function T.new(ctx,M,integration,patrol,changed)
     end
     function E.configure(id,key,value,expected)
         if S.destroyed then return false end
-        local s=display();local member=s and s.members[id]
+        local current=display()
+        local member=current and current.members[id]
         if not member then return false end
-        if expected and (member.name~=expected.name or member.kind~=expected.kind) then return false end
-        local own=id==s.self_id;local old=own and config.self_profile or config.profiles[id]
-        if old and not own and (old.name~=member.name or old.kind~=member.kind) then old=nil end
-        local p=M.profile_defaults(old or {name=member.name,kind=member.kind,min_hp=own and config.min_hp or 50,max_load=config.max_load})
+        if expected and (member.name~=expected.name or member.kind~=expected.kind) then
+            return false
+        end
+        local own=id==current.self_id
+        local old=own and config.self_profile or config.profiles[id]
+        if old and not own and (old.name~=member.name or old.kind~=member.kind) then
+            old=nil
+        end
+        local p=M.profile_defaults(old or {name=member.name,kind=member.kind})
+        p.name,p.kind=member.name,member.kind
         if key=="role" then
-            if value~="auto" and not M.labels[value] then return false end
-            if own and value=="auto" then return false end
-            p.role=value~="auto" and value or nil
-            if p.role then p.min_hp=M.presets[p.role].min_hp;p.max_load=M.presets[p.role].max_load end
-            if not p.role then p.min_hp=50;p.max_load=config.max_load end
+            if not M.labels[value] then return false end
+            p.role=value
+            p.min_hp=M.presets[value].min_hp
+            p.max_load=M.presets[value].max_load
             if own then config.role=value end
         elseif key=="enabled" then p.enabled=value==true
-        elseif key=="min_hp" then p.min_hp=math.max(own and 40 or 50,math.min(100,tonumber(value) or p.min_hp))
-        elseif key=="max_load" then p.max_load=math.max(0,math.min(5,math.floor(tonumber(value) or p.max_load)))
-        elseif key=="target_id" then
-            local target=value and s.members[value]
-            if value and (not target or value==id) then return false end
-            p.target_id=value;p.target_name=target and target.name
-            if own then config.protect=value~=nil;config.protect_id=value;config.protect_name=p.target_name end
-            for _,pet in ipairs(config.minions) do if pet.id==id then pet.target_id=value;pet.target_name=p.target_name end end
+        elseif key=="min_hp" then
+            p.min_hp=math.max(40,math.min(100,math.floor(tonumber(value) or p.min_hp)))
+        elseif key=="max_load" then
+            p.max_load=math.max(0,math.min(5,math.floor(tonumber(value) or p.max_load)))
         else return false end
         if own then config.self_profile=p else config.profiles[id]=p end
-        for _,row in ipairs(E.rows()) do if row.id==id and key=="enabled" and row.channel<4 then S.enabled[row.channel]=p.enabled end end
+        if key=="enabled" then
+            for _,row in ipairs(E.rows()) do
+                if row.id==id and row.channel<4 then
+                    S.enabled[row.channel]=p.enabled
+                end
+            end
+        end
         save();notify();return true
     end
     function E.option(key,value)
@@ -4180,13 +4219,6 @@ function T.new(ctx,M,integration,patrol,changed)
         end
         return false
     end
-    function E.task(id,value,expected)
-        if S.destroyed or not M.task_labels[value] then return false end
-        local s=display();local member=s and s.members[id]
-        if not member or (expected and (member.name~=expected.name or member.kind~=expected.kind)) then return false end
-        for _,p in ipairs(config.minions) do if p.id==id then p.task=value;save();notify();return true end end
-        return false
-    end
     function E.bind(slot,id,expected)
         if S.destroyed or (slot~=1 and slot~=2) then return false end
         local s=display();local member=s and s.minions[id]
@@ -4194,8 +4226,9 @@ function T.new(ctx,M,integration,patrol,changed)
         if config.minions[3-slot].id==id then return false end
         local pet=config.minions[slot];pet.id=id;pet.name=member.name
         config.confirmed_minions[slot]={id=id,name=member.name}
-        S.enabled[slot+1]=false;S.blocked[slot+1]=math.max(S.blocked[slot+1],now()+15)
-        save();phase("PRZYPISANO","Pachołek przypisany. Włącz jego udział po sprawdzeniu roli.");return true
+        S.enabled[slot+1]=true;S.blocked[slot+1]=0
+        restore_profile({id=id,name=member.name},M.roster(api) or {})
+        save();phase("PRZYPISANO","Pachołek przypisany. Rola zapamiętana; automat wybierze manewr.");return true
     end
     function E.status()
         return {on=S.on,phase=S.phase,detail=S.detail,pending=S.pending and S.pending.kind,
@@ -4486,6 +4519,9 @@ function T.new(ctx,M,integration,patrol,changed)
     ctx:timer(0.5,schedule,true)
     ctx:cleanup(function() S.destroyed=true;S.on=false;S.pending=nil end)
     detect()
+    -- Persist the schema-3 migration once, so legacy target/task selectors
+    -- cannot reappear in saved settings after the next restart.
+    if type(persisted)=="table" and persisted.schema~=3 then save() end
     return E
 end
 return T
@@ -4535,11 +4571,17 @@ local function short(v,n)
     local out={};for i=1,math.max(1,n-1) do out[#out+1]=chars[i] end;return table.concat(out).."…"
 end
 local function clock(n) n=math.max(0,math.floor(tonumber(n) or 0));return string.format("%02d:%02d:%02d",math.floor(n/3600),math.floor(n%3600/60),n%60) end
-local ROLES={tank="Obrońca",offtank="Drugi obrońca",standard="Wojownik",asekuracja="Ochrona innych",support="Wsparcie"}
-local ROLE_DETAILS={tank="Przejmuje zagrożenia i odciąża sojuszników.",offtank="Pomaga głównemu obrońcy przy przeciążeniu.",standard="Walczy i pomaga, gdy to bezpieczne.",asekuracja="Osłania szczególnie zagrożonych sojuszników.",support="Unika przejmowania przeciwników."}
-local ROLE_ORDER={"tank","offtank","standard","asekuracja","support","auto"}
-local TASKS={"auto","self","protect","support","reserve"}
-local TASK_LABEL={auto="Automatycznie",self="Chroń mnie",protect="Chroń wybraną osobę",support="Wspieraj mój cel",reserve="Rezerwa"}
+local ROLES={
+    obronca="Obrońca",asekurant="Asekurant",
+    zrownowazony="Zrównoważony",chroniony="Chroniony"
+}
+local ROLE_DETAILS={
+    obronca="Przejmuje napastników i osłania drużynę.",
+    asekurant="Szybko pomaga zagrożonym sojusznikom.",
+    zrownowazony="Walczy i chroni, gdy jest to bezpieczne.",
+    chroniony="Wymaga ochrony; nie przejmuje napastników."
+}
+local ROLE_ORDER={"obronca","asekurant","zrownowazony","chroniony"}
 function H.new(ctx,patrol,tactics,stop)
     local self={labels={},widgets={},menu=nil,page=1,shown=true,destroyed=false}
     local settings=ctx:saved("hud",{});if type(settings)~="table" then settings={} end
@@ -4607,7 +4649,7 @@ function H.new(ctx,patrol,tactics,stop)
         self.page=1
         if name=="areas" then self.nearby=nil end
         if name=="party" or name=="tactics" or name=="areas" or name=="settings" then self.anchor=name end
-        if name~="member" and name~="roles" and name~="targets" and name~="member_advanced" then self.selected=nil end
+        if name~="member" and name~="member_advanced" then self.selected=nil end
         self:render()
     end
     function self:visible(value) if self.destroyed then return false end;self.shown=value~=false;self.menu=nil;save();self:render() end
@@ -4628,7 +4670,7 @@ function H.new(ctx,patrol,tactics,stop)
                 change=fn,unit=unit or ""})
         end
         local selected=find_row(rows,self.selected)
-        if (self.menu=="member" or self.menu=="roles" or self.menu=="targets" or self.menu=="member_advanced") and not selected then self.menu="party" end
+        if (self.menu=="member" or self.menu=="member_advanced") and not selected then self.menu="party" end
         local p=snap.profile;local st=snap.status
         if self.menu=="party" then
             title="Drużyna"
@@ -4655,39 +4697,37 @@ function H.new(ctx,patrol,tactics,stop)
             end,P.lavender,"action",{icon=ICON.gear})
             note=""
         elseif self.menu=="member" then
-            title=(selected and selected.name or "Postać").." · zachowanie"
-            add("Wróć do drużyny",function() self.menu="party";self:render() end,P.muted,"back",{icon=ICON.back})
+            title=(selected and selected.name or "Postać").." · rola"
+            add("‹ Wróć do drużyny",function() self.menu="party";self:render() end,
+                P.muted,"back",{icon=ICON.back})
             if selected then
                 local id=selected.id
                 toggle("Automatyczna ochrona tej postaci",selected.enabled,
                     function() tactics.configure(id,"enabled",not selected.enabled,selected) end,
-                    "Pozostałe postacie zachowują swoje ustawienia")
-                add("Rola: "..(ROLES[selected.role] or "Automatycznie"),
-                    function() self.menu="roles";self.page=1;self:render() end,
-                    P.lavender,"action",{icon=ICON.role})
-                if selected.slot then
-                    add("Zadanie pachołka: "..(TASK_LABEL[selected.task] or "Automatycznie").."  ↻",
-                        function()
-                            local current=1
-                            for i,v in ipairs(TASKS) do if v==selected.task then current=i end end
-                            local value=TASKS[current%#TASKS+1]
-                            tactics.task(id,value,selected)
-                            if value=="protect" then self.menu="targets";self.page=1 end
-                            self:render()
-                        end)
+                    "Udział w manewrach ustala wyłącznie automat")
+                add("ROLA",nil,P.lavender,"section")
+                for _,role in ipairs(ROLE_ORDER) do
+                    local name=ROLES[role]
+                    add(name,function()
+                        tactics.configure(id,"role",role,selected)
+                        self.page=1;self:render()
+                    end,P.text,"choice",{selected=selected.role==role,
+                        icon=role=="obronca" and ICON.shield
+                            or role=="asekurant" and ICON.safety
+                            or role=="chroniony" and ICON.star or ICON.attack})
                 end
-                add("Kogo chronić: "..(selected.target_name or "decyduje automat"),
-                    function() self.menu="targets";self.page=1;self:render() end,
-                    P.text,"action",{icon=ICON.shield})
-                add("Zaawansowane: HP i limit zagrożeń",
-                    function() self.menu="member_advanced";self.page=1;self:render() end,
-                    P.lavender,"action",{icon=ICON.sliders})
+                add("⚙ Zaawansowane: HP i obciążenie",function()
+                    self.menu="member_advanced";self.page=1;self:render()
+                end,P.lavender,"action",{icon=ICON.sliders})
                 if selected.kind=="npc" and not selected.slot then
-                    add("Przypisz jako pachołka 1",function() tactics.bind(1,id,selected) end)
-                    add("Przypisz jako pachołka 2",function() tactics.bind(2,id,selected) end)
+                    add("Przypisz jako pachołka 1",
+                        function() tactics.bind(1,id,selected) end)
+                    add("Przypisz jako pachołka 2",
+                        function() tactics.bind(2,id,selected) end)
                 end
             end
-            note="Rola dobiera domyślne progi. Szczegóły są opcjonalne."
+            note=selected and ROLE_DETAILS[selected.role]
+                or "Jedna rola i jedna automatyka."
         elseif self.menu=="member_advanced" then
             title=(selected and selected.name or "Postać").." · bezpieczeństwo"
             add("Wróć do postaci",function() self.menu="member";self:render() end,P.muted,"back",{icon=ICON.back})
@@ -4695,40 +4735,14 @@ function H.new(ctx,patrol,tactics,stop)
                 local id=selected.id
                 slider("Minimalne HP do manewru",selected.min_hp,selected.self and 40 or 50,100,5,
                     function(v) tactics.configure(id,"min_hp",v,selected) end,"%")
-                slider("Limit przejmowanych przeciwników",selected.max_load,0,5,1,
-                    function(v) tactics.configure(id,"max_load",v,selected) end,"")
-            end
-            note="Progi dotyczą manewrów taktycznych, nie poziomu HP na HUD."
-        elseif self.menu=="roles" then
-            title=(selected and selected.name or "Postać").." · wybierz rolę"
-            add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
-            if selected then
-                local id=selected.id
-                for _,role in ipairs(ROLE_ORDER) do
-                    if role~="auto" or not selected.self then
-                        local desc=ROLE_DETAILS[role] or "Bez przypisanej roli."
-                        add(ROLES[role] or "Automatycznie",
-                            function() tactics.configure(id,"role",role,selected);self.menu="member";self:render() end,
-                            P.text,"choice",{selected=selected.role==role,description=desc,
-                                icon=(role=="tank" or role=="offtank") and ICON.shield or
-                                    role=="support" and ICON.support or role=="asekuracja" and ICON.safety or ICON.attack})
-                    end
+                if selected.role=="chroniony" then
+                    add("Limit przeciwników: 0 (rola Chroniony)",nil,P.muted,"hint")
+                else
+                    slider("Limit przejmowanych przeciwników",selected.max_load,0,5,1,
+                        function(v) tactics.configure(id,"max_load",v,selected) end,"")
                 end
             end
-            note="Zmiana roli ustawia też domyślne progi bezpieczeństwa."
-        elseif self.menu=="targets" then
-            title=(selected and selected.name or "Postać").." · kogo chronić"
-            add("‹ Wróć do postaci",function() self.menu="member";self:render() end,P.muted)
-            if selected then
-                local id=selected.id
-                add("Automatyczny wybór",function() tactics.configure(id,"target_id",nil,selected);self.menu="member";self:render() end,
-                    P.text,"choice",{selected=not selected.target_id,icon=ICON.auto})
-                for _,r in ipairs(rows) do if r.id~=id then
-                    local target=r.id
-                    add("Chroń: "..r.name,function() tactics.configure(id,"target_id",target,selected);self.menu="member";self:render() end,
-                        P.text,"choice",{selected=selected.target_id==target,icon=ICON.shield})
-                end end
-            end
+            note="Progi dotyczą manewrów taktycznych, nie poziomu HP na HUD."
         elseif self.menu=="tactics" then
             title="Taktyka drużyny"
             add("Wróć do drużyny",function() self.menu="party";self:render() end,P.muted,"back",{icon=ICON.back})
@@ -4891,10 +4905,11 @@ function H.new(ctx,patrol,tactics,stop)
             x=x+width+4
         end
         local xpcolor=not st.started and P.muted or st.paused and P.yellow or P.mint
-        local tacticscolor=not ts.on and P.muted or
-            (ts.phase=="BLOKADA") and P.yellow or P.mint
+        local tacticscolor=ts.on and P.mint or P.yellow
         nav("party",ICON.party,"Drużyna",widths[1],nil)
-        nav("tactics",ICON.shield,"Ochrona",widths[2],tacticscolor)
+        -- Status LED is visible even with the dropdown closed. The pilot
+        -- cares about AUTO on/off, not a tiny grey-on-grey shield glyph.
+        nav("tactics","●","Ochrona",widths[2],tacticscolor)
         nav("areas",ICON.area,"Expowiska",widths[3],xpcolor)
         widget("pause",self.root,right,y,cw-3,bh,
             (not st.started or st.paused) and ICON.play or ICON.pause,
@@ -5007,15 +5022,17 @@ function H.new(ctx,patrol,tactics,stop)
                 self.overlay:hide()
                 mx=math.max(8,math.floor((w-mw)/2))
             elseif self.catalog then self.catalog:hide() end
-            panel:move(mx,catalog and math.max(height+8,math.floor((h-mh)/2)) or height+5)
+            local my=catalog and math.max(height+8,math.floor((h-mh)/2)) or height+5
+            panel:move(mx,my)
             panel:resize(mw,mh)
+            self.menu_rect={x=mx,y=my,w=mw,h=mh}
             local function menu_widget(key,xx,yy,ww,hh,text,tint,bg,fn,html,style)
                 widget((catalog and "catalog_" or "")..key,panel,xx,yy,
                     math.max(1,ww),math.max(1,hh),text,tint,bg,fn,html,style)
             end
             local menu_meta={
                 party=ICON.party,member=ICON.member,member_advanced=ICON.sliders,
-                roles=ICON.role,targets=ICON.target,tactics=ICON.shield,
+                tactics=ICON.shield,
                 areas=ICON.area,allareas=ICON.map,settings=ICON.gear,
                 combat=ICON.attack,safety=ICON.safety,loot=ICON.loot,
                 trade=ICON.trade,profiles=ICON.map,session=ICON.session
@@ -5173,7 +5190,11 @@ function H.new(ctx,patrol,tactics,stop)
                     P.muted,P.panel,nil,nil,"footer")
             end
             panel:show();if type(panel.raiseAll)=="function" then panel:raiseAll() end
-        else self.overlay:hide();if self.catalog then self.catalog:hide() end end
+        else
+            self.menu_rect=nil
+            self.overlay:hide()
+            if self.catalog then self.catalog:hide() end
+        end
         for key,item in pairs(self.labels) do if not self.used[key] and type(item.widget.hide)=="function" then item.widget:hide() end end
         self.root:show()
     end
@@ -5184,6 +5205,30 @@ function H.new(ctx,patrol,tactics,stop)
         self.rendering=false
         if not ok then error(err,0) end
     end
+    -- Mudlet raises this for a click anywhere on the main window, even if
+    -- the click isn't on one of our Geyser labels. Do not create a giant
+    -- transparent overlay: that would block combat, mapper and Kondycje.
+    ctx:on("sysWindowMousePressEvent",function(_,button,xx,yy,windowname)
+        if not self.menu or not self.menu_rect or self.destroyed then return end
+        if windowname and windowname~="" and windowname~="main" then return end
+        local x,y=tonumber(xx),tonumber(yy)
+        if not x or not y then return end
+        local function within(rect)
+            return rect and x>=rect.x and x<rect.x+rect.w
+                and y>=rect.y and y<rect.y+rect.h
+        end
+        if within(self.menu_rect) then return end
+        -- Leave actual toolbar clicks to their own callbacks. Closing the
+        -- active tab on mouse-down would otherwise reopen it on mouse-up.
+        for _,key in ipairs({"party","tactics","areas","settings",
+            "pause","stop","stage","defense_thought"}) do
+            local item=self.labels[key]
+            if item and self.used and self.used[key]
+                and within(item) then return end
+        end
+        self.menu=nil
+        self:render()
+    end)
     ctx:on("sysWindowResizeEvent",function() self:render() end)
     ctx:on("chimera.group.state",function() self:render() end)
     ctx:on("chimera.room.entities",function() self:render() end)
@@ -5243,7 +5288,7 @@ return function(module)
         ctx:command{"exp okno reset",help="Przywróć zwięzły HUD",fn=function() view:visible(true);view:open("areas") end}
         ctx:command{"exp rola",args="<ID rola>",help="Rola obecnej jednostki",fn=function(arg)
             local id,role=tostring(arg or ""):match("^(%S+)%s+(%S+)$")
-            if not tactics.configure(id,"role",role) then ctx.log.warn("Użycie: /exp rola ID tank|offtank|standard|asekuracja|support") end
+            if not tactics.configure(id,"role",role) then ctx.log.warn("Użycie: /exp rola ID obronca|asekurant|zrownowazony|chroniony") end
         end}
         -- The engine's CLI stop must stop tactics too, not just HUD/API clicks.
         -- Register only one alias by supplying this hook at engine construction.

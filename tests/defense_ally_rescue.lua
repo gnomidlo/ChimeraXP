@@ -42,8 +42,8 @@ do
     local h=fixture()
     local c=M.defaults(h.saved.tactics)
     local s=assert(M.snapshot(h.gmcp))
-    assert(M.task(s,c,1)=="self",
-        "first automatic pet gets a leader-guard assignment")
+    assert(c.minions[1].task==nil and c.role=="asekurant",
+        "legacy guard tasks do not survive migration")
     local only_leader_and_guard={true,true,false,false}
     -- A designated healthy guard should not be rearranged routinely.
     s.risk={petone={level="stable",hp=90}}
@@ -64,11 +64,11 @@ do
 
     -- Still protect the rescuer: too little HP or an exhausted max-load
     -- cannot be bypassed by risk classification.
-    health(h,"me",70)
+    health(h,"me",65)
     s=assert(M.snapshot(h.gmcp))
     s.risk={petone={level="critical",hp=50}}
     assert(not M.plan(s,c,only_leader_and_guard),
-        "don't force the asekuracja leader below her own 75% HP floor")
+        "don't force the asekurant leader below her own 70% HP floor")
     h.dispose()
 end
 
@@ -93,7 +93,7 @@ end
 
 do
     local h=fixture()
-    health(h,"me",70)
+    health(h,"me",65)
     assert(h.api.configure("pettwo","enabled",false))
     assert(h.api.toggle(true))
     h.fresh();h.advance(5.2)
@@ -102,8 +102,8 @@ do
     h.emit("chimera.room.entities")
     h.advance(.3)
     assert(#h.sent==0,"unsafe rescuer must not be forced to take a hit")
-    assert(h.api.status().detail:find("HP 70 < 75%%"),
-        "no-plan diagnosis must report actual 75% asekuracja HP floor")
+    assert(h.api.status().detail:find("HP 65 < 70%%"),
+        "no-plan diagnosis must report actual 70% Asekurant HP floor")
     h.dispose()
 end
 
