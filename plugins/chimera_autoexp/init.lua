@@ -4696,7 +4696,7 @@ function H.new(ctx,patrol,tactics,stop)
                             or role=="asekurant" and ICON.safety
                             or role=="chroniony" and ICON.star or ICON.attack})
                 end
-                add("⚙ Ustawienia zaawansowane",function()
+                add("⚙ Zaawansowane: HP i obciążenie",function()
                     self.menu="member_advanced";self.page=1;self:render()
                 end,P.lavender,"action",{icon=ICON.sliders})
                 if selected.kind=="npc" and not selected.slot then
