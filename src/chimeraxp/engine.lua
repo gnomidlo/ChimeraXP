@@ -1300,7 +1300,14 @@ return {
                                 note("AutoExp: /idz do schronienia niedostepny ("..
                                      tostring(why).."); awaryjne kroki GMCP.", "warn")
                             end
-                            retreat_in_combat(p, r)
+                            if active == false then
+                                -- Outside combat the ordinary native patrol
+                                -- walker can retreat without a temporary
+                                -- override of the user's attack setting.
+                                move_to(p.safeRoom, "safe")
+                            else
+                                retreat_in_combat(p, r)
+                            end
                         end
                     end
                     return
