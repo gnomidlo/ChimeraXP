@@ -179,7 +179,13 @@ function T.new(ctx,M,integration,patrol,changed)
                 end
             end
         end
-        if dirty then save() end
+        if dirty then
+            -- A new GMCP identity can arrive between group/entity packets.
+            -- Hold only routine party target orders for one second; urgent
+            -- individual protection remains fully available.
+            S.support[4]=math.max(S.support[4],now()+1)
+            save()
+        end
     end
     function E.stop(reason)
         S.on=false;S.pending=nil;S.received={}
