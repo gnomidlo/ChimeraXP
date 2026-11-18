@@ -3345,9 +3345,18 @@ function M.defaults(raw)
         -- An explicitly reserved helper is opted out until the user enables
         -- it again. All other former tasks defer to the one role.
         for _,p in ipairs(type(raw.minions)=="table" and raw.minions or {}) do
-            if p.task=="reserve" and M.id(p.id) then
+            if (p.task=="reserve" or p.task=="support") and M.id(p.id) then
                 local saved=c.profiles[p.id] or profile({name=p.name,kind="npc"})
-                saved.enabled=false
+                if p.task=="reserve" then
+                    saved.enabled=false
+                else
+                    -- Former 'support my target' never covered others;
+                    -- migrate to Chroniony (no enemy transfers) rather than
+                    -- silently drafting it into front-line protection.
+                    saved.role="chroniony"
+                    saved.min_hp=M.presets.chroniony.min_hp
+                    saved.max_load=0
+                end
                 c.profiles[p.id]=saved
             end
         end
@@ -3362,7 +3371,7 @@ function M.policy(s,c,id)
     local preset=M.presets[role]
     return {role=role,enabled=not p or p.enabled~=false,
         min_hp=p and p.min_hp or preset.min_hp,
-        max_load=p and p.max_load or preset.max_load,
+        max_load=role=="chroniony" and 0 or (p and p.max_load or preset.max_load),
         weight=preset.weight}
 end
 -- Roster detection is deliberately independent from Combat.State (also works out of combat).
@@ -3602,6 +3611,9 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         -- No routine oscillation for a stable group. Defenders are slightly
         -- more willing to redistribute; everybody helps with real danger.
         if not urgent and victim_role~="chroniony" then
+            -- A healthy ally with one weak attacker is not an emergency.
+            -- Avoid moving a harmless enemy solely to optimize tiny ratios.
+            if #enemies==1 and victim.hp>=85 then return end
             if role=="obronca" then
                 if count(s,protected)<=count(s,id) and improvement<0.12 then return end
             elseif improvement<0.12 then return end
@@ -3639,16 +3651,30 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         local endangered=s.risk and s.risk[me]
         local danger=endangered and endangered.level~="stable"
             or s.members[me].hp<=55
+            or M.policy(s,c,me).role=="chroniony"
         if danger then
-            for _,actor in ipairs(actors) do
-                local id=actor.id
-                if id~=me and can_take(s,id,count(s,me),c)
-                    and not blocked_for(blocked,actor.channel,"cover")
-                    and enabled[actor.channel] and M.policy(s,c,id).enabled then
-                    out[#out+1]={kind="retreat",channel=1,actor=me,
-                        protected=id,room=s.room,priority=urgency(s,c,me)-3,
-                        before_targets=s.attackers[me],
-                        reason="Wycofanie za "..s.members[id].name}
+            for _,id in ipairs(ordered(s.members)) do
+                if id~=me then
+                    local member=s.members[id]
+                    local allowed=true
+                    if member.minion then
+                        -- NPCs outside the verified two retainer slots cannot
+                        -- be relied on as retreat recipients.
+                        allowed=false
+                        for _,actor in ipairs(actors) do
+                            if actor.id==id and enabled[actor.channel] then
+                                allowed=true
+                            end
+                        end
+                    end
+                    if allowed and can_take(s,id,count(s,me),c)
+                        and member.hp>=math.max(70,M.policy(s,c,id).min_hp)
+                        and not member.casting then
+                        out[#out+1]={kind="retreat",channel=1,actor=me,
+                            protected=id,room=s.room,priority=urgency(s,c,me)-3,
+                            before_targets=s.attackers[me],
+                            reason="Wycofanie za "..member.name}
+                    end
                 end
             end
         end
@@ -4678,8 +4704,12 @@ function H.new(ctx,patrol,tactics,stop)
                 local id=selected.id
                 slider("Minimalne HP do manewru",selected.min_hp,selected.self and 40 or 50,100,5,
                     function(v) tactics.configure(id,"min_hp",v,selected) end,"%")
-                slider("Limit przejmowanych przeciwników",selected.max_load,0,5,1,
-                    function(v) tactics.configure(id,"max_load",v,selected) end,"")
+                if selected.role=="chroniony" then
+                    add("Limit przeciwników: 0 (rola Chroniony)",nil,P.muted,"hint")
+                else
+                    slider("Limit przejmowanych przeciwników",selected.max_load,0,5,1,
+                        function(v) tactics.configure(id,"max_load",v,selected) end,"")
+                end
             end
             note="Progi dotyczą manewrów taktycznych, nie poziomu HP na HUD."
         elseif self.menu=="tactics" then
@@ -5227,7 +5257,7 @@ return function(module)
         ctx:command{"exp okno reset",help="Przywróć zwięzły HUD",fn=function() view:visible(true);view:open("areas") end}
         ctx:command{"exp rola",args="<ID rola>",help="Rola obecnej jednostki",fn=function(arg)
             local id,role=tostring(arg or ""):match("^(%S+)%s+(%S+)$")
-            if not tactics.configure(id,"role",role) then ctx.log.warn("Użycie: /exp rola ID tank|offtank|standard|asekuracja|support") end
+            if not tactics.configure(id,"role",role) then ctx.log.warn("Użycie: /exp rola ID obronca|asekurant|zrownowazony|chroniony") end
         end}
         -- The engine's CLI stop must stop tactics too, not just HUD/API clicks.
         -- Register only one alias by supplying this hook at engine construction.
