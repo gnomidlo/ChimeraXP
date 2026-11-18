@@ -26,6 +26,14 @@ Ręczny ruch oddaje graczowi sterowanie. Patrol wraca po potwierdzeniu pokoju, d
 
 Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy automatyczne Lua 5.1/5.4; zachowanie serwerowych komend i wygląd Qt/Geyser wymagają jeszcze próby w działającym Mudlecie.
 
+## Obrona 2.0 (beta.29)
+
+- Obserwuje każdą postać z GMCP, łącznie z procentowym HP i tempem jego spadania. Jeden potężny przeciwnik może wymagać ratunku szybciej niż trzech słabych.
+- Ratunek ma pierwszeństwo przed zwykłym wyrównaniem obciążenia, ale ratownik nie może przekroczyć limitu napastników, spaść poniżej własnego progu HP ani być sam w stanie krytycznym.
+- Przy osłonie postaci dowódcy pachołek otrzymuje `rozkaz ID zaslonic ciebie`. Zbiorowy wariant `rozkaz druzynie zaslonic ciebie` jest dostępny dla bezpiecznej grupy, gdy włączono rozkazy zbiorowe.
+- 15 sekund odnowienia manewru dotyczy wyłącznie wykonawcy, a nie dowódcy wydającego rozkaz. Wcześniejszy komunikat gotowości kończy cooldown. Komendy ataku nie nakładają cooldownu osłon.
+- Po lewej stronie informacji o expowisku i czasie górny HUD pokazuje aktualny zamiar Obrony, włącznie z alarmem i wyjaśnieniem, dlaczego osłona nie jest bezpieczna.
+
 ## 0.7.0-beta.7 — szybsza koncentracja drużyny
 
 - Koncentracja ma pierwszeństwo przed zwykłym równoważeniem osłon, aby rutynowa osłona nie zajmowała najpierw wspólnego odstępu rozkazów. Pilna i priorytetowa ochrona nadal wygrywa.
