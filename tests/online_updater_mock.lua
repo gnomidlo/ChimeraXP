@@ -92,6 +92,16 @@ local f=assert(io.open(target,'wb'));f:write('-- foreign package, not AutoExp');
 upgrade()
 assert(U:check(true),'foreign target check attempted')
 assert(contents(target)=='-- foreign package, not AutoExp','foreign file must not be touched')
+-- A cached main/manifest.json must never hide a freshly merged release.
+-- Every online check needs a distinct URL even in the same second.
+local previous = {}
+for _,url in ipairs(urls) do
+    if url:find("manifest.json",1,true) then
+        assert(url:find("manifest.json?check=",1,true), "manifest request needs cache busting")
+        assert(not previous[url], "every manifest fetch URL should be unique")
+        previous[url] = true
+    end
+end
 print('online-updater smoke tests PASS: initial install, noop, upgrade + backup, offline, foreign file',#urls)
 os_execute('rm -rf "'..dir..'"')
 
