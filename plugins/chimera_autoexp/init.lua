@@ -3336,7 +3336,9 @@ function M.defaults(raw)
         c.minions[i]={id=M.id(p.id),name=p.name}
     end
     for id,p in pairs(type(raw.profiles)=="table" and raw.profiles or {}) do
-        if M.id(id) and type(p)=="table" and type(p.name)=="string" then
+        if M.id(id) and type(p)=="table"
+            and (type(p.name)=="string"
+                or (p.name==nil and p.kind=="npc" and p.enabled==false)) then
             c.profiles[id]=profile(p,migrating)
         end
     end
@@ -3366,7 +3368,11 @@ end
 function M.policy(s,c,id)
     local member=s.members[id]
     local p=id==s.self_id and c.self_profile or c.profiles and c.profiles[id]
-    if p and id~=s.self_id and (not member or p.name~=member.name or p.kind~=member.kind) then p=nil end
+    -- Legacy reserve entries can be keyed by exact ID but lack a name.
+    -- Until detection fills it in, the safe *disabled* state must still win.
+    if p and id~=s.self_id and (not member
+        or (p.name~=nil and p.name~=member.name)
+        or (p.kind~=nil and p.kind~=member.kind)) then p=nil end
     local role=p and M.role(p.role) or (id==s.self_id and M.role(c.role) or "zrownowazony")
     local preset=M.presets[role]
     return {role=role,enabled=not p or p.enabled~=false,
@@ -4060,6 +4066,11 @@ function T.new(ctx,M,integration,patrol,changed)
         if S.ambiguous then return end
         local used,dirty={},false
         for _,member in ipairs(roster) do
+            local old=config.profiles[member.id]
+            if old and not old.name and old.enabled==false and old.kind=="npc" then
+                old.name=member.name
+                dirty=true
+            end
             if restore_profile(member,roster) then dirty=true end
         end
         for _,p in ipairs(config.minions) do
