@@ -30,6 +30,10 @@ Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy aut
 
 Obrona wykorzystuje dostepny snapshot Group.State, jesli sklad druzyny nie zmienil sie po wejsciu do pokoju; jednoczesnie sprawdza, czy dane istot i relacje walki pochodza z biezacej lokacji. Przy 5+ napastnikach i HP <= 85% zwieksza czujnosc, a przy HP <= 65% podnosi priorytet ratunku. Rozkaz oslonienia dowodcy po ID nie wybiera konkretnego wroga, wiec potwierdzenie czeka na przeniesienie *dowolnego* dotychczasowego napastnika. Jesli bezpieczna osłona zbiorowa nie jest mozliwa, sprobuje indywidualnych zaslon w granicach limitow i cooldownow.
 
+## Obrona — ratowanie pachołków (beta.31)
+
+Jeżeli pierwszy pachołek pełni automatycznie zadanie ochrony lidera, stan zagrożenia (ostrzeżenie lub alarm) znosi dotychczasową blokadę zasłaniania go przez dowódcę. To ważne przy jego HP około 50%, które wcześniej błędnie uznawano za wystarczająco wysokie do zakazu interwencji. Przed wykonaniem ratunku nadal sprawdzany jest próg HP osoby zasłaniającej i jej maksymalna liczba napastników. Gdy automatyka odmawia zasłony, `/exp taktyka status` podaje powody odrębnie dla potencjalnych ratowników; sam komunikat o czerwonym alarmie nie oznacza, że wykonanie manewru jest bezpieczne.
+
 ## Obrona 2.0 (beta.29)
 
 - Obserwuje każdą postać z GMCP, łącznie z procentowym HP i tempem jego spadania. Jeden potężny przeciwnik może wymagać ratunku szybciej niż trzech słabych.
