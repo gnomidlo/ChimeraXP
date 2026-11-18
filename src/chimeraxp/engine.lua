@@ -66,6 +66,8 @@ local function normalize_profile(src, name)
         economy = { enabled = type(old.economy) == "table" and bool(old.economy.enabled) },
         safeKey = valid_id(old.safeKey) and old.safeKey or nil,
         safeRoom = valid_id(old.safeRoom) and old.safeRoom or nil,
+        safeMap = type(old.safeMap) == "number" and old.safeMap > 0
+            and old.safeMap % 1 == 0 and old.safeMap or nil,
         rules = {},
     }
     for key, default in pairs(DEFAULT) do
@@ -86,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.25",
+    version = "0.7.0-beta.26",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -175,6 +177,7 @@ return {
         end
         local escape = nil -- { origin, sent_at, tries, tried = { cmd = true } }
         local emergency = nil -- { step = {origin, destination, command, sent_at}, tries, destination }
+        local native_retreat = nil -- temporary walker settings for a mapped safe retreat
         local last_visited = nil
         local entities_ready = false
         local observed_room = nil
@@ -236,6 +239,44 @@ return {
         end
         -- The trade commands have no reliable success messages yet; serialize
         -- them with a short adjustable delay, never as one multi-command send.
+        -- Prefer the stored mapper number, but allow old profiles that only
+        -- contained the GMCP hash. Never trust a stale map number after a remap.
+        local function mapped_shelter(p)
+            if not p or not valid_id(p.safeRoom) then return nil end
+            local function verified(id)
+                return type(id) == "number" and id > 0 and id % 1 == 0
+                    and type(getRoomHashByID) == "function"
+                    and getRoomHashByID(id) == p.safeRoom and id or nil
+            end
+            return verified(p.safeMap) or verified(
+                type(getRoomIDbyHash) == "function" and getRoomIDbyHash(p.safeRoom) or nil)
+        end
+
+        local function restore_native_retreat()
+            if not native_retreat then return end
+            local saved = native_retreat
+            native_retreat = nil
+            if saved.cfg and type(saved.cfg.set) == "function" then
+                -- Restore the player's original walker preferences, including
+                -- the attack response (never leave "ignoruj" enabled).
+                pcall(saved.cfg.set, saved.cfg, "walker", "przy_ataku", saved.attack)
+                pcall(saved.cfg.set, saved.cfg, "walker", "opoznienie", saved.delay)
+            end
+            ctx:save("walker_restore", nil)
+        end
+
+        -- A client may have crashed in the middle of an emergency walk.
+        -- Restore settings from the durable checkpoint before starting again.
+        do
+            local stale = ctx:saved("walker_restore", nil)
+            local cfg = ctx.app and ctx.app.config
+            if type(stale) == "table" and cfg and type(cfg.set) == "function" then
+                if stale.attack ~= nil then pcall(cfg.set, cfg, "walker", "przy_ataku", stale.attack) end
+                if stale.delay ~= nil then pcall(cfg.set, cfg, "walker", "opoznienie", stale.delay) end
+                ctx:save("walker_restore", nil)
+            end
+        end
+
         local function economy_command_delay()
             local p = profile()
             local value = tonumber(p and p.rules and p.rules.economyCommandDelay)
@@ -488,7 +529,7 @@ return {
             local from = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(r.id)
                 or mapper.current_room()
             if type(from) ~= "number" or from <= 0 then from = mapper.current_room() end
-            local safe = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(p.safeRoom) or nil
+            local safe = mapped_shelter(p)
             if from and safe and safe > 0 and type(getPath) == "function" then
                 local ok, found = pcall(getPath, from, safe)
                 if ok and found then
@@ -607,6 +648,7 @@ return {
                 stop_ours = false
             end
             state.owns_walk = false
+            restore_native_retreat()
             note("AutoExp: " .. last_reason)
         end
         local function pause(reason)
@@ -629,6 +671,7 @@ return {
                 stop_ours = false
             end
             state.owns_walk = false
+            restore_native_retreat()
             move, pending_attack, escape, emergency = nil, nil, nil, nil
             note("AutoExp WSTRZYMANY: " .. reason, "warn")
         end
@@ -818,6 +861,54 @@ return {
             end
             return true
         end
+        -- Official /idz and walker.go are the SAME implementation. Let that
+        -- walker handle gates, fatigue and mapper route confirmation instead
+        -- of guessing a succession of GMCP exits under attack.
+        local function start_native_retreat(p, r)
+            if native_retreat then return true end
+            local destination = mapped_shelter(p)
+            if not destination then return false, "Brak zweryfikowanego numeru schronienia na mapie" end
+            local from = mapper.current_room()
+            local expected = type(getRoomIDbyHash) == "function"
+                and getRoomIDbyHash(r.id) or nil
+            if not from or from ~= expected then
+                return false, "Pozycja mappera nie zgadza sie z GMCP"
+            end
+            if type(getPath) ~= "function" or not getPath(from, destination) then
+                return false, "Mapper nie zna trasy do schronienia"
+            end
+            local cfg = ctx.app and ctx.app.config
+            if not cfg or type(cfg.get) ~= "function" or type(cfg.set) ~= "function" then
+                return false, "Nie mozna bezpiecznie zmienic ustawien chodzika"
+            end
+            local ok1, old_delay = pcall(cfg.get, cfg, "walker", "opoznienie")
+            local ok2, old_attack = pcall(cfg.get, cfg, "walker", "przy_ataku")
+            if not ok1 or not ok2 or old_delay == nil or old_attack == nil then
+                return false, "Nie udalo sie odczytac ustawien chodzika"
+            end
+            -- Persist FIRST, so a Mudlet crash never leaves "ignoruj" behind.
+            ctx:save("walker_restore", {delay=old_delay, attack=old_attack})
+            native_retreat = {cfg=cfg, delay=old_delay, attack=old_attack}
+            local ok3, changed_delay = pcall(cfg.set, cfg, "walker", "opoznienie", 0.6)
+            local ok4, changed_attack = pcall(cfg.set, cfg, "walker", "przy_ataku", "ignoruj")
+            if not ok3 or changed_delay ~= true or not ok4 or changed_attack ~= true then
+                restore_native_retreat()
+                return false, "Nie udalo sie ustawic bezpiecznego trybu chodzika"
+            end
+            move = { id=p.safeRoom, map=destination, purpose="safe_native", origin=r.id }
+            state.owns_walk = true -- walker.go emits started synchronously
+            announce("RETREAT")
+            local sent, result, detail = pcall(walker.go, destination)
+            if not sent or not result then
+                state.owns_walk, move = false, nil
+                restore_native_retreat()
+                return false, "Chodzik odmowil drogi do schronienia: "..tostring(detail or result)
+            end
+            note("AutoExp: odwrot chodzikiem do pokoju "..destination..
+                 " (jak /opoz 0.6 i /idz "..destination..").", "warn")
+            return true
+        end
+
         begin_fallback = function(reason)
             patrol_leg=nil
             if dry then pause("TEST: odwrot do saferoom: " .. reason); return end
@@ -915,10 +1006,8 @@ return {
                 return
             end
             if state.owns_walk then
-                stop_ours = true
-                walker.stop("AutoExp: awaryjny odwrot w walce")
-                stop_ours = false
-                state.owns_walk, move = false, nil
+                announce("RETREAT")
+                return
             end
             local now = os.time()
             if not emergency then
@@ -952,6 +1041,10 @@ return {
             -- A new room is now confirmed. Plan just the next step, not a
             -- multi-command speedwalk that might race against GMCP combat.
             emergency.step, emergency.tries = nil, 0
+            if (emergency.visits[r.id] or 0) > 2 then
+                retreat_wait("Wykryto petle odwrotu; nie bede biegac miedzy pokojami")
+                return
+            end
             local command, next_id, source = emergency_step(p, r)
             if not command then
                 retreat_wait("Brak dostepnego wyjscia GMCP podczas odwrotu")
@@ -988,6 +1081,7 @@ return {
             safety.blind=true
             if not started or safety.dark then return end
             safety.dark_visits={}
+            safety.dark_native_warning=nil
             safety.dark=reason
             if paused then return end
             local in_flight=(move and move.sent and move) or safety.after_walk or (emergency and emergency.step) or (escape and escape.sent_at and escape)
@@ -1027,6 +1121,19 @@ return {
             if key==(p.safeKey or p.safeRoom) then
                 halt("Ciemnosc: osiagnieto schronienie. Wymagany reczny start.")
                 phase="DARK_STOP"; ui_refresh(); return
+            end
+            if state.owns_walk and native_retreat then
+                announce("DARK_RETREAT")
+                return
+            end
+            if not state.owns_walk and not safety.awaiting then
+                local ok, why = start_native_retreat(p, r)
+                if ok then return end
+                if not safety.dark_native_warning then
+                    safety.dark_native_warning = true
+                    note("AutoExp: chodzik nie moze odwrocic w ciemnosci ("..tostring(why)..
+                         "); probuje tylko potwierdzone przejscia GMCP.", "warn")
+                end
             end
             local target=p.safeKey or p.safeRoom
             local command,dest,expected_key=safety.return_step(r,target)
@@ -1180,10 +1287,28 @@ return {
                     return
                 end
                 if r.id ~= p.safeRoom then
-                    if fallback.health and active==false and not emergency then
-                        if not state.owns_walk then move_to(p.safeRoom,"safe") end
-                    else
-                        retreat_in_combat(p,r)
+                    if state.owns_walk and native_retreat then
+                        announce("RETREAT")
+                    elseif not state.owns_walk then
+                        local ok, why = start_native_retreat(p, r)
+                        if not ok then
+                            -- If the official mapper cannot supply a path, use
+                            -- the older evidence-based single-step rescue, but
+                            -- never allow its previous unbounded A-B oscillation.
+                            if not fallback.native_warned then
+                                fallback.native_warned = true
+                                note("AutoExp: /idz do schronienia niedostepny ("..
+                                     tostring(why).."); awaryjne kroki GMCP.", "warn")
+                            end
+                            if active == false then
+                                -- Outside combat the ordinary native patrol
+                                -- walker can retreat without a temporary
+                                -- override of the user's attack setting.
+                                move_to(p.safeRoom, "safe")
+                            else
+                                retreat_in_combat(p, r)
+                            end
+                        end
                     end
                     return
                 end
@@ -1533,14 +1658,25 @@ return {
         ctx:on("chimera.room.info", function(r)
             if not r or not r.id then return end
             local previous=safety.last
+            local same_room = previous and previous.key == (r.key or r.id)
+            local p = profile()
+            local exp_room = started and not economy_run and p and
+                (function()
+                    for _, id in ipairs(p.route) do
+                        if id == r.id then return true end
+                    end
+                    return false
+                end)()
             if next(r.exits or {}) then
                 if not safety.text_dark or safety.text_dark~=(r.key or r.id) or safety.relit then
                     safety.blind=false; safety.text_dark=nil; safety.relit=nil
                 end
-            elseif previous and next(previous.exits or {}) then
+            elseif exp_room and same_room and next(previous.exits or {}) then
                 darkness("Zniknely wyjscia GMCP")
             elseif not safety.dark then
-                safety.blind=true
+                -- A different room (notably on a shop/bank route) may have
+                -- an empty GMCP exits list without the light going out.
+                safety.blind = exp_room
             end
             safety.observe(r)
             if safety.dark and paused and phase=="INTERVENTION" and not safety.awaiting then
@@ -1682,6 +1818,7 @@ return {
             end
             state.owns_walk = false
             move = nil
+            restore_native_retreat()
             announce("WAIT_ENTITIES")
             last_visited = os.time()
             queue(0)
@@ -1692,9 +1829,15 @@ return {
             if event and event.reason=="atak" and move and move.sent and move.origin==room_id() then
                 safety.after_walk={origin=room_id(),deadline=os.time()+25}
             end
+            local retreat_interrupted = native_retreat ~= nil
             state.owns_walk = false
             move = nil
+            restore_native_retreat()
             if started and not paused then
+                if retreat_interrupted then
+                    retreat_wait("Chodzik przerwal odwrot: "..tostring(event and event.reason or "brak powodu"))
+                    return
+                end
                 if fallback then fallback.health=false end
                 if event and event.reason == "atak" then
                     local cfg=ctx.app and ctx.app.config
@@ -1876,7 +2019,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.25 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.26 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -1925,7 +2068,8 @@ return {
             elseif section=="bezpieczenstwo" then
                 ui_line("Odwort HP: "..(p and p.rules.retreatHP or "-")..
                     "% | powrot HP: "..(p and p.rules.returnHP or "-").."%")
-                ui_line("Bezpieczny pokoj: "..(p and tostring(p.safeRoom) or "brak"))
+                ui_line("Bezpieczny pokoj GMCP: "..(p and tostring(p.safeRoom) or "brak")..
+                        " | mapper: "..(p and tostring(mapped_shelter(p) or "brak") or "brak"))
                 ui_row("Bezpieczna tutaj","bezpieczna","Zapisz obecna lokacje")
                 ui_line("Zmiana progow: /exp hp 35 85")
                 ui_line("Odwrot i alarmy maja pierwszenstwo przed handlem.")
@@ -2002,7 +2146,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.25"},
+                {"Wersja", "0.7.0-beta.26"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -2591,6 +2735,13 @@ return {
                 note("AutoExp TEST ODWROTU: juz jestes w bezpiecznej lokacji.")
                 return
             end
+            local map = mapped_shelter(p)
+            if map and mapper.current_room() and type(getPath) == "function"
+                and getPath(mapper.current_room(), map) then
+                note("AutoExp TEST ODWROTU: /opoz 0.6; /idz "..map..
+                     " (pelna trasa oficjalnego chodzika, bez ruchu).", "warn")
+                return
+            end
             local command, next_id, source = emergency_step(p, r)
             if command then
                 note("AutoExp TEST ODWROTU: " .. command .. " -> " .. tostring(next_id or "nieznany cel") ..
@@ -2726,7 +2877,17 @@ return {
             if not allowed_config() then return end
             local p = profile(); local id = room_id()
             if not p or not valid_id(id) then note("Wybierz profil i stan na lokacji.", "warn"); return end
-            p.safeRoom = id; p.safeKey = room().key or id; remember(); note("Bezpieczna lokacja: " .. id)
+            local map = mapper.current_room()
+            local hashed = type(getRoomIDbyHash) == "function" and getRoomIDbyHash(id) or nil
+            if type(map) ~= "number" or map <= 0 or map % 1 ~= 0 or hashed ~= map
+                or (type(getRoomHashByID) == "function" and getRoomHashByID(map) ~= id) then
+                note("Brak zgodnosci GMCP z mapperem; nie zapisuje bezpiecznej lokacji.", "warn")
+                return
+            end
+            p.safeRoom, p.safeKey, p.safeMap = id, room().key or id, map
+            remember()
+            note("Bezpieczna lokacja: "..id.." | mapper: "..map..
+                 " (awaryjnie /opoz 0.6, /idz "..map..")")
         end)
         command("hp", "<odwrot powrot>", function(s)
             if not allowed_config() then return end
