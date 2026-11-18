@@ -165,7 +165,12 @@ local function ready_member(m) return m and m.hp and m.hp>0 and not m.stunned en
 local function can_take(s,id,n,c)
     local m=s.members[id]
     local policy=M.policy(s,c,id)
-    return policy.enabled and ready_member(m) and m.hp>=policy.min_hp and count(s,id)+n<=policy.max_load
+    -- Do not save a threatened member by transferring attackers onto another
+    -- member who is already losing HP at a critical rate.
+    local danger=s.risk and s.risk[id]
+    return policy.enabled and ready_member(m) and m.hp>=policy.min_hp
+        and not (danger and danger.level=="critical")
+        and count(s,id)+n<=policy.max_load
 end
 local function risk(s,id,n)
     local m=s.members[id]
@@ -234,6 +239,9 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         end
         local policy=M.policy(s,c,actor)
         if not policy.enabled then return end
+        local danger=s.risk and s.risk[protected]
+        local critical=danger and danger.level=="critical"
+        local warning=danger and danger.level=="warning"
         if policy.target_id==protected and policy.target_name==s.members[protected].name then priority=priority+5 end
         if M.policy(s,c,protected).role=="support" then priority=priority+5 end
         if channel>1 and c.protect and c.protect_id==actor and protected==s.self_id then
@@ -246,7 +254,9 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         if broad and not can_take(s,actor,#enemies,c) then return end
         local improvement=gain(s,protected,actor,1)
         if broad then improvement=math.min(improvement,gain(s,protected,actor,#enemies)) end
-        if channel>1 and (channel==4 or c.minions[channel-1].task=="auto") and (c.role=="standard" or policy.role) and improvement<0.12 then return end
+        if channel>1 and not (critical or warning)
+            and (channel==4 or c.minions[channel-1].task=="auto")
+            and (c.role=="standard" or policy.role) and improvement<0.12 then return end
         local enemy=enemies[1]
         if focus then
             local found=false;for _,id in ipairs(enemies) do if id==focus.enemy then found=true end end
@@ -256,8 +266,12 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
             and can_take(s,actor,#enemies,c)
         if mass and c.role=="standard" and priority<100 and gain(s,protected,actor,#enemies)<0.12 then mass=false end
         local emergency=s.members[protected].minion and s.members[protected].hp<c.minion_cover_hp and improvement>=0.12
-        out[#out+1]={channel=channel,actor=actor,protected=protected,enemy=enemy,emergency=emergency,broad=broad,
-            kind=mass and "mass" or "cover",priority=s.members[protected].hp<40 and improvement>=0.12 and 120 or (emergency and math.max(priority,110) or priority),safety_gain=broad and improvement or gain(s,protected,actor,mass and #enemies or 1),reason=why,room=s.room,
+        local urgency=critical and (190+math.max(0,math.floor((50-s.members[protected].hp)/5)))
+            or warning and 125 or nil
+        out[#out+1]={channel=channel,actor=actor,protected=protected,enemy=enemy,emergency=critical or emergency,broad=broad,
+            kind=mass and "mass" or "cover",priority=urgency or (s.members[protected].hp<40 and improvement>=0.12 and 120 or (emergency and math.max(priority,110) or priority)),
+            safety_gain=broad and improvement or gain(s,protected,actor,mass and #enemies or 1),
+            reason=(critical and "RATUNEK: " or warning and "Zagrozenie: " or "")..why,room=s.room,
             before_targets=(mass or broad) and enemies or {enemy}}
     end
     local me=s.self_id
@@ -278,9 +292,14 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                     if accept then cover(1,me,id,60+math.min(20,count(s,id)*4),"Odciążenie: "..s.members[id].name,true) end
                 end
             end
-        elseif c.role=="asekuracja" and count(s,me)==0 then
+        elseif c.role=="asekuracja" then
             for _,id in ipairs(ordered(s.members)) do
-                if count(s,id)>=3 and gain(s,id,me,1)>=0.12 then cover(1,me,id,60,"Asekuracja przeciążonego sojusznika.",false) end
+                local danger=s.risk and s.risk[id]
+                if id~=me and count(s,id)>0 and
+                    ((danger and danger.level~="stable")
+                    or (count(s,me)==0 and count(s,id)>=3 and gain(s,id,me,1)>=0.12)) then
+                    cover(1,me,id,60,"Asekuracja zagrozonego sojusznika.",false)
+                end
             end
         end
         if c.retreat and count(s,me)>0 then
@@ -308,9 +327,15 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         local p=c.minions[i];local actor=p.id;local ch=i+1
         local task=M.task(s,c,i)
         if enabled[ch] and M.policy(s,c,actor).enabled and blocked[ch]~=true and actor and s.minions[actor] and ready_member(s.minions[actor]) then
-            if p.task=="auto" and M.policy(s,c,actor).role~="support" and (c.role=="standard" or M.policy(s,c,actor).role) then
+            if p.task=="auto" and M.policy(s,c,actor).role~="support"
+                and (c.role=="standard" or M.policy(s,c,actor).role) then
+                -- Auto means actual auto protection, including the leader's
+                -- "Chroń mnie" assignment, not just general redistribution.
+                if task=="self" then
+                    cover(ch,actor,me,99,"Pacholek "..i..": ochrona postaci.",false)
+                end
                 for _,protected in ipairs(ordered(s.members)) do
-                    cover(ch,actor,protected,95,"Pachołek "..i..": odciążenie "..s.members[protected].name..".",false)
+                    cover(ch,actor,protected,95,"Pacholek "..i..": odciazenie "..s.members[protected].name..".",false)
                 end
             elseif task=="self" then cover(ch,actor,me,95,"Pachołek "..i..": ochrona postaci.",false)
             elseif task=="protect" and s.members[p.target_id] and (not p.target_name or s.members[p.target_id].name==p.target_name) then cover(ch,actor,p.target_id,95,"Pachołek "..i..": ochrona wskazanej osoby.",false)
@@ -356,23 +381,27 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     if s.group_complete and c.team_orders and c.team_broadcast and enabled[4] and not unavailable(4,"cover") and s.leader==me and not focus then
         for _,protected in ipairs(ordered(s.members)) do
             local enemies=s.attackers[protected] or {}
-            local recipients={};local safe=#enemies>0 and (c.role=="standard" or protected==me)
+            local recipients={};local threat=s.risk and s.risk[protected]
+            local safe=#enemies>0 and (c.role=="standard" or protected==me
+                or (threat and threat.level~="stable"))
             local benefit=1
             for _,id in ipairs(ordered(s.members)) do
-                if id~=protected then
+                -- The issuer does not perform a cover when ordering the
+                -- group. Only actual recipients consume maneuver readiness.
+                if id~=protected and id~=me then
                     local m=s.members[id]
-                    -- Include issuer in safety checks: never rely on the server excluding a wounded member.
                     if not available_for_broadcast(id,true) or not ready_member(m) or m.hp<50 or m.casting or not can_take(s,id,#enemies,c)
                         or (s.covers[protected] and s.covers[protected][id]) then safe=false end
                     local improvement=math.min(gain(s,protected,id,1),gain(s,protected,id,#enemies))
-                    if improvement<0.12 then safe=false end
+                    if not (threat and threat.level~="stable") and improvement<0.12 then safe=false end
                     benefit=math.min(benefit,improvement)
-                    if id~=me then recipients[#recipients+1]=id end
+                    recipients[#recipients+1]=id
                 end
             end
             if safe and #recipients>1 then
                 out[#out+1]={channel=4,actor=me,protected=protected,kind="team_cover",broad=true,
-                    priority=s.members[protected].hp<40 and 121 or 96,safety_gain=benefit,room=s.room,
+                    priority=threat and threat.level=="critical" and 175 or threat and threat.level=="warning" and 118 or 96,
+                    safety_gain=benefit,room=s.room,
                     recipients=recipients,before_targets=enemies,reason="Drużyna: wspólna osłona "..s.members[protected].name.."."}
             end
         end
@@ -426,6 +455,9 @@ function M.command(d,s)
         local prefix="parozkaz "..d.actor.." "
         if d.kind=="support" and M.id(d.enemy) then return prefix.."wesprzyj" end
         if d.kind=="cover" and M.id(d.enemy) and M.id(d.protected) then
+            if d.protected==s.self_id and s.leader==s.self_id then
+                return "rozkaz "..d.actor.." zaslonic ciebie"
+            end
             return prefix.."zaslon "..d.protected.." przed "..d.enemy
         end
     end
