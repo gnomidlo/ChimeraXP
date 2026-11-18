@@ -20,7 +20,7 @@ U.base = "https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/"
 U.root = getMudletHomeDir() .. "/ChimeraXP"
 U.plugin_dir = getMudletHomeDir() .. "/chimera_wtyczki/chimera_autoexp"
 U.target = U.plugin_dir .. "/init.lua"
-U.version = "1.0"
+U.version = "1.1"
 
 local function say(s, color)
     if type(cecho) == "function" then
@@ -224,7 +224,12 @@ function U:check(verbose)
         return false
     end
     self.busy, self.verbose = true, verbose == true
-    self:_fetch("manifest", self.base .. "manifest.json")
+    -- raw.githubusercontent.com is CDN-cached. A static main/manifest.json
+    -- can still report the PREVIOUS version for several minutes after merge.
+    -- Unique query keys force a fresh manifest without changing release files.
+    self.check_serial = (self.check_serial or 0) + 1
+    self:_fetch("manifest", self.base .. "manifest.json?check=" ..
+        tostring(os.time()) .. "-" .. tostring(self.check_serial))
     return true
 end
 
