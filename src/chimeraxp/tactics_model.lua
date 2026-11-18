@@ -374,10 +374,13 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
         local endangered=s.risk and s.risk[me]
         local danger=endangered and endangered.level~="stable"
             or s.members[me].hp<=55
+            or M.policy(s,c,me).role=="chroniony"
         if danger then
             for _,actor in ipairs(actors) do
                 local id=actor.id
                 if id~=me and can_take(s,id,count(s,me),c)
+                    and s.members[id].hp>=math.max(70,M.policy(s,c,id).min_hp)
+                    and not s.members[id].casting
                     and not blocked_for(blocked,actor.channel,"cover")
                     and enabled[actor.channel] and M.policy(s,c,id).enabled then
                     out[#out+1]={kind="retreat",channel=1,actor=me,
