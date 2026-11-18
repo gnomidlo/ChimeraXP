@@ -452,7 +452,7 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                     out[#out+1]={kind="team_cover",channel=4,actor=me,
                         protected=protected,room=s.room,broad=true,
                         before_targets=enemies,recipients=recipients,
-                        priority=urgency(s,c,protected)+(urgent and 65 or -10),
+                        priority=urgency(s,c,protected)+(urgent and 65 or -25),
                         safety_gain=0,emergency=urgent,
                         reason="Wspólna osłona "..s.members[protected].name}
                 end
