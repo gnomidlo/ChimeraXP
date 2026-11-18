@@ -26,6 +26,10 @@ Ręczny ruch oddaje graczowi sterowanie. Patrol wraca po potwierdzeniu pokoju, d
 
 Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy automatyczne Lua 5.1/5.4; zachowanie serwerowych komend i wygląd Qt/Geyser wymagają jeszcze próby w działającym Mudlecie.
 
+## Sytuacje awaryjne: wielu napastnikow (beta.30)
+
+Obrona wykorzystuje dostepny snapshot Group.State, jesli sklad druzyny nie zmienil sie po wejsciu do pokoju; jednoczesnie sprawdza, czy dane istot i relacje walki pochodza z biezacej lokacji. Przy 5+ napastnikach i HP <= 85% zwieksza czujnosc, a przy HP <= 65% podnosi priorytet ratunku. Rozkaz oslonienia dowodcy po ID nie wybiera konkretnego wroga, wiec potwierdzenie czeka na przeniesienie *dowolnego* dotychczasowego napastnika. Jesli bezpieczna osłona zbiorowa nie jest mozliwa, sprobuje indywidualnych zaslon w granicach limitow i cooldownow.
+
 ## Obrona 2.0 (beta.29)
 
 - Obserwuje każdą postać z GMCP, łącznie z procentowym HP i tempem jego spadania. Jeden potężny przeciwnik może wymagać ratunku szybciej niż trzech słabych.
