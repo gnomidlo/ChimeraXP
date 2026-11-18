@@ -1,3 +1,10 @@
+## 0.7.0-beta.32 — diagnostyka brakujacych zaslon i awaryjna ochrona dowodcy
+
+- Gdy `/exp taktyka status` pokazuje zagrozenie, ale nie ma planu, raport podaje **ile napastnikow widzi sam planner w Combat.State**, liczbe relacji GMCP oraz dla kazdego pacholka efektywna role, zadanie i konkretny powod odrzucenia. Nie przedstawia juz niesprawdzonego stwierdzenia `gotowa; brak planu` jako wyjasnienia.
+- Przy niebezpiecznie niskim HP dowodcy (alarm albo ostrzezenie z HP <=55%) bezpieczny pacholek moze przerwac przydzial `Chroń wybraną osobę`, by uratowac dowodce. Wyrazne zadania `Rezerwa` i `Wspieraj mój cel` oraz rola Wsparcie pozostaja wykluczone; zachowane sa GMCP identyfikacja NPC, rzeczywiste odnowienie manewru, prog HP, limit obciazenia i ochrona przed zaslanianiem nieistniejacego celu.
+- Regresja `tests/defense_empty_plan.lua` odtwarza 3 moby atakujace dowodce z 54% HP i zdrowych wojownikow, a takze sytuacje, gdy brak relacji ataku w GMCP albo istota nie jest rozpoznana jako NPC-sojusznik.
+- Uwaga: przyczyna z konkretnego zdjecia z gry nie jest jeszcze potwierdzona odczytem GMCP z tamtej chwili. Wersja dostarcza potrzebne dane, by ja rozstrzygnac zamiast zgadywac.
+
 ## 0.7.0-beta.31 — ratowanie pachołka mimo przydzielonej roli osłony
 
 - Poprawiono logikę `asekuracja`: przydział pierwszego pachołka do ochrony lidera nie blokuje już ratunkowej zasłony tego pachołka, gdy jego HP spada do 50% i algorytm wykrywa zagrożenie. Poprzednio próg `minion_cover_hp=50` traktował pachołka na 50% HP jak zdrowego obrońcę i zakazywał liderowi osłony.
