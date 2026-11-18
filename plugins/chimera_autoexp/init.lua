@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.30",
+    version = "0.7.0-beta.31",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2276,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.30 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.31 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.30"},
+                {"Wersja", "0.7.0-beta.31"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3498,20 +3498,25 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     local function cover(channel,actor,protected,priority,why,allow_mass)
         if unavailable(channel,"cover") or (s.maneuver_locked and s.maneuver_locked[actor])
             or actor==protected or not ready_member(s.members[protected]) then return end
-        if channel==1 and priority<100 and s.members[protected].hp>=c.min_hp then
+        local danger=s.risk and s.risk[protected]
+        local critical=danger and danger.level=="critical"
+        local warning=danger and danger.level=="warning"
+        -- A quiet guard assignment must never veto a rescue. The old
+        -- threshold (>=50% HP) incorrectly described a gravely wounded
+        -- retainer as 'healthy' and suppressed JA's own cover attempt.
+        -- Preserve the assignment only while the protected member is safe.
+        if channel==1 and priority<100 and not (critical or warning)
+            and s.members[protected].hp>=c.min_hp then
             for i,p in ipairs(c.minions) do
                 local task=M.task(s,c,i)
                 if enabled[i+1] and p.id==protected and s.members[protected].hp>=c.minion_cover_hp
                     and not (c.role=="standard" and p.task=="auto") and (task=="self" or task=="protect") then
-                    return -- Do not reclaim enemies deliberately assigned to our healthy guard.
+                    return -- Avoid routine reshuffles of a healthy designated guard.
                 end
             end
         end
         local policy=M.policy(s,c,actor)
         if not policy.enabled then return end
-        local danger=s.risk and s.risk[protected]
-        local critical=danger and danger.level=="critical"
-        local warning=danger and danger.level=="warning"
         if policy.target_id==protected and policy.target_name==s.members[protected].name then priority=priority+5 end
         if M.policy(s,c,protected).role=="support" then priority=priority+5 end
         if channel>1 and c.protect and c.protect_id==actor and protected==s.self_id then
@@ -4192,9 +4197,40 @@ function T.new(ctx,M,integration,patrol,changed)
                 detail="Inny cel lub brak ataku: "..table.concat(missing,", ").."; "..why.."."
             end
             if S.threat and S.threat.level~="stable" then
+                -- Explain the concrete reason for refusal. "Brak bezpiecznego
+                -- manewru" was misleading even while a healthy rescuer was
+                -- available and the planner had suppressed a guard rescue.
+                local notes={}
+                local endangered=S.threat.id
+                local function candidate(id,ch,task)
+                    if not id or id==endangered then return end
+                    local m=s.members[id]
+                    local name=m and m.name or (ch==1 and "JA" or "P"..(ch-1))
+                    local p=m and M.policy(s,config,id)
+                    local unavailable=blocked[ch]==true
+                        or (type(blocked[ch])=="table" and blocked[ch].cover==true)
+                    local cd=math.max(0,math.ceil(actor_ready(id)-t))
+                    local enemy_count=m and #(s.attackers[id] or {}) or 0
+                    local reason
+                    if not m then reason="nieobecna"
+                    elseif not S.enabled[ch] or not p.enabled then reason="wylaczona"
+                    elseif ch>1 and (task=="reserve" or task=="support") then reason="zadanie "..task
+                    elseif unavailable or cd>0 then reason="odnowienie "..cd.." s"
+                    elseif m.stunned then reason="ogluszona"
+                    elseif m.hp and m.hp<p.min_hp then reason="HP "..math.floor(m.hp).." < "..p.min_hp.."%"
+                    elseif enemy_count+1>p.max_load then
+                        reason="limit napastnikow "..enemy_count.."/"..p.max_load
+                    else reason="gotowa; brak planu (sprawdz role)" end
+                    notes[#notes+1]=name..": "..reason
+                end
+                candidate(s.self_id,1)
+                for i,pet in ipairs(config.minions) do
+                    candidate(pet.id,i+1,pet.task)
+                end
+                local reason=#notes>0 and table.concat(notes,"; ") or "brak innych czlonkow"
                 detail=(S.threat.level=="critical" and "ALARM: " or "Uwaga: ")
                     ..S.threat.name.." "..math.floor(S.threat.hp+0.5)
-                    .."% HP; brak bezpiecznego manewru lub wykonawcy."
+                    .."% HP; brak osłony — "..reason
             elseif detail=="Nie potrzeba zmiany szyku." then
                 detail="Szyk bezpieczny; monitoruje HP."
             end
