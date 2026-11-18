@@ -206,8 +206,12 @@ function H.new(ctx,patrol,tactics,stop)
                 local id=selected.id
                 slider("Minimalne HP do manewru",selected.min_hp,selected.self and 40 or 50,100,5,
                     function(v) tactics.configure(id,"min_hp",v,selected) end,"%")
-                slider("Limit przejmowanych przeciwników",selected.max_load,0,5,1,
-                    function(v) tactics.configure(id,"max_load",v,selected) end,"")
+                if selected.role=="chroniony" then
+                    add("Limit przeciwników: 0 (rola Chroniony)",nil,P.muted,"hint")
+                else
+                    slider("Limit przejmowanych przeciwników",selected.max_load,0,5,1,
+                        function(v) tactics.configure(id,"max_load",v,selected) end,"")
+                end
             end
             note="Progi dotyczą manewrów taktycznych, nie poziomu HP na HUD."
         elseif self.menu=="tactics" then
