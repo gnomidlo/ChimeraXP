@@ -76,7 +76,7 @@ do
     local h=fixture()
     -- Isolate the player's rescue decision: a second healthy warrior could
     -- legitimately rebalance a single weak attacker before the injury.
-    h.saved.tactics.profiles.pettwo.enabled=false
+    assert(h.api.configure("pettwo","enabled",false))
     assert(h.api.toggle(true))
     h.fresh();h.advance(5.2)
     assert(#h.sent==0,"do not rearrange an uninjured auto guard: "..table.concat(h.sent," | "))
@@ -94,7 +94,7 @@ end
 do
     local h=fixture()
     health(h,"me",70)
-    h.saved.tactics.profiles.pettwo.enabled=false
+    assert(h.api.configure("pettwo","enabled",false))
     assert(h.api.toggle(true))
     h.fresh();h.advance(5.2)
     health(h,"petone",50)
