@@ -321,9 +321,40 @@ function T.new(ctx,M,integration,patrol,changed)
                 detail="Inny cel lub brak ataku: "..table.concat(missing,", ").."; "..why.."."
             end
             if S.threat and S.threat.level~="stable" then
+                -- Explain the concrete reason for refusal. "Brak bezpiecznego
+                -- manewru" was misleading even while a healthy rescuer was
+                -- available and the planner had suppressed a guard rescue.
+                local notes={}
+                local endangered=S.threat.id
+                local function candidate(id,ch,task)
+                    if not id or id==endangered then return end
+                    local m=s.members[id]
+                    local name=m and m.name or (ch==1 and "JA" or "P"..(ch-1))
+                    local p=m and M.policy(s,config,id)
+                    local unavailable=blocked[ch]==true
+                        or (type(blocked[ch])=="table" and blocked[ch].cover==true)
+                    local cd=math.max(0,math.ceil(actor_ready(id)-t))
+                    local enemy_count=m and #(s.attackers[id] or {}) or 0
+                    local reason
+                    if not m then reason="nieobecna"
+                    elseif not S.enabled[ch] or not p.enabled then reason="wylaczona"
+                    elseif ch>1 and (task=="reserve" or task=="support") then reason="zadanie "..task
+                    elseif unavailable or cd>0 then reason="odnowienie "..cd.." s"
+                    elseif m.stunned then reason="ogluszona"
+                    elseif m.hp and m.hp<p.min_hp then reason="HP "..math.floor(m.hp).." < "..p.min_hp.."%"
+                    elseif enemy_count+1>p.max_load then
+                        reason="limit napastnikow "..enemy_count.."/"..p.max_load
+                    else reason="gotowa; brak planu (sprawdz role)" end
+                    notes[#notes+1]=name..": "..reason
+                end
+                candidate(s.self_id,1)
+                for i,pet in ipairs(config.minions) do
+                    candidate(pet.id,i+1,pet.task)
+                end
+                local reason=#notes>0 and table.concat(notes,"; ") or "brak innych czlonkow"
                 detail=(S.threat.level=="critical" and "ALARM: " or "Uwaga: ")
                     ..S.threat.name.." "..math.floor(S.threat.hp+0.5)
-                    .."% HP; brak bezpiecznego manewru lub wykonawcy."
+                    .."% HP; brak osłony — "..reason
             elseif detail=="Nie potrzeba zmiany szyku." then
                 detail="Szyk bezpieczny; monitoruje HP."
             end

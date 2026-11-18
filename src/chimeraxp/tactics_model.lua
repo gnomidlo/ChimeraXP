@@ -230,20 +230,25 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     local function cover(channel,actor,protected,priority,why,allow_mass)
         if unavailable(channel,"cover") or (s.maneuver_locked and s.maneuver_locked[actor])
             or actor==protected or not ready_member(s.members[protected]) then return end
-        if channel==1 and priority<100 and s.members[protected].hp>=c.min_hp then
+        local danger=s.risk and s.risk[protected]
+        local critical=danger and danger.level=="critical"
+        local warning=danger and danger.level=="warning"
+        -- A quiet guard assignment must never veto a rescue. The old
+        -- threshold (>=50% HP) incorrectly described a gravely wounded
+        -- retainer as 'healthy' and suppressed JA's own cover attempt.
+        -- Preserve the assignment only while the protected member is safe.
+        if channel==1 and priority<100 and not (critical or warning)
+            and s.members[protected].hp>=c.min_hp then
             for i,p in ipairs(c.minions) do
                 local task=M.task(s,c,i)
                 if enabled[i+1] and p.id==protected and s.members[protected].hp>=c.minion_cover_hp
                     and not (c.role=="standard" and p.task=="auto") and (task=="self" or task=="protect") then
-                    return -- Do not reclaim enemies deliberately assigned to our healthy guard.
+                    return -- Avoid routine reshuffles of a healthy designated guard.
                 end
             end
         end
         local policy=M.policy(s,c,actor)
         if not policy.enabled then return end
-        local danger=s.risk and s.risk[protected]
-        local critical=danger and danger.level=="critical"
-        local warning=danger and danger.level=="warning"
         if policy.target_id==protected and policy.target_name==s.members[protected].name then priority=priority+5 end
         if M.policy(s,c,protected).role=="support" then priority=priority+5 end
         if channel>1 and c.protect and c.protect_id==actor and protected==s.self_id then
