@@ -79,7 +79,7 @@ do
     h.saved.tactics.profiles.pettwo.enabled=false
     assert(h.api.toggle(true))
     h.fresh();h.advance(5.2)
-    assert(#h.sent==0,"do not rearrange an uninjured auto guard")
+    assert(#h.sent==0,"do not rearrange an uninjured auto guard: "..table.concat(h.sent," | "))
     health(h,"petone",50)
     h.emit("chimera.group.state")
     h.emit("chimera.room.entities")
