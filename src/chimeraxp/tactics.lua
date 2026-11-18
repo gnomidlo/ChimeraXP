@@ -127,6 +127,11 @@ function T.new(ctx,M,integration,patrol,changed)
         if S.ambiguous then return end
         local used,dirty={},false
         for _,member in ipairs(roster) do
+            local old=config.profiles[member.id]
+            if old and not old.name and old.enabled==false and old.kind=="npc" then
+                old.name=member.name
+                dirty=true
+            end
             if restore_profile(member,roster) then dirty=true end
         end
         for _,p in ipairs(config.minions) do
