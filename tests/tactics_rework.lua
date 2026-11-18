@@ -9,7 +9,8 @@ local function fixture()
     return h
 end
 do
-    local h=fixture();h.p.combat.relations={{attacker="enemy1",defender="me"}}
+    local h=fixture();h.p.vitals.hp=50
+    h.p.combat.relations={{attacker="enemy1",defender="me"}}
     assert(not h.api.status().on and #h.sent==0,"startup never enables tactics")
     assert(h.api.toggle(true));h.fresh();h.advance(5.2)
     assert(#h.sent==1,"one executor per protection attempt; no parallel partner")
@@ -20,7 +21,8 @@ do
     h.dispose()
 end
 do
-    local h=fixture();h.p.combat.relations={{attacker="enemy1",defender="me"}}
+    local h=fixture();h.p.vitals.hp=50
+    h.p.combat.relations={{attacker="enemy1",defender="me"}}
     h.api.toggle(true);h.xp={started=true,phase="MOVING"};h.fresh();h.advance(6)
     assert(#h.sent==1,"protect against confirmed attacks during movement")
     h.xp.phase="COMBAT";h.fresh();h.advance(0.2);assert(#h.sent==1,"formation cooperates only in combat")
@@ -29,7 +31,8 @@ do
     h.dispose()
 end
 do
-    local h=fixture();h.api.toggle(true);h.fresh();h.advance(4)
+    local h=fixture();h.p.vitals.hp=50
+    h.api.toggle(true);h.fresh();h.advance(4)
     h.p.combat.relations={{attacker="enemy1",defender="me"}}
     h.emit("chimera.room.changed");h.advance(2)
     assert(#h.sent==0,"room invalidation requires fresh packets")
@@ -93,7 +96,7 @@ do
     h.dispose()
 end
 do
-    local h=fixture();h.api.option("team_orders",false)
+    local h=fixture();h.p.vitals.hp=50;h.api.option("team_orders",false)
     h.p.group.members[#h.p.group.members+1]={id="petthree",name="petthree",here=1,hp=90,maxhp=100}
     h.p.entities.entities[#h.p.entities.entities+1]={id="petthree",name="petthree",kind="npc",relation="ally",hp=90,maxhp=100}
     h.p.combat.relations={{attacker="enemy1",defender="me"}}
