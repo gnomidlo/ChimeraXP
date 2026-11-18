@@ -14,7 +14,7 @@ ChimeraXP to **osobny projekt**. Nie zależy od ChimeraVIP. Bazuje na API oficja
 
 ## Mapowanie i konfiguracja
 
-`/exp mapuj Bagna` — start mapowania; powtórzenie zapisuje i scala trasę. `/exp mapuj! Bagna` — mapa zastępcza. `/exp mapuj-` — rezygnacja. `/exp wybierz Bagna` — wybór obszaru. `/exp cel snotling` — dopisanie celu. `/exp unikaj boss` — wykluczenie NPC. `/exp bezpieczna` — obecny pokój jako miejsce powrotu. `/exp hp 35 85` — progi odwrotu/powrotu. `/exp limit 3` — limit żywych NPC pasujących do `/exp cel`, nie ogólnej liczby istot w pokoju. `/exp odnowa 60` — cooldown pustej lokacji.
+`/exp mapuj Bagna` — start mapowania; powtórzenie zapisuje i scala trasę. `/exp mapuj! Bagna` — mapa zastępcza. `/exp mapuj-` — rezygnacja. `/exp wybierz Bagna` — wybór obszaru. `/exp cel snotling` — dopisanie celu. `/exp unikaj boss` — wykluczenie NPC. `/exp bezpieczna` — zapisuje GMCP hash i numer lokacji mappera (wymaga zgodnosci obu pozycji). `/exp hp 35 85` — progi odwrotu/powrotu. `/exp limit 3` — limit żywych NPC pasujących do `/exp cel`, nie ogólnej liczby istot w pokoju. `/exp odnowa 60` — cooldown pustej lokacji.
 
 `/exp test` nie wysyła żadnej komendy. `/exp start` uruchamia automat, `/exp pauza`, `/exp wznow` i `/exp stop` sterują nim. Domyślnie automat jest **wyłączony**.
 
@@ -185,3 +185,23 @@ The miniature is green during EXP, amber during pause and dark when OFF. Clickin
 
 Replaces `Geyser.UserWindow` with a draggable `Geyser.Container` following the Tacticus NG label-cache pattern. Positions and configured full size are persisted under `geyser_ui`. Miniature is a real 280×65 resized container (rather than a large invisible overlay); it has a distinct mini drag grip, expand action and status pause/resume action. Full title bar supports mouse press/move/release; visual rows switch from two-column to one-column below width 510, and tabs wrap. Controls are cached by stable names and updated with move/resize/echo/style instead of deleting on every timer tick. `sysWindowResizeEvent` clamps geometry to the screen. `/exp okno rozmiar W H` and `/exp okno reset` are supported. Existing `/exp` commands drive controls; gameplay engine remains untouched.
 
+
+
+## Beta.26 — odwrot przez /idz i wiarygodny alarm braku wyjsc
+
+`/exp bezpieczna` zapisuje zarowno identyfikator GMCP, jak i numer pokoju
+mapy Mudleta (`safeMap`). Podczas odwrotu korzystamy z natywnego API
+`walker.go(safeMap)` — dokladnie tego samego silnika co `/idz NR`.
+Na czas powrotu ustawia on opoznienie 0,6 s oraz ignorowanie przerwania
+chodzika przy ataku. Poprzednie opcje zostaja przywrocone po dotarciu
+lub przerwaniu, a po awarii klienta przy kolejnym uruchomieniu AutoExp.
+
+Kiedy pozycja mapy nie zgadza sie z GMCP, przychodzaca mapa jest
+niepelna albo chodzik nie potrafi obliczyc trasy, mozliwe sa nadal
+awaryjne **potwierdzane** kroki GMCP. Wykrycie petli ogranicza je
+wczesniej — skrypt nie jest gwarancja bezpiecznego odwrotu w kazdym MUDzie.
+
+`Room.Info.exits = {}` nie oznacza automatycznie ciemnosci. Alarm
+pojawia sie, gdy wyjscia znikaja z **tej samej** lokacji zapisanej
+w trasie biezacego expowiska, poza kursem sklepowym/bankowym.
+Tekst `Ciemne miejsce.` nadal wyzwala alarm niezaleznie od tego warunku.
