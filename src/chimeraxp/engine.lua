@@ -2043,7 +2043,6 @@ return {
         local function command(name, args, fn, help)
             local function invoke(arg)
                 if destroyed then return false end
-                if name=="stop" and hooks.on_stop then hooks.on_stop() end
                 local result = fn(arg)
                 ui_refresh()
                 return result
