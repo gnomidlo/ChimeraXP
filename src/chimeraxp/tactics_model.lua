@@ -402,7 +402,11 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
             end
             if safe and #recipients>1 then
                 out[#out+1]={channel=4,actor=me,protected=protected,kind="team_cover",broad=true,
-                    priority=threat and threat.level=="critical" and 175 or threat and threat.level=="warning" and 118 or 96,
+                    -- Collective rescue is valuable with multiple attackers
+                    -- and two verified, healthy executors; normal balancing
+                    -- continues to prefer the targeted maneuver.
+                    priority=threat and threat.level=="critical" and #enemies>1 and 210
+                        or threat and threat.level=="warning" and #enemies>1 and 145 or 96,
                     safety_gain=benefit,room=s.room,
                     recipients=recipients,before_targets=enemies,reason="Drużyna: wspólna osłona "..s.members[protected].name.."."}
             end
