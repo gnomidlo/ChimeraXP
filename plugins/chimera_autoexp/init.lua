@@ -190,6 +190,8 @@ return {
         local patrol_leg -- final waypoint and rooms crossed on the way to it
         local move = nil -- { id, map, purpose }
         local pending_attack = nil -- { id, room, since }
+        local priority_hold = nil -- {room, id, until_at}: shielded/unconfirmed target
+        local last_party_order = nil -- {room, target, at}: bounded party focus
         local attacked_in_room = {}
         local last_seen = {} -- room ID -> time at which room was checked and empty
         -- Temporary, session-only quarantine: moving NPCs may leave again.
@@ -423,76 +425,128 @@ return {
         local function target_info(p, group_ids)
             if not ready_entities() then return nil, nil end
             local entities = gmcp_api.entities().entities
-            local found, count, best_rank = nil, 0, math.huge
+            local found, count, best_rank, best_health = nil, 0, math.huge, nil
             local me = me_and_group()
             local current
             local combat = gmcp_api.combat() or {}
+            local our_targets = {}
             for _, rel in ipairs(combat.relations or {}) do
                 if me and tostring(rel.attacker) == tostring(me.id) then
-                    current = tostring(rel.defender)
+                    local id = tostring(rel.defender or "")
+                    if valid_id(id) then
+                        our_targets[id] = true
+                        current = id
+                    end
                 end
             end
+            -- In multi-target combat relations the primary is the most
+            -- meaningful current focus, provided it belongs to our attacks.
+            local primary = tostring(combat.primary or "")
+            if our_targets[primary] then current = primary end
             for _, e in ipairs(entities) do
                 local id = e.id and tostring(e.id) or nil
                 local friendly = bool(e.self) or e.relation == "self"
                     or e.relation == "group" or e.relation == "ally"
                     or e.group_role == "leader" or e.group_role == "member"
                     or (id and group_ids and group_ids[id])
-                -- Limit counts only configured EXP targets, not harmless
-                -- wildlife or unrelated NPCs in the same room. An avoided
-                -- NPC triggers its own escape rule in avoided_npc().
                 if e.kind == "npc" and not friendly and not bool(e.dead)
                     and contains(e.name, p.targets)
                     and not contains(e.name, p.avoid) then
                     count = count + 1
-                    -- Resolve overlapping names (goblin / goblinka) by the
-                    -- most specific matching entry, then use its list position.
-                    local rank,length=math.huge,0
+                    -- Overlapping names still use the longest matching rule;
+                    -- only NPCs of the SAME list rank compete on wounded HP.
+                    local rank, length = math.huge, 0
+                    local name = normalized(e.name)
                     for index,pattern in ipairs(p.targets) do
                         pattern=normalized(pattern)
-                        if normalized(e.name):find(pattern,1,true) and #pattern>length then
+                        if name:find(pattern,1,true) and #pattern>length then
                             rank,length=index,#pattern
                         end
                     end
-                    if id and valid_id(id) and (rank<best_rank or (rank==best_rank and id==current)) then
-                        found,best_rank = e,rank
+                    local hp,maxhp=tonumber(e.hp),tonumber(e.maxhp)
+                    local health=hp and maxhp and maxhp>0
+                        and math.max(0,math.min(1,hp/maxhp)) or nil
+                    if id and valid_id(id) then
+                        local better = not found or rank < best_rank
+                        if found and rank == best_rank then
+                            if health and best_health then
+                                if health < best_health then better=true
+                                elseif health == best_health then
+                                    -- Same health: prefer confirmed focus, then stable ID.
+                                    better = (id==current and tostring(found.id)~=current)
+                                        or (id~=current and tostring(found.id)~=current
+                                            and id<tostring(found.id))
+                                end
+                            elseif health then
+                                better=true -- comparable GMCP HP wins over missing data
+                            elseif not best_health then
+                                better=(id==current and tostring(found.id)~=current)
+                                    or (id~=current and tostring(found.id)~=current
+                                        and id<tostring(found.id))
+                            end
+                        end
+                        if better then found,best_rank,best_health=e,rank,health end
                     end
                 end
             end
             return found, count, current
         end
-        -- NPCs on the NEXT room are not known from GMCP. On spotting an
-        -- avoided NPC in our current room, leave immediately without issuing
-        -- a combat command. During combat the native walker auto-stops, so
-        -- this escape uses a single direct room exit (GMCP), not walker.go().
-        -- Issue exactly one party order for each AutoExp attack, never on GMCP refresh.
-        -- Tactics handles formation maneuvers; this command only aligns attack targets.
-        local function attack_target(p, id)
+
+        -- A combat target is not necessarily reachable: a guard may intercept
+        -- 'zabij'. Align everyone on the ACTUAL target when the leader's
+        -- priority change did not land. Never use this to command non-leaders.
+        local function order_party_target(p, id, force)
+            if not (p.partyAttack and started and not paused and not dry) or
+                safety.blind or safety.dark or not valid_id(id) or not ready_entities() then return end
+            local packet=gmcp_api.entities()
+            local enemy
+            for _,e in ipairs(packet.entities) do
+                if tostring(e.id or "")==id and e.kind=="npc" and not bool(e.dead)
+                    and e.relation~="self" and e.relation~="group"
+                    and e.relation~="ally" then enemy=true;break end
+            end
+            if not enemy then return end
+            local group=gmcp_api.group() or {}
+            local members=type(group.members)=="table" and group.members or {}
+            local me=me_and_group()
+            if not me or tostring(group.leader)~=tostring(me.id) or
+                os.time()<(safety.manual_party_until or 0) then return end
+            local party,aligned=false,true
+            local relations=(gmcp_api.combat() or {}).relations or {}
+            for _,member in ipairs(members) do
+                if not bool(member.self) and bool(member.here) and valid_id(tostring(member.id or "")) then
+                    party=true
+                    local matching,other=false,false
+                    for _,rel in ipairs(relations) do
+                        if tostring(rel.attacker)==tostring(member.id) then
+                            if tostring(rel.defender)==id then matching=true else other=true end
+                        end
+                    end
+                    if not matching or other then aligned=false end
+                end
+            end
+            if not party or (not force and aligned) then return end
+            local previous=last_party_order
+            if previous and previous.room==room_id() and previous.target==id
+                and os.time()-previous.at<7 then return end
+            safety.ordering=true
+            local ok,err=pcall(ctx.send,ctx,"rozkaz druzynie zaatakowac "..id,true)
+            safety.ordering=false
+            if ok then
+                last_party_order={room=room_id(),target=id,at=os.time()}
+            else
+                note("AutoExp: nie udalo sie skierowac druzyny: "..tostring(err),"warn")
+            end
+        end
+
+        local function attack_target(p, id, order_now)
             if not valid_id(id) then return false, "Niepoprawne ID celu" end
             safety.attacking=true
-            local ok, err = pcall(ctx.send, ctx, "zabij " .. id, true)
+            local ok,err=pcall(ctx.send,ctx,"zabij "..id,true)
             safety.attacking=false
-            if safety.dark or paused or not started then return true end
-            if not ok then return false, tostring(err) end
-            if p.partyAttack and not dry and not safety.blind then
-                local group = gmcp_api.group() or {}
-                local me = me_and_group()
-                local members = type(group.members) == "table" and group.members or {}
-                local has_party = false
-                for _, member in ipairs(members) do
-                    if not bool(member.self) and bool(member.here) then has_party = true; break end
-                end
-                -- Never issue a leader-only order as a party member or when solo.
-                if has_party and me and tostring(group.leader) == tostring(me.id) and
-                    os.time()>=(safety.manual_party_until or 0) then
-                    safety.ordering=true
-                    local ordered, order_err = pcall(ctx.send, ctx,
-                        "rozkaz druzynie zaatakowac " .. id, true)
-                    safety.ordering=false
-                    if not ordered then
-                        note("AutoExp: nie udalo sie wydac rozkazu druzynie: " .. tostring(order_err), "warn")
-                    end
-                end
+            if not ok then return false,tostring(err) end
+            if not safety.dark and not paused and started and order_now then
+                order_party_target(p,id,true)
             end
             return true
         end
@@ -700,6 +754,7 @@ return {
             engaged_here = false
             recent_rooms, recent_room = {}, nil
             phase, pending_attack, move, escape, emergency = "OFF", nil, nil, nil, nil
+            priority_hold, last_party_order = nil, nil
             post_combat_at = nil
             last_reason = reason or "Zatrzymano"
             if stop_ours == false and state.owns_walk then
@@ -733,6 +788,7 @@ return {
             state.owns_walk = false
             restore_native_retreat()
             move, pending_attack, escape, emergency = nil, nil, nil, nil
+            priority_hold, last_party_order = nil, nil
             note("AutoExp WSTRZYMANY: " .. reason, "warn")
         end
         -- Room.Entities does not reliably contain corpses. Ask the MUD to
@@ -1341,6 +1397,7 @@ return {
             if observed_room ~= r.id then
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
+                priority_hold, last_party_order = nil, nil
                 last_visited = os.time()
             end
             if safety.dark and not fatigue_rest then dark_return(p,r); return end
@@ -1529,19 +1586,52 @@ return {
             if active then
                 post_combat_at = nil
                 announce("COMBAT")
-                if target and tostring(target.id) ~= current_target and os.time()>=(safety.manual_target_until or 0) then
-                    -- One outstanding attack; never flood commands on GMCP bursts.
-                    if pending_attack and os.time() - pending_attack.since < p.rules.attackWait then return end
-                    if pending_attack and tostring(pending_attack.id) == tostring(target.id) then
-                        begin_fallback("Brak potwierdzenia zmiany priorytetowego celu")
+                if pending_attack and pending_attack.room==r.id then
+                    if tostring(pending_attack.id)==current_target then
+                        -- GMCP confirmed that our attack actually switched.
+                        pending_attack=nil
+                        priority_hold=nil
+                    elseif os.time()-pending_attack.since<p.rules.attackWait
+                        and not pending_attack.blocked then
+                        -- Keep the actual party focus while waiting, but do not
+                        -- send a second 'zabij' until this one has settled.
+                        order_party_target(p,current_target,false)
                         return
+                    else
+                        -- Interception / missing confirmation is NOT a reason to
+                        -- flee. The current combat stays in charge for 15 s.
+                        local failed=pending_attack
+                        pending_attack=nil
+                        priority_hold={room=r.id,id=failed.id,until_at=os.time()+15}
+                        note("AutoExp: cel "..failed.id..
+                             " niedostepny lub oslaniany; kontynuuje walke z biezacym celem.", "warn")
                     end
+                end
+                if priority_hold and priority_hold.room==r.id then
+                    if priority_hold.until_at>os.time() and current_target
+                        and target and tostring(target.id)==priority_hold.id then
+                        -- This is a temporary tactical choice, not a permanent
+                        -- blacklist: a dead guard may expose the priority later.
+                        target=nil
+                    elseif priority_hold.until_at<=os.time() then
+                        priority_hold=nil
+                    end
+                end
+                if target and tostring(target.id)~=current_target and
+                    os.time()>=(safety.manual_target_until or 0) then
                     if dry then return end
-                    pending_attack = {id=target.id, room=r.id, since=os.time()}
-                    local ok, err = attack_target(p, target.id)
-                    if not ok then begin_fallback("Blad zmiany celu: " .. tostring(err)) end
+                    pending_attack={id=tostring(target.id),room=r.id,since=os.time()}
+                    local ok,err=attack_target(p,tostring(target.id),false)
+                    if not ok then
+                        pending_attack=nil
+                        note("AutoExp: nie udalo sie zmienic celu: "..tostring(err),"warn")
+                    end
                 else
-                    pending_attack = nil
+                    pending_attack=nil
+                    -- Align the party with the currently fought NPC. A failed
+                    -- attempt to reach the best-ranked enemy does not override
+                    -- the server's real combat target.
+                    order_party_target(p,current_target,false)
                 end
                 return
             end
@@ -1580,12 +1670,12 @@ return {
             end
             if phase == "ENGAGING" and pending_attack then
                 if os.time() - pending_attack.since < p.rules.attackWait then return end
-                if target and tostring(target.id) == tostring(pending_attack.id) then
-                    begin_fallback("Brak potwierdzenia ataku na priorytetowy cel")
-                    return
-                end
-                pending_attack = nil
-                announce("READY")
+                -- If no combat began, do not mistake a rejected attack for
+                -- life-threatening danger. Stop initiation and let the user
+                -- inspect a blocker rather than entering a retreat loop.
+                pause("Nie potwierdzono rozpoczecia walki z "..pending_attack.id..
+                    "; sprawdz cel lub oslone.")
+                return
             end
             if r.id == p.safeRoom and hp < p.rules.returnHP then
                 announce("RECOVERY"); return
@@ -1605,7 +1695,7 @@ return {
                 skip_exit_history = {}
                 pending_attack = { id = target.id, room = r.id, since = os.time() }
                 attacked_in_room[target.id] = true
-                local ok, err = attack_target(p, target.id)
+                local ok, err = attack_target(p, target.id, true)
                 if not ok then begin_fallback("Blad ataku: " .. tostring(err)); return end
                 queue(0)
                 return
@@ -1705,6 +1795,7 @@ return {
             started, paused, dry = true, false, test_mode == true
             fallback, fallback_count = nil, 0
             pending_attack, move, post_combat_at, escape, emergency = nil, nil, nil, nil, nil
+            priority_hold, last_party_order = nil, nil
             cancel_economy_timers()
             economy_run, loot_run = nil, nil
             attacked_in_room, last_seen, skip_exit_history = {}, {}, {}
@@ -1721,6 +1812,15 @@ return {
         end
         -- Bus handlers: the new official Chimera API guarantees that gmcp_api
         -- state has been updated before these callbacks are emitted.
+        -- A shield interception is a tactical setback, not a reason to flee.
+        ctx:trigger([[^Rzucasz sie na .+, lecz droge zastepuje ci .+\.$]],function()
+            if not started or paused or not pending_attack or pending_attack.room~=room_id() then return end
+            -- Leave a brief GMCP grace period before treating it as confirmed.
+            pending_attack.blocked=true
+            pending_attack.since=os.time()-(tonumber(profile() and profile().rules.attackWait) or 3)+1
+            note("AutoExp: przeciwnik oslania priorytet; zostaje przy rzeczywistym celu.", "warn")
+            queue(1)
+        end)
         ctx:trigger([[^[ >]*Ciemne miejsce\.$]],function()
             safety.text_dark=room() and (room().key or room().id)
             safety.relit=nil; darkness("Ciemne miejsce")
@@ -1866,6 +1966,7 @@ return {
                 engaged_here = false
                 observed_room, entities_ready = r.id, false
                 attacked_in_room = {}
+                priority_hold, last_party_order = nil, nil
                 last_visited = os.time()
             end
             maybe_record(room())
@@ -2099,7 +2200,6 @@ return {
         local function command(name, args, fn, help)
             local function invoke(arg)
                 if destroyed then return false end
-                if name=="stop" and hooks.on_stop then hooks.on_stop() end
                 local result = fn(arg)
                 ui_refresh()
                 return result
@@ -4773,8 +4873,14 @@ return function(module)
         })
         tactics=Tactics.new(ctx,Model,integration,patrol,changed)
         local stop_patrol=patrol.stop
+        -- Patrol and formation are independent toggles. /exp stop (including
+        -- the HUD STOP button) must never turn off an enabled Obrona.
         local function stop()
-            tactics.stop("STOP ChimeraXP");stop_patrol("STOP ChimeraXP")
+            stop_patrol("STOP AutoExp")
+        end
+        local function stop_all()
+            tactics.stop("STOP ChimeraXP")
+            stop_patrol("STOP ChimeraXP")
         end
         patrol.stop=stop
         view=HUD.new(ctx,patrol,tactics,stop)
@@ -4792,7 +4898,7 @@ return function(module)
         end}
         -- The engine's CLI stop must stop tactics too, not just HUD/API clicks.
         -- Register only one alias by supplying this hook at engine construction.
-        patrol.stop_all=stop
+        patrol.stop_all=stop_all
         patrol.tactics=tactics
         patrol.hud=view
         return patrol
