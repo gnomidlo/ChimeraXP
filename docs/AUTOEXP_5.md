@@ -205,3 +205,36 @@ wczesniej — skrypt nie jest gwarancja bezpiecznego odwrotu w kazdym MUDzie.
 pojawia sie, gdy wyjscia znikaja z **tej samej** lokacji zapisanej
 w trasie biezacego expowiska, poza kursem sklepowym/bankowym.
 Tekst `Ciemne miejsce.` nadal wyzwala alarm niezaleznie od tego warunku.
+
+
+## Beta.27 — wznowienie oficjalnego chodzika po ataku
+
+W trakcie odwrotu AutoExp zleca oficjalnemu `walker.go` **pojedynczy
+kolejny pokoj z trasy mappera**. Po potwierdzonym dotarciu do pokoju
+wyznacza nastepny krok do zapisanego `safeMap`. Jesli oficjalny chodzik
+przerywa ruch z powodu walki (`chimera.walk.stopped: atak`), automat
+zachowuje cel, czeka na spoznione GMCP, po czym ponawia ruch z aktualnej
+pozycji. Nie ponawia slepo kroku przy braku potwierdzenia; liczba prob
+oraz ponownych odwiedzin lokacji jest ograniczona.
+
+`Ciemne miejsce.` i brak wyjsc na expowisku nadal koncza sie
+wymaganym recznym uruchomieniem po dotarciu do schronienia. Zwykla
+pauza, reczne zatrzymanie oraz bledy chodzika inne niz `atak` nie
+wyzwalaja samoczynnego restartu.
+
+
+### Beta.27 - Tryb Obrona i wspolny cel walki
+
+Komenda `/exp stop` i przycisk STOP koncza tylko patrol. Aktywna
+automatyka szyku Obrona pozostaje uruchomiona do recznego
+`/exp taktyka off`. Jawne API `stop_all` zatrzymuje oba silniki.
+
+Lista `/exp cel` to priorytety NPC. Wewnatrz kazdego priorytetu
+porownywane jest procentowe zdrowie (hp/maxhp) z Room.Entities,
+a przy remisie pozostaje aktywny cel. Jesli atak priorytetu jest
+blokowany przez oslone lub GMCP nie potwierdzi zmiany celu,
+patrol nie wycofuje sie tylko z tego powodu. Na 15 sekund
+utrzymuje obecny cel i, przy `/exp druzyna on` i uprawnieniach
+dowodcy, rozkazuje walczyc z tym rzeczywistym przeciwnikiem.
+Brak potwierdzenia rozpoczecia jakiejkolwiek walki powoduje
+pauze, nie awaryjny odwrot.

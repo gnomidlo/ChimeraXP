@@ -163,7 +163,10 @@ do
     assert(api.snapshot().profiles.beta.economy.enabled,"per-area switch must not affect another profile")
     api.request("wybierz","Las");assert(api.status().selected=="alpha","pause does not permit switching terrain")
     api.tactics.toggle(true);assert(api.tactics.status().on)
-    h.commands["exp stop"]();assert(not api.status().started and not api.tactics.status().on,"CLI STOP stops both engines")
+    h.commands["exp stop"]();assert(not api.status().started and api.tactics.status().on,
+        "CLI /exp stop only stops the patrol, not active Obrona tactics")
+    api.stop();assert(not api.status().started and api.tactics.status().on,
+        "HUD/API STOP also keeps formation active")
     assert(api.hud.badge.hidden,"run label disappears after STOP")
     api.request("wybierz","Las");assert(api.status().selected=="beta")
     api.request("start");assert(api.status().elapsed==0,"new expedition resets elapsed time")
