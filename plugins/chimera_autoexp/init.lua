@@ -3496,6 +3496,26 @@ function M.explain_cover(s,c,enabled,blocked,protected)
     local danger=s.risk and s.risk[protected]
     local urgent=danger and (danger.level=="critical"
         or (danger.level=="warning" and (s.members[protected] or {}).hp<=55))
+    -- An injured retainer might be saved by the leader's own maneuver.
+    -- Preserve the HP/role explanation that the former status contained.
+    if protected~=s.self_id then
+        local me=s.members[s.self_id]
+        local policy=me and M.policy(s,c,s.self_id)
+        local reason
+        local block=blocked[1]
+        if not me then reason="brak postaci"
+        elseif not enabled[1] or not policy.enabled then reason="ochrona wylaczona"
+        elseif block==true or (s.maneuver_locked and s.maneuver_locked[s.self_id]) then
+            reason="odnowienie manewru"
+        elseif me.hp<policy.min_hp then
+            reason=string.format("HP %.0f < %.0f%%",me.hp,policy.min_hp)
+        elseif count(s,s.self_id)+1>policy.max_load then
+            reason=string.format("limit %d/%d",count(s,s.self_id),policy.max_load)
+        elseif incoming==0 then reason="brak napastnikow celu wg GMCP"
+        else reason="gotowa; sprawdz role i zadanie"
+        end
+        result[#result+1]=(me and me.name or "JA")..": "..reason
+    end
     for i,p in ipairs(c.minions or {}) do
         local id=p.id
         local member=id and s.members[id]
