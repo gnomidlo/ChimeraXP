@@ -1,3 +1,11 @@
+## 0.7.0-beta.28 — szybkie przejscie po walce bez zbierania lupow
+
+- Po **potwierdzonym przez GMCP** zakonczeniu walki AutoExp bez zarobku natychmiast kontynuuje wybor kolejnego celu lub pokoju. Nie czeka juz 7 sekund na nieaktywne zbieranie lupow.
+- To samo dotyczy profilu z wlaczonym zarobkiem, ale pusta lista lupow.
+- Gdy zarobek jest wlaczony i faktycznie skonfigurowano lupi, pozostaje dotychczasowa zwloka `economyLootGrace` (domyslnie 2 s) na synchronizacje cial i bezpieczne uruchomienie zbierania.
+- Bez zmian pozostaja warunki bezpieczenstwa: walka musi byc zakonczona w GMCP, stan istot musi byc aktualny, ruch podlega ograniczeniom mappera i ewentualnemu odpoczynkowi.
+- Regresje `tests/no_loot_combat_resume.lua` obejmuja wszystkie trzy warianty.
+
 ## 0.7.0-beta.27 — awaryjny odwrot natywnym chodzikiem, pokoj po pokoju
 
 - `/exp stop` i przycisk STOP zatrzymuja tylko wyprawe, nie aktywna automatyke Obrona. Wylaczenie Obrony pozostaje jawne: `/exp taktyka off`.
