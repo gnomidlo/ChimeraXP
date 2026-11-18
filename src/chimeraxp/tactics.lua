@@ -569,6 +569,9 @@ function T.new(ctx,M,integration,patrol,changed)
     ctx:timer(0.5,schedule,true)
     ctx:cleanup(function() S.destroyed=true;S.on=false;S.pending=nil end)
     detect()
+    -- Persist the schema-3 migration once, so legacy target/task selectors
+    -- cannot reappear in saved settings after the next restart.
+    if type(persisted)=="table" and persisted.schema~=3 then save() end
     return E
 end
 return T
