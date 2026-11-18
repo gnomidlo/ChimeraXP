@@ -163,6 +163,12 @@ do
     assert(api.snapshot().profiles.beta.economy.enabled,"per-area switch must not affect another profile")
     api.request("wybierz","Las");assert(api.status().selected=="alpha","pause does not permit switching terrain")
     api.tactics.toggle(true);assert(api.tactics.status().on)
+    assert(api.hud.labels.defense_thought and not api.hud.labels.defense_thought.widget.hidden,
+        "enabled Defense shows its current reasoning in the existing top bar")
+    assert(api.hud.labels.defense_thought.x+api.hud.labels.defense_thought.w<=api.hud.labels.badge.x,
+        "Defense reasoning precedes the adjacent terrain/time chip")
+    assert(api.hud.labels.badge.x>api.hud.labels.areas.x+api.hud.labels.areas.w,
+        "terrain and elapsed time stay beside the control buttons")
     h.commands["exp stop"]();assert(not api.status().started and api.tactics.status().on,
         "CLI /exp stop only stops the patrol, not active Obrona tactics")
     api.stop();assert(not api.status().started and api.tactics.status().on,
