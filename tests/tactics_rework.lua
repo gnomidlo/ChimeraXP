@@ -96,7 +96,8 @@ do
     assert(#h.sent==0,"ambiguous ownership does not guess a retainer")
     assert(h.api.bind(1,"petone"));h.api.configure("petone","enabled",true)
     h.advance(14.9);h.fresh();h.advance(0.7)
-    assert(#h.sent==1 and h.sent[1]:find("^parozkaz petone "),"explicit binding can authorize one retainer in a larger party")
+    assert(#h.sent==1 and h.sent[1]=="rozkaz petone zaslonic ciebie",
+        "explicit binding authorizes a correctly addressed leader cover order")
     h.dispose()
 end
 do

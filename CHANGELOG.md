@@ -1,3 +1,13 @@
+## 0.7.0-beta.29 — Obrona 2.0: dynamika HP, gotowosc jednostek i pasek decyzji
+
+- Obrona śledzi rzeczywisty spadek HP z GMCP (osobno ostatnie 5 i 25 sekund), rozróżnia stabilny stan, ostrzeżenie i stan ratunkowy. Silny pojedynczy cios lub szybkie zbliżanie się do 35% HP powoduje wcześniejszą próbę ratunku także przy jednym napastniku.
+- Priorytet ratowania życia wyprzedza optymalizację szyku, ale nie omija granic HP, limitu przejmowanych przeciwników ani ochrony ratownika, który sam gwałtownie traci zdrowie.
+- Poprawiono zachowanie roli Ochrona innych i automatycznych zadań pachołków. Przy zasłanianiu dowódcy komenda to `rozkaz <ID> zaslonic ciebie`; bezpieczna osłona całej drużyny zachowuje `rozkaz druzynie zaslonic ciebie`.
+- Cooldown manewru (15 s) zapisujemy na ID **wykonawcy**, nie na rozkazującym ani na slocie P1/P2. Komunikat `<imię> jest gotow[ay] do kolejnej zmiany w szyku.` natychmiast odblokowuje tę postać. Ataki i samo wydawanie rozkazów nie nakładają 15-sekundowej blokady.
+- Krótki bufor potwierdzenia GMCP pozostaje zabezpieczeniem przed powtarzaniem komend; nie blokuje na 15 s całej drużyny. Nie wymagamy cyklicznego ponawiania niezmienionego Group.State/Room.Entities w każdej 15-sekundowej przerwie.
+- Pasek na górze wyświetla teraz bieżące rozumowanie Obrony obok fazy walki, zaś nazwa expowiska i czas są bliżej przycisków sterowania. Zachowano jedną wysokość 44 px i małe szerokości okna.
+- Regresje `tests/defense_risk.lua` badają uratowanie postaci po gwałtownym spadku HP, niezależne cooldowny pachołków, poprawne składnie rozkazów i wariant zbiorowy.
+
 ## 0.7.0-beta.28 — szybkie przejscie po walce bez zbierania lupow
 
 - Po **potwierdzonym przez GMCP** zakonczeniu walki AutoExp bez zarobku natychmiast kontynuuje wybor kolejnego celu lub pokoju. Nie czeka juz 7 sekund na nieaktywne zbieranie lupow.

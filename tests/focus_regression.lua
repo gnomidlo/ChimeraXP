@@ -86,7 +86,7 @@ do
     h.emit("sysDataSendRequest","sysDataSendRequest","parozkaz petone zabij enemy2")
     h.p.combat.relations={{attacker="enemy1",defender="me"},{attacker="enemy2",defender="me"}}
     h.fresh();h.advance(.2)
-    assert(h.sent[1]=="parozkaz petone zaslon me przed enemy1","manual attack does not disable protection")
+    assert(h.sent[1]=="rozkaz petone zaslonic ciebie","manual attack does not disable protection")
     for _,r in ipairs(h.api.rows()) do assert(r.enabled) end
     h.dispose()
 end

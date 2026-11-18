@@ -49,9 +49,11 @@ do
     h.p.combat.relations={{attacker="enemy1",defender="me"}}
     h.fresh();h.advance(5.2);assert(h.sent[1]:match("^wycofaj sie za "))
     h.triggers["Jestes gotowa do zmiany w szyku."]()
-    h.advance(9);h.fresh();h.advance(5);assert(#h.sent==1,"readiness does not shorten retreat's 15s")
-    h.fresh();h.advance(1.2);assert(#h.sent==2,"retreat retries after 15s")
-    h.api.stop();h.fresh();h.advance(20);assert(#h.sent==2)
+    h.fresh();h.advance(.6);assert(#h.sent==2,"server readiness immediately unlocks the retreat actor")
+    h.advance(9);h.fresh();h.advance(5)
+    assert(#h.sent==2,"a new retreat attempt starts its own 15s interval")
+    h.fresh();h.advance(1.2);assert(#h.sent==3,"unconfirmed retreat retries after its own interval")
+    h.api.stop();h.fresh();h.advance(20);assert(#h.sent==3)
     h.dispose()
 end
 print("PASS idle party focus, confirmation wait, safe retreat recipients and readiness isolation")

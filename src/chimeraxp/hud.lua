@@ -377,8 +377,8 @@ function H.new(ctx,patrol,tactics,stop)
         self.root:move(0,0);self.root:resize(w,height)
         self.used={}
         widget("background",self.root,0,0,w,height,"",P.text,P.bg,nil,nil,"bar")
-        local small=w<500
-        local tight=w<390 or (st.started and w<700)
+        local small=w<900
+        local tight=w<560
         local cw=32
         cw=math.min(cw,math.max(3,math.floor(w*.09)))
         local right=w-8-cw*3
@@ -412,7 +412,15 @@ function H.new(ctx,patrol,tactics,stop)
         widget("settings",self.root,right+cw*2,y,cw-3,bh,ICON.gear,
             P.text,self.menu and self.anchor=="settings" and P.raised or P.bg,
             function() self:open("settings") end,nil,"toolbar")
-        if st.started or st.phase=="DARK_STOP" then
+        -- From left to right: combat state, live Defense reasoning, and
+        -- terrain + timer immediately beside the right-hand control buttons.
+        -- No second row, even at narrow widths.
+        local free=math.max(1,right-x-8)
+        local running=st.started or st.phase=="DARK_STOP"
+        local badgewidth=running and math.min(math.max(1,free-2),
+            math.max(80,math.min(215,math.floor(free*.42)))) or 0
+        local badge_x=right-badgewidth-6
+        if running then
             local name=snap.profile and snap.profile.name or "Brak terenu"
             local earn=snap.profile and snap.profile.economy and snap.profile.economy.enabled
             local stages={DARK_STOP="STOP · CIEMNO",DARK_RETREAT="ODWRÓT",INTERVENTION="ALARM",
@@ -423,24 +431,41 @@ function H.new(ctx,patrol,tactics,stop)
                 st.phase=="LOOTING" and "ŁUPY" or "PATROL"
             local tint=st.paused and P.yellow or st.emergency and P.rose or
                 st.phase=="COMBAT" and P.mint or P.lavender
-            local space=math.max(1,right-x-12)
-            local chipw=w>=850 and space>230 and 82 or 0
-            local badgewidth=math.max(1,space-chipw-(chipw>0 and 8 or 0))
-            local badge_x=right-badgewidth-8
-            if chipw>0 then
-                widget("stage",self.root,badge_x-chipw-8,y+4,chipw,bh-8,
+            local stagewidth=free>=295 and 77 or 0
+            if stagewidth>0 then
+                widget("stage",self.root,x,y+4,stagewidth,bh-8,
                     "● "..label,tint,P.card,
                     function() self:open("session") end,nil,"chip")
             end
-            local reserved=earn and w>=960 and 13 or 0
-            local clipped=short(name,math.max(1,math.floor((badgewidth-106)/7)-reserved))
+            local namechars=math.max(1,math.floor((badgewidth-77)/7))
+            local clipped=short(name,namechars)
             local html="<font color='"..P.text.."'><b>"..esc(clipped).."</b></font>"
                 .."  <font face='Consolas' color='"..P.mint.."'>"..clock(st.elapsed).."</font>"
-                ..(earn and w>=960 and "<font color='"..P.soft.."'> · zarobek</font>" or "")
-                ..(chipw==0 and " <font color='"..tint.."'>· "..esc(label).."</font>" or "")
+                ..(earn and badgewidth>180 and " <font color='"..P.soft.."'>· zarobek</font>" or "")
             widget("badge",self.root,badge_x,y,badgewidth,bh,"",tint,P.bg,
                 function() self:open("session") end,html,"nav")
             self.badge=self.labels.badge.widget
+            self.stage_end=x+stagewidth+(stagewidth>0 and 5 or 0)
+        else
+            self.stage_end=x
+        end
+        if ts.on then
+            local thought_x=self.stage_end
+            local thought_end=running and badge_x-5 or right-6
+            local thought_width=math.max(0,thought_end-thought_x)
+            if thought_width>=50 then
+                local threat=ts.threat
+                local severe=threat and threat.level=="critical"
+                local warn=threat and threat.level=="warning"
+                local tint=severe and P.rose or warn and P.yellow or
+                    (ts.phase=="BLOKADA" or ts.phase=="BLOKADA GMCP") and P.yellow or P.mint
+                local detail=ts.detail or "Monitoruje druzyne"
+                local prefix=severe and "⚠ " or warn and "◷ " or ICON.shield.." "
+                local maxchars=math.max(1,math.floor((thought_width-14)/7))
+                local label=prefix..short(detail,maxchars-2)
+                widget("defense_thought",self.root,thought_x,y+4,thought_width,bh-8,
+                    label,tint,P.card,function() self:open("tactics") end,nil,"chip")
+            end
         end
         if self.menu then
             local items,title,note=items_for(snap,rows,ts)
