@@ -221,3 +221,20 @@ oraz ponownych odwiedzin lokacji jest ograniczona.
 wymaganym recznym uruchomieniem po dotarciu do schronienia. Zwykla
 pauza, reczne zatrzymanie oraz bledy chodzika inne niz `atak` nie
 wyzwalaja samoczynnego restartu.
+
+
+### Beta.27 - Tryb Obrona i wspolny cel walki
+
+Komenda `/exp stop` i przycisk STOP koncza tylko patrol. Aktywna
+automatyka szyku Obrona pozostaje uruchomiona do recznego
+`/exp taktyka off`. Jawne API `stop_all` zatrzymuje oba silniki.
+
+Lista `/exp cel` to priorytety NPC. Wewnatrz kazdego priorytetu
+porownywane jest procentowe zdrowie (hp/maxhp) z Room.Entities,
+a przy remisie pozostaje aktywny cel. Jesli atak priorytetu jest
+blokowany przez oslone lub GMCP nie potwierdzi zmiany celu,
+patrol nie wycofuje sie tylko z tego powodu. Na 15 sekund
+utrzymuje obecny cel i, przy `/exp druzyna on` i uprawnieniach
+dowodcy, rozkazuje walczyc z tym rzeczywistym przeciwnikiem.
+Brak potwierdzenia rozpoczecia jakiejkolwiek walki powoduje
+pauze, nie awaryjny odwrot.
