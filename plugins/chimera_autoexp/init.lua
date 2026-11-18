@@ -3494,6 +3494,7 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     local out={};s.weights={}
     for id in pairs(s.members) do s.weights[id]=M.policy(s,c,id).weight end
     local tank_id=M.main_tank(s,c)
+    local me=s.self_id
     local function cover(channel,actor,protected,priority,why,allow_mass)
         if unavailable(channel,"cover") or (s.maneuver_locked and s.maneuver_locked[actor])
             or actor==protected or not ready_member(s.members[protected]) then return end
@@ -3548,7 +3549,6 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
             confirmation_targets=(channel>1 and channel<4 and protected==me and s.leader==me)
                 and enemies or nil}
     end
-    local me=s.self_id
     if enabled[1] and M.policy(s,c,me).enabled and not blocked[1] and ready_member(s.members[me]) then
         if c.protect and s.members[c.protect_id] and (not c.protect_name or s.members[c.protect_id].name==c.protect_name) then
             cover(1,me,c.protect_id,100,"Ochrona priorytetowa: "..s.members[c.protect_id].name,true)
