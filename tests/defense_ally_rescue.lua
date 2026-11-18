@@ -88,4 +88,20 @@ do
     h.dispose()
 end
 
+do
+    local h=fixture()
+    health(h,"me",70)
+    h.saved.tactics.profiles.pettwo.enabled=false
+    assert(h.api.toggle(true))
+    h.fresh();h.advance(5.2)
+    health(h,"petone",50)
+    h.emit("chimera.group.state")
+    h.emit("chimera.room.entities")
+    h.advance(.3)
+    assert(#h.sent==0,"unsafe rescuer must not be forced to take a hit")
+    assert(h.api.status().detail:find("HP 70 < 75%%"),
+        "no-plan diagnosis must report actual 75% asekuracja HP floor")
+    h.dispose()
+end
+
 print("PASS wounded guard: risk overrides routine role, leader rescues at exactly 50% HP")
