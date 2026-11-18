@@ -70,11 +70,16 @@ function T.new(ctx,M,integration,patrol,changed)
             -- cannot create an unbounded damage-per-second estimate.
             local rate=math.max(short/5,long/25)
             local eta=rate>0 and math.max(0,(hp-35)/rate) or nil
+            local attackers=#(s.attackers[id] or {})
             local level="stable"
-            if hp<=35 or short>=18 or (hp<=80 and eta and eta<=15) then level="critical"
-            elseif hp<=55 or short>=8 or (eta and eta<=30) then level="warning" end
+            -- Massive aggro is a threat multiplier once HP is already low;
+            -- eight weak mobs at full HP alone do not force a panic maneuver.
+            if hp<=35 or short>=18 or (hp<=80 and eta and eta<=15)
+                or (attackers>=5 and hp<=65) then level="critical"
+            elseif hp<=55 or short>=8 or (eta and eta<=30)
+                or (attackers>=5 and hp<=85) then level="warning" end
             local data={level=level,hp=hp,damage5=short,damage25=long,
-                rate=rate,eta=eta,attackers=#(s.attackers[id] or {})}
+                rate=rate,eta=eta,attackers=attackers}
             risk[id]=data
             if data.attackers>0 and (not most or
                 (level=="critical" and most.level~="critical") or
@@ -229,14 +234,16 @@ function T.new(ctx,M,integration,patrol,changed)
         local xp=patrol.status()
         if xp.dry then return end
         local t=now()
-        for _,key in ipairs({"entities","group","combat"}) do
+        -- Group.State is a *state*, not a guaranteed room-change event.
+        -- After moving, an unchanged group may never send another packet.
+        -- Require fresh room entities and combat from the new room, but
+        -- trust the existing Group.State once M.snapshot has validated it.
+        for _,key in ipairs({"entities","combat"}) do
             if not S.received[key] then
                 phase("SYNCHRONIZACJA","Brak danych: "..key);return
             end
         end
-        -- Group and entity packets are event-driven, not heartbeats: an
-        -- unchanged roster need not be re-sent every fifteen seconds.
-        -- M.snapshot validates all three against the current room.
+        -- M.snapshot validates room identity, membership and live relations.
         local s,err=snapshot()
         if not s then phase("BLOKADA GMCP",err);return end
         observe_health(s,t)
@@ -256,7 +263,7 @@ function T.new(ctx,M,integration,patrol,changed)
             local p=S.pending
             if M.confirmed(p,s) then
                 S.last[p.channel]=p;S.pending=nil
-                for _,enemy in ipairs(p.before_targets or {}) do
+                for _,enemy in ipairs(p.confirmation_targets or p.before_targets or {}) do
                     local target=p.kind=="retreat" and p.protected or p.actor
                     if s.targets[enemy]==target then S.transfers[enemy]={from=p.kind=="retreat" and p.actor or p.protected,until_at=t+12} end
                 end

@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.29** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.30** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Aktualizacja przez Mudlet
 
@@ -25,6 +25,10 @@ Komunikat „Ciemne miejsce.”, zgaśnięcie lampy lub zanik wyjść GMCP zmien
 Ręczny ruch oddaje graczowi sterowanie. Patrol wraca po potwierdzeniu pokoju, danych o istotach i trzech sekundach od ostatniego ręcznego kroku. Jawna pauza wymaga `/exp wznow`. Włączona ochrona może osłaniać drużynę w potwierdzonej walce także podczas pauzy, ruchu i odwrotu. Ręczne rozkazy mają pierwszeństwo na odpowiednim kanale.
 
 Po uruchomieniu skryptów patrol i taktyka są wyłączone. Wydanie ma testy automatyczne Lua 5.1/5.4; zachowanie serwerowych komend i wygląd Qt/Geyser wymagają jeszcze próby w działającym Mudlecie.
+
+## Sytuacje awaryjne: wielu napastnikow (beta.30)
+
+Obrona wykorzystuje dostepny snapshot Group.State, jesli sklad druzyny nie zmienil sie po wejsciu do pokoju; jednoczesnie sprawdza, czy dane istot i relacje walki pochodza z biezacej lokacji. Przy 5+ napastnikach i HP <= 85% zwieksza czujnosc, a przy HP <= 65% podnosi priorytet ratunku. Rozkaz oslonienia dowodcy po ID nie wybiera konkretnego wroga, wiec potwierdzenie czeka na przeniesienie *dowolnego* dotychczasowego napastnika. Jesli bezpieczna osłona zbiorowa nie jest mozliwa, sprobuje indywidualnych zaslon w granicach limitow i cooldownow.
 
 ## Obrona 2.0 (beta.29)
 

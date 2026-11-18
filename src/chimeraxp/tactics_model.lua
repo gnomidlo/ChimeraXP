@@ -226,6 +226,7 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
     local out={};s.weights={}
     for id in pairs(s.members) do s.weights[id]=M.policy(s,c,id).weight end
     local tank_id=M.main_tank(s,c)
+    local me=s.self_id
     local function cover(channel,actor,protected,priority,why,allow_mass)
         if unavailable(channel,"cover") or (s.maneuver_locked and s.maneuver_locked[actor])
             or actor==protected or not ready_member(s.members[protected]) then return end
@@ -273,9 +274,13 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
             kind=mass and "mass" or "cover",priority=urgency or (s.members[protected].hp<40 and improvement>=0.12 and 120 or (emergency and math.max(priority,110) or priority)),
             safety_gain=broad and improvement or gain(s,protected,actor,mass and #enemies or 1),
             reason=(critical and "RATUNEK: " or warning and "Zagrozenie: " or "")..why,room=s.room,
-            before_targets=(mass or broad) and enemies or {enemy}}
+            before_targets=(mass or broad) and enemies or {enemy},
+            -- "rozkaz ID zaslonic ciebie" does not name an enemy.
+            -- The MUD may pick *any* of the attackers; confirm what actually
+            -- transferred, not the alphabetically first one we guessed.
+            confirmation_targets=(channel>1 and channel<4 and protected==me and s.leader==me)
+                and enemies or nil}
     end
-    local me=s.self_id
     if enabled[1] and M.policy(s,c,me).enabled and not blocked[1] and ready_member(s.members[me]) then
         if c.protect and s.members[c.protect_id] and (not c.protect_name or s.members[c.protect_id].name==c.protect_name) then
             cover(1,me,c.protect_id,100,"Ochrona priorytetowa: "..s.members[c.protect_id].name,true)
@@ -481,7 +486,15 @@ function M.confirmed(d,s)
         return false
     end
     if d.kind=="support" then return s.targets[d.actor]==d.enemy end
-    if d.kind=="cover" and not d.broad then return s.targets[d.enemy]==d.actor end
+    if d.kind=="cover" and not d.broad then
+        if d.confirmation_targets then
+            for _,enemy in ipairs(d.confirmation_targets) do
+                if s.targets[enemy]==d.actor then return true end
+            end
+            return false
+        end
+        return s.targets[d.enemy]==d.actor
+    end
     local target=d.kind=="retreat" and d.protected or d.actor
     for _,enemy in ipairs(d.before_targets or {}) do if s.targets[enemy]==target then return true end end
     return false

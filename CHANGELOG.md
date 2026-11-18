@@ -1,3 +1,11 @@
+## 0.7.0-beta.30 — zaslony przy wielu napastnikach
+
+- Obrona nie czeka na ponowny pakiet `Group.State` po przejsciu do nowego pokoju: niezmieniony sklad druzyny moze nie generowac nowego zdarzenia. Zanim podejmie decyzje, nadal wymaga danych `Room.Entities` i `Combat.State` z aktualnej lokacji oraz poprawnego, kompletnego snapshotu GMCP.
+- Komenda `rozkaz ID zaslonic ciebie` nie wskazuje pojedynczego napastnika. Potwierdzenie sukcesu uznaje teraz przeniesienie **dowolnego z napastnikow** zaatakowanej postaci w chwili wydania rozkazu, a nie wylacznie pierwszego z listy. To ogranicza bezczynne oczekiwanie i pozwala szybciej angazowac drugiego wolnego pacholka.
+- Pieciu lub wiecej napastnikow przy HP <=85% wywoluje ostrzezenie, a przy HP <=65% alarm ratunkowy nawet bez wystarczajacej historii obrazen. Osmiu slabych przeciwnikow przy pelnym HP nie powoduje alarmu.
+- Wariant zbiorowy wciaz podlega limitom przejecia napastnikow; gdy nie jest bezpieczny, automat wybiera indywidualne zaslony zamiast bezczynnosci.
+- Nowe testy `tests/defense_heavy_aggro.lua` odtwarzaja sytuacje: 8 przeciwnikow przy postaci, spadek 73% do 50%, 2 zdrowych wojownikow, brak powtornych danych grupy po ruchu i serwerowy wybor innego napastnika niz pierwszy na liscie.
+
 ## 0.7.0-beta.29 — Obrona 2.0: dynamika HP, gotowosc jednostek i pasek decyzji
 
 - Obrona śledzi rzeczywisty spadek HP z GMCP (osobno ostatnie 5 i 25 sekund), rozróżnia stabilny stan, ostrzeżenie i stan ratunkowy. Silny pojedynczy cios lub szybkie zbliżanie się do 35% HP powoduje wcześniejszą próbę ratunku także przy jednym napastniku.
