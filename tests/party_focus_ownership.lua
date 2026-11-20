@@ -36,11 +36,19 @@ end
 
 do
     local h=fixture(false,false)
+    local function broadcasts()
+        local n=0
+        for _,cmd in ipairs(h.sent) do
+            if cmd=="rozkaz druzynie zaatakowac enemy1" then n=n+1 end
+        end
+        return n
+    end
     h.advance(4)
-    assert(#h.sent==1,"unconfirmed group order does not flood the server")
+    assert(broadcasts()==1,"unconfirmed group order does not flood the server")
+    -- A verified retainer may separately issue 'wesprzyj' meanwhile.
     h.advance(4)
-    assert(h.sent[2]=="rozkaz druzynie zaatakowac enemy1",
-        "still-divergent party may retry only after bounded 7s window")
+    assert(broadcasts()==2,
+        "still-divergent party may rebroadcast only after bounded 7s window")
     h.dispose()
 end
 
