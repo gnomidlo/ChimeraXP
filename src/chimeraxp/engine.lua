@@ -3182,6 +3182,15 @@ return {
                 local p=profile()
                 return p and p.partyAttack==true or false
             end,
+            party_focus_state=function()
+                -- Read-only diagnostics; the actual GMCP relations remain
+                -- authoritative. Do not expose mutable safety state.
+                local last=safety.last_party_order
+                return {enabled=profile() and profile().partyAttack==true or false,
+                    last_target=last and last.target,
+                    last_at=last and last.at,
+                    last_room=last and last.room}
+            end,
             nearest_profiles=function(limit)
                 if destroyed then return {} end
                 return nearest_profiles(math.max(1,math.floor(tonumber(limit) or 3)))
