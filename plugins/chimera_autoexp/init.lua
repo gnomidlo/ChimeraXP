@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.33",
+    version = "0.7.0-beta.34",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2276,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.33 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.34 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.33"},
+                {"Wersja", "0.7.0-beta.34"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3238,6 +3238,15 @@ return {
                 local p=profile()
                 return p and p.partyAttack==true or false
             end,
+            party_focus_state=function()
+                -- Read-only diagnostics; the actual GMCP relations remain
+                -- authoritative. Do not expose mutable safety state.
+                local last=safety.last_party_order
+                return {enabled=profile() and profile().partyAttack==true or false,
+                    last_target=last and last.target,
+                    last_at=last and last.at,
+                    last_room=last and last.room}
+            end,
             nearest_profiles=function(limit)
                 if destroyed then return {} end
                 return nearest_profiles(math.max(1,math.floor(tonumber(limit) or 3)))
@@ -3582,7 +3591,7 @@ function M.explain_cover(s,c,enabled,blocked,protected)
     return table.concat(lines,"; ")
 end
 
-function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
+function M.plan(s,c,enabled,blocked,focus,suppress_team_attack,team_focus_override)
     enabled,blocked=enabled or {},blocked or {}
     local me=s.self_id
     local out={}
@@ -3759,7 +3768,10 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                 end
             end
         end
-        if valid_target and c.team_orders and c.team_broadcast
+        -- The EXP profile has a separate "Wspolny cel ataku" switch.
+        -- When the patrol is STOPPED but Obrona remains AUTO, honor that
+        -- explicit opt-in without enabling team covers or player protection.
+        if valid_target and (team_focus_override or (c.team_orders and c.team_broadcast))
             and s.group_complete and s.leader==me and enabled[4]
             and not blocked_for(blocked,4,"support") and not suppress_team_attack then
             local mismatch=false
@@ -4310,7 +4322,12 @@ function T.new(ctx,M,integration,patrol,changed)
             end
             suppress_attack=true
         end
-        local d=M.plan(s,config,S.enabled,blocked,nil,suppress_attack)
+        local xp_focus=patrol.party_attack_enabled and patrol.party_attack_enabled()
+        -- During the patrol, XP is the sole owner of broadcasts. Once the
+        -- player stops the patrol, enabled Obrona may still honor the same
+        -- explicitly opted-in focus setting in a MANUAL fight.
+        local focus_without_patrol=xp_focus and not xp.started
+        local d=M.plan(s,config,S.enabled,blocked,nil,suppress_attack,focus_without_patrol)
         if not d then
             local detail=S.ambiguous and "Niejednoznaczne pachołki: wymagane jawne przypisanie do P1/P2."
                 or config.team_orders and s.leader~=s.self_id and "Rozkazy graczom czekają: nie prowadzisz drużyny."
@@ -4319,18 +4336,54 @@ function T.new(ctx,M,integration,patrol,changed)
             local missing={}
             if target and s.enemies[target] then
                 for id,member in pairs(s.members) do
-                    if id~=s.self_id and s.targets[id]~=target then missing[#missing+1]=member.name end
+                    if id~=s.self_id and s.targets[id]~=target then
+                        local ch
+                        for i,p in ipairs(config.minions) do
+                            if p.id==id and s.minions[id] then ch=i+1;break end
+                        end
+                        local policy=M.policy(s,config,id)
+                        local reason
+                        if member.minion and not ch then
+                            reason="nieprzypisana do P1/P2 lub nierozpoznana"
+                        elseif not policy.enabled or (ch and not S.enabled[ch]) then
+                            reason="udział w Obronie wyłączony"
+                        elseif member.casting then reason="rzuca czar"
+                        elseif ch and (S.support[ch] or 0)>t then
+                            reason="krótka blokada rozkazu: "..math.ceil(S.support[ch]-t).." s"
+                        elseif ch and S.ambiguous and
+                            (not config.confirmed_minions[ch-1]
+                             or config.confirmed_minions[ch-1].id~=id) then
+                            reason="brak potwierdzenia przypisania P"..(ch-1)
+                        else reason="cel niezgodny" end
+                        missing[#missing+1]={id=id,name=member.name,reason=reason}
+                    end
                 end
             end
             if #missing>0 then
-                table.sort(missing)
+                table.sort(missing,function(a,b) return a.name<b.name end)
+                local pieces={}
+                for _,m in ipairs(missing) do pieces[#pieces+1]=m.name.." ("..m.reason..")" end
                 local wait=math.ceil(math.max(0,S.blocked[4]-t,S.support[4]-t))
-                local why=not config.team_orders and "włącz Rozkazy graczom"
-                    or not config.team_broadcast and "włącz Rozkazy zbiorowe"
-                    or s.leader~=s.self_id and "nie prowadzisz drużyny"
-                    or wait>0 and ("odnowienie/ręczna blokada: "..wait.." s")
-                    or "sprawdź udział jednostek, rezerwę i blokady pachołków"
-                detail="Inny cel lub brak ataku: "..table.concat(missing,", ").."; "..why.."."
+                local why
+                if s.leader~=s.self_id then
+                    why="nie prowadzisz drużyny"
+                elseif xp_focus and xp.started then
+                    local focus=patrol.party_focus_state and patrol.party_focus_state() or {}
+                    if focus.last_room==(api.room() or {}).id and focus.last_at
+                        and focus.last_target==target then
+                        why="rozkaz AutoExp na bieżący cel: "..math.max(0,math.floor(os.time()-focus.last_at)).." s temu"
+                    else
+                        why="AutoExp ma włączony wspólny cel, ale brak wysłanego rozkazu na ten cel"
+                    end
+                elseif xp_focus then
+                    why="wspólny cel sterowany przez Obronę po zatrzymaniu patrolu"
+                else
+                    why=not config.team_orders and "włącz Rozkazy graczom"
+                        or not config.team_broadcast and "włącz Rozkazy zbiorowe"
+                        or wait>0 and ("odnowienie/ręczna blokada: "..wait.." s")
+                        or "brak potwierdzenia wspólnego celu"
+                end
+                detail="Inny cel lub brak ataku: "..table.concat(pieces,", ").."; "..why.."."
             end
             if S.threat and S.threat.level~="stable" then
                 -- Report the *planner's actual inputs*, not 'ready; no
