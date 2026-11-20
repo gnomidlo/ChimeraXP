@@ -88,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.33",
+    version = "0.7.0-beta.34",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2220,7 +2220,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.33 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.34 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2347,7 +2347,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.33"},
+                {"Wersja", "0.7.0-beta.34"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3181,6 +3181,15 @@ return {
             party_attack_enabled=function()
                 local p=profile()
                 return p and p.partyAttack==true or false
+            end,
+            party_focus_state=function()
+                -- Read-only diagnostics; the actual GMCP relations remain
+                -- authoritative. Do not expose mutable safety state.
+                local last=safety.last_party_order
+                return {enabled=profile() and profile().partyAttack==true or false,
+                    last_target=last and last.target,
+                    last_at=last and last.at,
+                    last_room=last and last.room}
             end,
             nearest_profiles=function(limit)
                 if destroyed then return {} end

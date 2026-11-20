@@ -314,7 +314,7 @@ function M.explain_cover(s,c,enabled,blocked,protected)
     return table.concat(lines,"; ")
 end
 
-function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
+function M.plan(s,c,enabled,blocked,focus,suppress_team_attack,team_focus_override)
     enabled,blocked=enabled or {},blocked or {}
     local me=s.self_id
     local out={}
@@ -491,7 +491,10 @@ function M.plan(s,c,enabled,blocked,focus,suppress_team_attack)
                 end
             end
         end
-        if valid_target and c.team_orders and c.team_broadcast
+        -- The EXP profile has a separate "Wspolny cel ataku" switch.
+        -- When the patrol is STOPPED but Obrona remains AUTO, honor that
+        -- explicit opt-in without enabling team covers or player protection.
+        if valid_target and (team_focus_override or (c.team_orders and c.team_broadcast))
             and s.group_complete and s.leader==me and enabled[4]
             and not blocked_for(blocked,4,"support") and not suppress_team_attack then
             local mismatch=false

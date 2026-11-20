@@ -1,3 +1,11 @@
+## 0.7.0-beta.34 — diagnostyka wspolnego celu i Obrona po STOP
+
+- "Wspolny cel ataku" w expowisku (`partyAttack`) jest inna opcja niz "Wspolna zaslona druzyny" w Obronie. Gdy patrol EXP trwa, zbiorowe `rozkaz druzynie zaatakowac ID` prowadzi nadal AutoExp i nie dubluje go Obrona.
+- Gdy patrol jest zatrzymany (`/exp stop`), ale Obrona pozostaje w AUTO, wyraznie wlaczony "Wspolny cel ataku" z wybranego profilu nadal synchronizuje druzyne podczas **juz trwajacej** walki. Nie inicjuje walki w pustym pokoju, wymaga wlasnego celu GMCP, bycia dowodca i pelnego skladu GMCP. Nie wlacza przy tym automatycznie zbiorowych zaslon ani rozkazow ochronnych graczom.
+- Komunikat `/exp taktyka status` przy rozbieznych celach podaje konkretna postac i jej przyczyne (nieprzypisany pacholek, wylaczenie udzialu, rzucanie czaru, chwilowa blokada), a takze wskazuje, czy wspolnym celem steruje XP czy Obrona. Przy aktywnym XP widac cel i czas od ostatniego rozkazu druzynego.
+- Brak automatycznego zgadywania wlasciciela niezidentyfikowanego pacholka; nie omijamy blokad bezpieczenstwa i nie spamujemy powtorzeniami.
+- Regresja `tests/party_focus_ownership.lua` obejmuje aktywny patrol, walke reczna po STOP, opcje i diagnostyke.
+
 ## 0.7.0-beta.33 — Obrona 3.0: jeden planner, cztery role, prostsze menu
 
 - Zastapiono role TANK/OFF TANK/STANDARD/ASEKURACJA/SUPPORT czterema zrozumialymi rolami: **Obronca**, **Asekurant**, **Zrownowazony** (domyslna) i **Chroniony**. Chroniony normalnie uczestniczy w walce, ale nie przejmuje przeciwnikow i otrzymuje dodatkowy priorytet ochrony.
