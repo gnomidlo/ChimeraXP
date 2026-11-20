@@ -35,6 +35,16 @@ do
 end
 
 do
+    local h=fixture(false,false)
+    h.advance(4)
+    assert(#h.sent==1,"unconfirmed group order does not flood the server")
+    h.advance(4)
+    assert(h.sent[2]=="rozkaz druzynie zaatakowac enemy1",
+        "still-divergent party may retry only after bounded 7s window")
+    h.dispose()
+end
+
+do
     local h=fixture(true,false)
     assert(h.sent[1]=="parozkaz petone wesprzyj",
         "running XP owns group broadcast, but verified pet may still support")
