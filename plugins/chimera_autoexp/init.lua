@@ -4420,6 +4420,10 @@ function T.new(ctx,M,integration,patrol,changed)
             lock_actor(d.actor,t,15)
         elseif d.kind=="support" then
             S.support[d.channel]=t+1 -- command flood guard, not formation CD
+        elseif d.kind=="team_attack" and focus_without_patrol then
+            -- Same bounded broadcast retry as XP during a patrol: allow
+            -- server interception/guard protection to settle, never spam.
+            S.support[4]=t+7
         end
         if d.kind=="retreat" then S.retreat_until=t+15 end
         S.sending=true;local ok,problem=pcall(function() ctx:send(command,true) end);S.sending=false
