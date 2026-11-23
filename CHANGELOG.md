@@ -1,3 +1,11 @@
+## 0.7.0-beta.38 — Punkty Kręgów i sygnał aktywacji mozaiki
+
+- Z komunikatu serwera `Poziom N jest czysty. Zyskujesz X punktow Kregow (razem Y).` odczytujemy poziom, nowe punkty i łączną liczbę punktów. Dane przechowywane są trwale, z identyfikatorem `area_id`, a ponowne pojawienie się tego samego komunikatu nie nalicza punktów drugi raz.
+- Po dotarciu do aktywnej mozaiki i zakończeniu sesji wyświetlane jest podsumowanie poziomu; nowe komendy `/exp wieza punkty` i `/exp wieza historia` pozwalają odczytać ostatnie wyniki.
+- `Gdzies w komnacie straznika rozjarza sie mozaika przejscia.` ustawia stan `Przejscie odblokowane` w `/exp wieza status`. Skrypt nie zgaduje pokoju ani warunków 80% + boss i nie przechodzi automatycznie dalej.
+- Bez zmian pozostaje ustalona strategia: eksploracja jednego piętra i ręczne `stan na mozaice`.
+- Dodano regresję z wynikiem +4 / razem 14, potwierdzeniem mozaiki, deduplikacją, odrzucaniem wyniku innego poziomu, trwałością zapisu i raportem końcowym.
+
 ## 0.7.0-beta.37 — Wieża: chodzik wraca ze ślepych zaułków i atakuje neutralne NPC
 
 - Naprawiono wyścig zdarzeń oficjalnej Chimery: `chimera.walk.arrived` może zostać wyemitowane z callbacku mappera **przed** `chimera.room.changed` obsługiwanym przez Wieżę. Dotąd zakończenie automatycznego odwrotu z odnogi/ślepego zaułka powodowało fałszywą pauzę „Ruch poza kontrolą Wieży”.
