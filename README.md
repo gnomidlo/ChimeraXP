@@ -1,6 +1,6 @@
 # ChimeraXP — wyprawy, role drużyny i auto-zarobek
 
-**0.7.0-beta.35** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
+**0.7.0-beta.36** dla Mudleta i oficjalnej Chimery **5.x**. Wspólny, zwięzły górny HUD łączy patrol ChimeraXP z przebudowaną taktyką wywodzącą się z Tacticus NG beta.15. Wizualnie uzupełnia ChimeraVIP; nie wymaga ChimeraVIP do działania.
 
 ## Aktualizacja przez Mudlet
 
@@ -16,9 +16,9 @@ lua installPackage("https://raw.githubusercontent.com/gnomidlo/ChimeraXP/main/pa
 
 Rozpakuj cały ZIP, uruchom `install.cmd` i wybierz katalog profilu Mudleta. Po instalacji wpisz `/przeladuj`. W `/exp status` sprawdź wersję. W profilu korzystającym z instancji zapisz schronienie poleceniem `/exp bezpieczna` w docelowym pokoju, aby przypisać konkretną instancję.
 
-## Wieża — Kręgi Shoona (beta.35, jedno piętro)
+## Wieża — Kręgi Shoona (beta.36, jedno piętro)
 
-W komnacie wejściowej piętra wpisz `/exp wieza start`. Moduł sam wysyła `ob mozaike` i uruchamia eksplorację **dopiero po potwierdzeniu mozaiki powrotnej**. Nie wymaga konkretnej nazwy pokoju. Moduł sam odkrywa pomieszczenia, walczy z NPC o relacji `hostile`, zbiera wybrane łupy i zatrzymuje się **na aktywnej mozaice wyjściowej**. **Nigdy nie używa `stan na mozaice`** — przejście wykonujesz ręcznie, a na następnym piętrze ponawiasz `/exp wieza start`.
+W komnacie wejściowej piętra wpisz `/exp wieza start`. Moduł sam wysyła `ob mozaike` i uruchamia eksplorację **dopiero po potwierdzeniu mozaiki powrotnej**. Nie wymaga konkretnej nazwy pokoju. Komnata startowa jest oznaczana niebieskim kolorem i obramowaniem na mapperze. Zbieranie uruchamia się tylko w pokojach, w których wystąpiło spotkanie z wrogami lub potwierdzona walka/zabicie; puste korytarze są pomijane. Moduł sam odkrywa pomieszczenia, walczy z NPC o relacji `hostile`, zbiera wybrane łupy i zatrzymuje się **na aktywnej mozaice wyjściowej**. **Nigdy nie używa `stan na mozaice`** — przejście wykonujesz ręcznie, a na następnym piętrze ponawiasz `/exp wieza start`.
 
 Sterowanie: `/exp wieza status`, `/exp wieza pauza`, `/exp wieza wznow`, `/exp wieza stop`. Lista zbieranych przedmiotów: `/exp wieza lup lista`, `/exp wieza lup dodaj szkatulki`, `/exp wieza lup usun kamienie`. Oficjalne `/zbieranie` musi być wyłączone. Zobacz [instrukcję i ograniczenia Wieży](docs/TOWER.md).
 

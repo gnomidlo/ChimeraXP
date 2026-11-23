@@ -23,7 +23,7 @@ Wersja **jednopiętrowa**, bez automatycznego uruchamiania mozaiki. Po oczyszcze
 | `/exp wieza limit 8` | Maksymalna liczba przeciwników jednocześnie w pokoju; przekroczenie **pauzuje**, nie omija pokoju |
 | `/exp wieza hp 35 85` | Progi odwrotu i powrotu drużyny (%) |
 
-Domyślne łupy: `zlote monety`, `mithrylowe monety`, `kamienie`, `szkatulki`. Zbieramy najpierw z ziemi, potem z każdego policzonego ciała: `wez <kategoria> z <N>. ciala`. Na końcu automatycznie `wloz monety do plecaka` oraz `napelnij plecak`. Bez sprzedaży, bankowania i automatycznego przejścia na następny krąg.
+Zbieracz nie uruchamia się w pustych pomieszczeniach: wymaga rozpoznania wrogiego NPC, stanu walki lub potwierdzonego zabicia przez drużynę. **Ograniczenie:** przedmioty leżące na ziemi w całkowicie pustej, niewalczącej lokacji nie mają obecnie wiarygodnego sygnału GMCP i mogą zostać pominięte; można je zebrać ręcznie.\n\nDomyślne łupy: `zlote monety`, `mithrylowe monety`, `kamienie`, `szkatulki`. Zbieramy najpierw z ziemi, potem z każdego policzonego ciała: `wez <kategoria> z <N>. ciala`. Na końcu automatycznie `wloz monety do plecaka` oraz `napelnij plecak`. Bez sprzedaży, bankowania i automatycznego przejścia na następny krąg.
 
 ## Mechanika i bezpieczeństwo
 
@@ -31,7 +31,7 @@ Domyślne łupy: `zlote monety`, `mithrylowe monety`, `kamienie`, `szkatulki`. Z
 - Cel ataku musi mieć `kind="npc"`, `relation="hostile"` i nie należeć do drużyny. Preferowany jest najbardziej zraniony wróg. Istniejący silnik taktyki drużyny działa w tym samym HUD-zie; przed nową walką Wieża wydaje potwierdzany GMCP rozkaz celu grupowego.
 - Komnata wejściowa każdego piętra stanowi lokalne schronienie. Przy krytycznie niskim HP drużyny bot próbuje odwrotu **wyłącznie potwierdzoną** trasą do startu. Powtarzający się krytyczny HP w tej samej lokacji wstrzymuje automat; brak drogi również pauzuje. Nie gwarantuje to przeżycia podczas walki.
 - Mozaikę identyfikuje `ob mozaike`: powrotna `Mozaika tli sie zimnym blaskiem.`, nieaktywna `Krag mozaiki jest martwy.`, aktywna `Krag mozaiki jarzy sie jasno.`, brak `Nie zauwazasz niczego takiego.`. Nigdy nie wywołuje `stan na mozaice`.
-- Oficjalny mapper ma własne podświetlenia, dlatego Wieża maluje tylko mozaiki: błękit dla powrotnej, pomarańcz dla nieaktywnej i miętowy dla aktywnej. Na zakończenie/pauzę nie usuwa mapy.
+- Oficjalny mapper ma własne podświetlenia, dlatego Wieża maluje tylko mozaiki: **wyraźny błękit oraz niebieskie obramowanie komnaty startowej** (mozaika powrotna), pomarańcz dla nieaktywnej i miętowy dla aktywnej. Oznaczenie wejścia jest przywracane po zmianach podświetlenia przez oficjalny mapper. Poprzedni własny kolor i grubość obramowania są przywracane po zatrzymaniu Wieży. Na zakończenie/pauzę nie usuwa mapy.
 - Zmiana poziomu, losowania (`area_id`), ruch poza automatem, brak świeżych danych GMCP, nieznana droga lub nieaktywna mozaika na końcu **pauzują** zamiast zgadywania.
 - Stan eksploracji trwa w pamięci podczas pauzy i wznowienia; rozłączenie/przeładowanie wymaga nowego startu. Start obsługiwany jest wyłącznie w pokoju z potwierdzoną mozaiką powrotną danego piętra, a nie na podstawie nazwy lokacji.
 

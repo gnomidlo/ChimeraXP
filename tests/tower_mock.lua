@@ -123,8 +123,19 @@ local function scenario(opts)
         _G.speedWalkPath={to}
         return true
     end
-    _G.highlightRoom=function() end
-    _G.unHighlightRoom=function() end
+    local highlights, border_colors, border_widths={},{},{}
+    _G.highlightRoom=function(id,red,green,blue)
+        highlights[id]={red,green,blue}
+    end
+    _G.unHighlightRoom=function(id) highlights[id]=nil end
+    _G.getRoomBorderColor=function() return nil end
+    _G.getRoomBorderThickness=function() return nil end
+    _G.setRoomBorderColor=function(id,red,green,blue,alpha)
+        border_colors[id]={red,green,blue,alpha}
+    end
+    _G.setRoomBorderThickness=function(id,width) border_widths[id]=width end
+    _G.clearRoomBorderColor=function(id) border_colors[id]=nil end
+    _G.clearRoomBorderThickness=function(id) border_widths[id]=nil end
     local tower=Tower.new(ctx,function() return {started=false} end,
         {check=function() if opts.conflict then return "Oficjalne zbieranie wlaczone" end end},function() end,Loot)
     arrive("A")
@@ -147,12 +158,18 @@ local function scenario(opts)
     end
     return {tower=tower,run=advance,logs=logs,opts=opts,call=function(name,arg) assert(commands[name],name)(arg) end,
         sent=function() return report.sent or {} end, report=report,position=function() return position end,
-        move=function(key) arrive(key) end, alive=function() return alive end}
+        move=function(key) arrive(key) end, alive=function() return alive end,
+        emit=emit, highlights=highlights,border_colors=border_colors,border_widths=border_widths}
 end
 
 local function contains(values,needle)
     for _,v in ipairs(values) do if v:find(needle,1,true) then return true end end
     return false
+end
+local function count(values,needle)
+    local n=0
+    for _,v in ipairs(values) do if v==needle then n=n+1 end end
+    return n
 end
 
 -- A differently named entrance is allowed only when its return mosaic is verified.
@@ -181,6 +198,11 @@ print("Tower entrance timeout and deduplication: PASS")
 -- Full floor: entrance -> fight -> gather -> mosaic. No auto ascent, ever.
 local m=scenario()
 assert(m.tower.start())
+-- Entry room must be blue on the mapper, even before the first step.
+local entry=m.highlights[1]
+assert(entry and entry[1]==96 and entry[2]==165 and entry[3]==250,"start highlight must be blue")
+assert(m.border_colors[1] and m.border_colors[1][3]==250
+    and m.border_widths[1]==3,"start room gets a persistent blue border")
 m.run(40)
 local st=m.tower.status()
 assert(st.phase=="COMPLETE",st.phase..": "..tostring(st.reason))
@@ -191,6 +213,17 @@ assert(contains(m.sent(),"rozkaz druzynie zaatakowac enemy:91"),"Must focus part
 assert(contains(m.sent(),"wez zlote monety"),"Must loot ground")
 assert(contains(m.sent(),"wloz monety do plecaka"),"Must pack coins")
 assert(contains(m.sent(),"napelnij plecak"),"Must pack loot")
+assert(count(m.sent(),"policz ciala")==1,"Only the enemy room counts corpses")
+assert(count(m.sent(),"wez zlote monety")==1,"No collection in empty corridors")
+assert(count(m.sent(),"wloz monety do plecaka")==1,"No packing in empty corridors")
+assert(count(m.sent(),"napelnij plecak")==1,"No redundant bag fill commands")
+-- Official visited/walker highlighting may replace our return-mosaic fill.
+-- A mapper move event must reapply the start color, also after completion.
+m.highlights[1]=nil
+m.emit("chimera.mapper.moved",4,{})
+m.run(0.1)
+assert(m.highlights[1] and m.highlights[1][3]==250,
+    "start color restored after mapper highlight update")
 assert(not contains(m.sent(),"stan na mozaice"),"Never ascend")
 print("Tower one-floor exploration: PASS")
 
