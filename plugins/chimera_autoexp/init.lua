@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.36",
+    version = "0.7.0-beta.37",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2276,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.36 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.37 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.36"},
+                {"Wersja", "0.7.0-beta.37"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3659,7 +3659,10 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
         local result={}
         for _,entity in ipairs(gmcp_api.entities().entities or {}) do
-            if entity.kind=="npc" and entity.relation=="hostile"
+            if entity.kind=="npc"
+                -- Tower creatures are neutral until explicitly attacked.
+                -- Exclude group/allies/players; accept hostile or neutral NPCs.
+                and (entity.relation=="hostile" or entity.relation=="neutral")
                 and not friendly(entity,own) and entity.dead~=true and entity.dead~=1
                 and type(entity.id)=="string" and entity.id~="" then
                 result[#result+1]=entity
@@ -3721,7 +3724,12 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
                 pause("Chodzik planuje skrot przez niezbadany pokoj. Zatrzymuje nawigacje.");return
             end
         end
-        run.moving={kind="walk",origin=r.id,target=target,map=map,purpose=purpose}
+        -- A native walker finishes from inside the mapper's room.changed
+        -- callback. Its arrived event can precede OUR room.changed callback,
+        -- so retain one confirmed-arrival token for that event.
+        run.walk_arrival=nil
+        run.moving={kind="walk",origin=r.id,target=target,map=map,purpose=purpose,
+            seen_final_room=false}
         run.phase=purpose=="retreat" and "RETREAT" or "MOVING"
         local ok,why=walker.go(map)
         if not ok then
@@ -4209,11 +4217,21 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         a.entities_confirmed=false
         a.entities_wait=nil;a.combat_wait=nil
         local moving=a.moving
+        if not moving and a.walk_arrival and a.walk_arrival.id==r.id then
+            -- The mapper and walker handled this change before our listener.
+            -- Consume only the exact, one-shot walker destination.
+            a.walk_arrival=nil
+            observe(r)
+            queue(0)
+            return
+        end
+        a.walk_arrival=nil
         if moving and moving.kind=="step" then
             if r.id~=moving.target then pause("Krok prowadzil do innego pokoju niz GMCP");return end
             cancel(a);a.moving=nil
         elseif moving and moving.kind=="walk" then
             -- Official walker owns intermediate steps; reset watchdog after each.
+            if r.id==moving.target then moving.seen_final_room=true end
             cancel(a)
             timer(a,20,function() if a.moving then pause("Chodzik utknal podczas eksploracji") end end)
         else
@@ -4237,6 +4255,12 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             return
         end
         cancel(a);a.moving=nil
+        -- The official mapper emits chimera.walk.arrived synchronously inside
+        -- chimera.room.changed. At that point, OUR room.changed handler may
+        -- not have run yet and must not classify the step as manual.
+        if not expected.seen_final_room then
+            a.walk_arrival={id=expected.target}
+        end
         marks();queue(0)
     end)
     ctx:on("chimera.walk.stopped",function(event)
@@ -4244,8 +4268,18 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if stop_walk or not a or not a.started or a.paused or not a.moving or a.moving.kind~="walk" then return end
         local expected=a.moving
         cancel(a);a.moving=nil
-        if current() and current().id==expected.target then queue(0);return end
-        if event and event.reason=="atak" then queue(0);return end
+        if current() and current().id==expected.target then
+            if not expected.seen_final_room then a.walk_arrival={id=expected.target} end
+            queue(0);return
+        end
+        if event and event.reason=="atak" then
+            -- Interrupted in an intermediate room; claim the room-change
+            -- callback only when the mapper has already confirmed it.
+            local here=current()
+            if here and here.id~=expected.origin and not expected.seen_final_room
+                and run.rooms[here.id] then a.walk_arrival={id=here.id} end
+            queue(0);return
+        end
         pause("Chodzik zatrzymany poza celem: "..tostring(event and event.reason or "brak powodu"))
     end)
     ctx:on("chimera.combat.state",function(packet)
