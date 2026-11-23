@@ -15,7 +15,7 @@ Wersja **jednopiętrowa**, bez automatycznego uruchamiania mozaiki. Po oczyszcze
 | Komenda | Znaczenie |
 | --- | --- |
 | `/exp wieza start` | Rozpoczęcie od komnaty wejściowej |
-| `/exp wieza status` | Stan, poziom, liczba odwiedzonych/oczyszczonych pokoi, mozaika, konfiguracja |
+| `/exp wieza status` | Stan, poziom, liczba odwiedzonych/oczyszczonych pokoi, mozaika, punkty z serwera i gotowość przejścia |\n| `/exp wieza punkty` | Ostatnia punktacja zapisana z komunikatu serwera: poziom, zdobyte, razem |\n| `/exp wieza historia` | Ostatnie 10 wyników z historii (maksymalnie 50 przechowywanych) |
 | `/exp wieza pauza` / `wznow` / `stop` | Kontrola jednego piętra |
 | `/exp wieza lup lista` | Aktualne kategorie przedmiotów |
 | `/exp wieza lup dodaj <tekst>` | Dodanie kategorii (np. `szkatulki`) |
@@ -24,6 +24,14 @@ Wersja **jednopiętrowa**, bez automatycznego uruchamiania mozaiki. Po oczyszcze
 | `/exp wieza hp 35 85` | Progi odwrotu i powrotu drużyny (%) |
 
 Zbieracz nie uruchamia się w pustych pomieszczeniach: wymaga rozpoznania wrogiego NPC, stanu walki lub potwierdzonego zabicia przez drużynę. **Ograniczenie:** przedmioty leżące na ziemi w całkowicie pustej, niewalczącej lokacji nie mają obecnie wiarygodnego sygnału GMCP i mogą zostać pominięte; można je zebrać ręcznie.\n\nDomyślne łupy: `zlote monety`, `mithrylowe monety`, `kamienie`, `szkatulki`. Zbieramy najpierw z ziemi, potem z każdego policzonego ciała: `wez <kategoria> z <N>. ciala`. Na końcu automatycznie `wloz monety do plecaka` oraz `napelnij plecak`. Bez sprzedaży, bankowania i automatycznego przejścia na następny krąg.
+
+## Punkty Kręgów i otwarcie mozaiki
+
+Po komunikacie serwera `Poziom 6 jest czysty. Zyskujesz 4 punktow Kregow (razem 14).` Wieża zapisuje **trzy niezależne liczby** (numer poziomu, zdobyte punkty, punkty razem) wraz z identyfikatorem losowania `area_id`. Liczby nie są szacowane z liczby zabitych NPC. Powtórzona wiadomość z tego samego poziomu nie dodaje podwójnego wyniku. Historia jest zachowywana po przeładowaniu wtyczki.
+
+Komunikat `Gdzies w komnacie straznika rozjarza sie mozaika przejscia.` sygnalizuje odblokowanie wyjścia. Pokazujemy go w `/exp wieza status`. Nie wskazuje jednak identyfikatora komnaty w GMCP, dlatego skrypt nie zgaduje jej położenia; nadal lokalizuje i potwierdza mozaikę przez `ob mozaike`. **Na razie kontynuuje ustaloną eksplorację piętra i zatrzymuje się na aktywnej mozaice**, zamiast przerywać wyprawę na podstawie domniemanego progu 80% wrogów i bossa. Dokładny warunek aktywacji nie jest zweryfikowany.
+
+Przy zakończeniu piętra Wieża wyświetla osobne podsumowanie z punktami i zapisuje wynik nawet wtedy, gdy komunikat serwera pojawił się kilka pokoi wcześniej. Jeśli serwer nie wysłał jeszcze punktacji, raport wyraźnie zaznacza brak danych.
 
 ## Mechanika i bezpieczeństwo
 
