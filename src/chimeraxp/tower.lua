@@ -88,6 +88,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     config.returnHP=tonumber(config.returnHP) or 85
     config.limit=tonumber(config.limit) or 8
     config.delay=tonumber(config.delay) or 0.7
+    -- Tower and classic patrol have independent group-focus settings.
+    -- Existing Tower sessions have always sent a group attack order.
+    if type(config.partyAttack)~="boolean" then config.partyAttack=true end
     -- Small persistent history of scores issued by the server, not a local
     -- estimate from the number of mobs or a guessed boss threshold.
     if type(config.results)~="table" then config.results={} end
@@ -545,7 +548,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             for _,member in ipairs(group_members) do
                 if member.id and member.id~=me and (member.here==1 or member.here==true) then others=others+1 end
             end
-            if others>0 then send_own("rozkaz druzynie zaatakowac "..best.id,true) end
+            if others>0 and config.partyAttack then
+                send_own("rozkaz druzynie zaatakowac "..best.id,true)
+            end
         end
         queue(1)
     end
@@ -712,7 +717,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         for _,n in pairs(a.rooms) do rooms=rooms+1;if n.cleared then cleared=cleared+1 end end
         return {started=a.started,paused=a.paused,phase=a.phase,defensive_only=
             not a.started or a.paused or (a.phase~="COMBAT" and a.phase~="ENGAGING"),
-            partyAttack=true,level=a.level,area_id=a.area_id,rooms=rooms,cleared=cleared,
+            partyAttack=config.partyAttack,level=a.level,area_id=a.area_id,rooms=rooms,cleared=cleared,
             exit=a.exit,mosaic=a.exit and a.rooms[a.exit] and a.rooms[a.exit].mosaic,
             safe=a.safe,reason=a.reason,done=a.done or false,
             score=a.score,server_clear=a.server_clear or false,
@@ -821,6 +826,18 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         run.pending_attack=nil;run.post_combat_at=nil
         message("Wznawiam eksploracje.")
         queue(0)
+        return true
+    end
+    local function set_party_attack(value)
+        local setting=trim(value):lower()
+        if setting~="on" and setting~="off" then
+            message("Uzycie: /exp druzyna on lub /exp druzyna off.",true)
+            return false
+        end
+        config.partyAttack=setting=="on"
+        persist()
+        message("Wspolny cel ataku "..(config.partyAttack and "WLACZONY" or "WYLACZONY")..
+            " (Wieza)")
         return true
     end
     local function edit_loot(action,name)
@@ -1071,7 +1088,10 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     end)
     return {status=status,start=start,pause=pause,resume=resume,stop=stop,
         issuing_attack_order=function() return ours end,
-        party_attack_enabled=function() return run and run.started and not run.paused or false end,
+        party_attack_enabled=function()
+            return run and run.started and not run.paused and config.partyAttack or false
+        end,
+        set_party_attack=set_party_attack,
         path=path,frontier=frontier}
 end
 return T
