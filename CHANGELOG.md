@@ -1,3 +1,12 @@
+## 0.7.0-beta.34 — Wieża: eksperymentalne czyszczenie jednego piętra
+
+- Dodano `/exp wieza start|pauza|wznow|stop|status` dla losowych pięter Kręgów Shoona. Bot odkrywa wyjścia z GMCP, korzysta z oficjalnego mappera/walkera, dobiera wrogich NPC i nie ma żadnego automatycznego przejścia przez mozaikę.
+- Na każdym piętrze zapamiętuje lokalne schronienie (komnata wejściowa), nieodwiedzone wyjścia i oczyszczone pokoje. Pozwala wracać do sprawdzonych lokacji i wstrzymuje się przy braku pewnych danych lub pętli zagrożenia.
+- Odróżnia mozaikę powrotną, nieaktywną i aktywną. Po powrocie do aktywnej mozaiki pozostaje na niej, a przejście `stan na mozaice` należy do gracza.
+- Nowy zbieracz dla Wieży (`/exp wieza lup dodaj|usun|lista`): przedmioty z ziemi i policzonych ciał, `wloz monety do plecaka`, `napelnij plecak`; bez sprzedaży. Zabezpieczenie przed równoległym oficjalnym zbieraczem.
+- Integracja z paskiem HUD, statusami i ochroną drużyny, ale odrębny planer trasy i sesja EXP. Dodano regresje symulacyjne `tests/tower_mock.lua` oraz instrukcję `docs/TOWER.md`.
+- **Beta wymaga testów na żywo w Mudlecie; używaj pod nadzorem.**
+
 ## 0.7.0-beta.33 — Obrona 3.0: jeden planner, cztery role, prostsze menu
 
 - Zastapiono role TANK/OFF TANK/STANDARD/ASEKURACJA/SUPPORT czterema zrozumialymi rolami: **Obronca**, **Asekurant**, **Zrownowazony** (domyslna) i **Chroniony**. Chroniony normalnie uczestniczy w walce, ale nie przejmuje przeciwnikow i otrzymuje dodatkowy priorytet ochrony.
