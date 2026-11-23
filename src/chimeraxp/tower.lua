@@ -88,6 +88,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     config.limit=tonumber(config.limit) or 8
     config.delay=tonumber(config.delay) or 0.7
     local run,ours,stop_walk,deleted=nil,false,false,false
+    -- Entrance verification is independent of the active explorer. Never
+    -- trust an exact room title: the game changes its phrasing between floors.
+    local start_pending, start_verified
     local function notify() if changed then changed() end end
     local function message(msg,warn)
         if warn then ctx.log.warn("[Wieza] "..msg)
@@ -97,6 +100,12 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     local function persist() ctx:save("tower",config) end
     local function cancel(r)
         if r and r.timer then ctx:cancel(r.timer);r.timer=nil end
+    end
+    local function cancel_start_pending()
+        if start_pending and start_pending.timer then
+            ctx:cancel(start_pending.timer)
+        end
+        start_pending=nil
     end
     local function timer(r,seconds,callback)
         cancel(r)
@@ -178,6 +187,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         message("WSTRZYMANA: "..reason,true)
     end
     local function stop(reason)
+        if start_pending then
+            cancel_start_pending()
+            if not run then
+                message(reason or "Anulowano sprawdzanie mozaiki wejściowej.")
+                return
+            end
+        end
         if not run then return end
         local r=run
         cancel(r)
@@ -310,6 +326,23 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         send_own("ob mozaike")
     end
     local function mosaic_answer(kind)
+        if start_pending then
+            local pending=start_pending
+            local here=current()
+            if not here or here.id~=pending.room or here.area_id~=pending.area_id
+                or tower_info(here)~=pending.level then
+                cancel_start_pending()
+                message("Nie moge potwierdzic mozaiki: zmieniono pokoj lub pietro.",true)
+                return
+            end
+            cancel_start_pending()
+            if kind=="return" then
+                start_verified(pending)
+            else
+                message("Start wymaga mozaiki POWROTNEJ. Odpowiedz 'ob mozaike': "..kind..".",true)
+            end
+            return
+        end
         local r=run
         if not r or not r.started or r.paused or not r.pending
             or r.pending.kind~="mosaic" or not current()
@@ -575,16 +608,32 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             {"Lupy",table.concat(config.loot,", ")}
         })
     end
+    start_verified=function(pending)
+        local r=current()
+        if not r or r.id~=pending.room or r.area_id~=pending.area_id then
+            message("Zmiana lokacji podczas potwierdzania startu.",true)
+            return
+        end
+        run={started=true,paused=false,phase="READY",level=pending.level,seed=pending.seed,
+            area_id=pending.area_id,safe=r.id,rooms={},exit=nil,entities_confirmed=true,kills=0}
+        observe(r)
+        local node=run.rooms[r.id]
+        node.scanned=true
+        node.mosaic="return"
+        node.cleared=true
+        paint(r.id,"return")
+        message("Potwierdzona mozaika powrotna. Poziom "..run.level..
+            ". Rozpoczynam eksploracje; NIE przejde automatycznie dalej.")
+        queue(0)
+    end
     local function start()
         if run and run.started then message("Wieza dziala lub jest w pauzie; uzyj /exp wieza wznow albo stop.",true);return false end
+        if start_pending then message("Juz sprawdzam mozaike wejscia; czekam na odpowiedz.",true);return false end
         if run and run.done then clear_marks(run);run=nil end
         if patrol_status().started then message("Najpierw zatrzymaj klasyczny EXP.",true);return false end
         local r=current()
         local level,seed=tower_info(r)
         if not level or not r or not r.id then message("Nie jestes w Kregach Shoona.",true);return false end
-        if not tostring(r.name or ""):match("^Platforma mozaiki nad pustka") then
-            message("Start tylko z komnaty wejsciowej pietra (safe lock).",true);return false
-        end
         if not gmcp_api.connected() or not map_id(r.id) or map_id(r.id)~=mapper.current_room() then
             message("Brak potwierdzenia GMCP i mappera.",true);return false
         end
@@ -597,11 +646,23 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
         local reason=integration and integration.check and integration.check({economy={enabled=true},loot=config.loot})
         if reason then message(reason,true);return false end
-        run={started=true,paused=false,phase="READY",level=level,seed=seed,area_id=r.area_id,
-            safe=r.id,rooms={},exit=nil,entities_confirmed=true,kills=0}
-        observe(r)
-        message("Poziom "..level..". Rozpoczynam eksploracje; NIE przejde automatycznie dalej.")
-        queue(0)
+        -- A return mosaic is the only reliable evidence of the entrance.
+        -- Verify its live server response BEFORE assigning the safe lock.
+        local pending={room=r.id,area_id=r.area_id,level=level,seed=seed}
+        start_pending=pending
+        pending.timer=ctx:timer(5,function()
+            if start_pending==pending then
+                cancel_start_pending()
+                message("Brak odpowiedzi na 'ob mozaike' (5 s). Start anulowany.",true)
+            end
+        end)
+        message("Sprawdzam mozaike powrotna przed uruchomieniem...")
+        local ok,err=pcall(ctx.send,ctx,"ob mozaike")
+        if not ok then
+            if start_pending==pending then cancel_start_pending() end
+            message("Nie udalo sie sprawdzic mozaiki: "..tostring(err),true)
+            return false
+        end
         return true
     end
     local function resume()
@@ -642,14 +703,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
         persist();message("Lupy: "..table.concat(config.loot,", "))
     end
-    ctx:command{"exp wieza",args="[start|pauza|wznow|stop|status]",help="Jedno pietro Kregow Shoona",fn=function(arg)
-        local value=trim(arg)
-        if value=="start" then start()
-        elseif value=="pauza" then pause("Pauza uzytkownika")
-        elseif value=="wznow" then resume()
-        elseif value=="stop" then stop("Zatrzymano recznie")
-        else print_status() end
-    end}
+    -- No optional args here! Otherwise Mudlet matches BOTH /exp wieza
+    -- and /exp wieza start and invokes the action twice.
+    ctx:command{"exp wieza",help="Status eksploracji Kregow Shoona",fn=print_status}
     for _,action in ipairs({"start","pauza","wznow","stop","status"}) do
         local command=action
         ctx:command{"exp wieza "..command,help="Wieza: "..command,fn=function()
@@ -692,6 +748,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
     end)
     ctx:on("chimera.room.changed",function(event)
+        if start_pending then
+            local here=current()
+            if not here or here.id~=start_pending.room or here.area_id~=start_pending.area_id then
+                cancel_start_pending()
+                message("Zmiana pokoju przed potwierdzeniem mozaiki; start anulowany.",true)
+            end
+        end
         local a=run
         if not a or not a.started or a.paused then return end
         local r=current()
@@ -789,10 +852,15 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     ctx:trigger([[^Krag mozaiki jest martwy\.]],function() mosaic_answer("inactive") end)
     ctx:trigger([[^Krag mozaiki jarzy sie jasno\.]],function() mosaic_answer("active") end)
     ctx:on("chimera.walker.unhighlighted",function() marks() end)
-    ctx:on("chimera.session.end",function() if run then stop("Rozlaczono; wymagany nowy start") end end)
-    ctx:trigger([[^[ >]*(?:)Umierasz\.$]],function() if run then stop("Smierc postaci") end end)
+    ctx:on("chimera.session.end",function()
+        if start_pending or run then stop("Rozlaczono; wymagany nowy start") end
+    end)
+    ctx:trigger([[^[ >]*(?:)Umierasz\.$]],function()
+        if start_pending or run then stop("Smierc postaci") end
+    end)
     ctx:cleanup(function()
         deleted=true
+        cancel_start_pending()
         if run then
             cancel(run);loot.stop()
             if run.moving and run.moving.kind=="walk" then

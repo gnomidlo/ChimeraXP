@@ -5,8 +5,8 @@ Wersja **jednopiętrowa**, bez automatycznego uruchamiania mozaiki. Po oczyszcze
 ## Jak uruchomić
 
 1. Zainstaluj oficjalną Chimerę **5.0.4-beta.2** lub nowszą z obsługą mapowania Kręgów Shoona. Wyłącz oficjalne `/zbieranie`, `/autopogon` i `/autowsparcie` oraz konkurencyjne automaty, które sterują ruchem lub walką.
-2. **Stanąć w komnacie wejściowej nowego piętra** (`Platforma mozaiki nad pustka, poziom N`) przy aktualnych GMCP Room.Info, Room.Entities, Combat.State i Group.State.
-3. Uruchom `/exp wieza start`. Automat rozpoznaje piętro po `area`, konkretne losowanie po `area_id` i wykorzystuje **oficjalny** mapper + walker.
+2. **Stanąć w komnacie wejściowej nowego piętra**, przy mozaice powrotnej (nazwa lokacji może się różnić) przy aktualnych GMCP Room.Info, Room.Entities, Combat.State i Group.State.
+3. Uruchom `/exp wieza start`. Automat najpierw wysyła `ob mozaike` i czeka maksymalnie 5 s na odpowiedź `Mozaika tli sie zimnym blaskiem.`. Tylko wtedy przypisuje komnatę jako safe lock i zaczyna eksplorację. Automat rozpoznaje piętro po `area`, konkretne losowanie po `area_id` i wykorzystuje **oficjalny** mapper + walker.
 4. Kontroluj stan komendą `/exp wieza status`. W razie problemów: `/exp wieza pauza`, `/exp wieza wznow` albo `/exp wieza stop`. Główny STOP ChimeraXP również zatrzymuje Wieżę.
 5. Po komunikacie o aktywnej mozaice wyślij **ręcznie** `stan na mozaice`. W nowej komnacie wejściowej kolejny raz `/exp wieza start`.
 
@@ -33,7 +33,7 @@ Domyślne łupy: `zlote monety`, `mithrylowe monety`, `kamienie`, `szkatulki`. Z
 - Mozaikę identyfikuje `ob mozaike`: powrotna `Mozaika tli sie zimnym blaskiem.`, nieaktywna `Krag mozaiki jest martwy.`, aktywna `Krag mozaiki jarzy sie jasno.`, brak `Nie zauwazasz niczego takiego.`. Nigdy nie wywołuje `stan na mozaice`.
 - Oficjalny mapper ma własne podświetlenia, dlatego Wieża maluje tylko mozaiki: błękit dla powrotnej, pomarańcz dla nieaktywnej i miętowy dla aktywnej. Na zakończenie/pauzę nie usuwa mapy.
 - Zmiana poziomu, losowania (`area_id`), ruch poza automatem, brak świeżych danych GMCP, nieznana droga lub nieaktywna mozaika na końcu **pauzują** zamiast zgadywania.
-- Stan eksploracji trwa w pamięci podczas pauzy i wznowienia; rozłączenie/przeładowanie wymaga nowego startu. Start obsługiwany jest wyłącznie w komnacie wejściowej danego piętra, a nie w losowym pokoju.
+- Stan eksploracji trwa w pamięci podczas pauzy i wznowienia; rozłączenie/przeładowanie wymaga nowego startu. Start obsługiwany jest wyłącznie w pokoju z potwierdzoną mozaiką powrotną danego piętra, a nie na podstawie nazwy lokacji.
 
 ## Ograniczenia beta i testy
 

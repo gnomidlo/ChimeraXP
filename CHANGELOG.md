@@ -1,3 +1,10 @@
+## 0.7.0-beta.35 — Wieża: start z mozaiki powrotnej i pojedyncza obsługa aliasu
+
+- **Poprawiono błąd**: `/exp wieza start` odrzucał prawidłową komnatę wejściową, gdy opis/nazwa pokoju różniły się od sztywnego wzorca `Platforma mozaiki nad pustka`.
+- Start wymaga teraz potwierdzenia od serwera: skrypt automatycznie wysyła `ob mozaike`, rozpoznaje odpowiedź `Mozaika tli sie zimnym blaskiem.` i dopiero wtedy zapisuje safe lock oraz rozpoczyna eksplorację. Błędna, opóźniona lub nieobecna odpowiedź nie uruchamia bota.
+- Naprawiono **podwójne komunikaty i wykonywanie akcji**: opcjonalny alias `/exp wieza [start|...]` nakładał się na osobne aliasy. `/exp wieza` pokazuje teraz tylko status, a każde `/exp wieza start|...` pasuje do pojedynczego aliasu.
+- Testy: alternatywna nazwa pomieszczenia, brak mozaiki powrotnej, brak odpowiedzi i ponowienie komendy podczas weryfikacji.
+
 ## 0.7.0-beta.34 — Wieża: eksperymentalne czyszczenie jednego piętra
 
 - Dodano `/exp wieza start|pauza|wznow|stop|status` dla losowych pięter Kręgów Shoona. Bot odkrywa wyjścia z GMCP, korzysta z oficjalnego mappera/walkera, dobiera wrogich NPC i nie ma żadnego automatycznego przejścia przez mozaikę.
