@@ -17,7 +17,11 @@ local function scenario(opts)
     for i,key in ipairs({"A","B","C","D"}) do ids[rooms[key].id]=i;lookup[i]=key end
     local position="A"
     local alive=true
-    local mobs={D={{id="enemy:91",kind="npc",relation="hostile",hp=920,maxhp=1060}}}
+    local mobs={D={
+        {id="enemy:91",kind="npc",relation=opts.neutral_npc and "neutral" or "hostile",
+            hp=920,maxhp=1060,group_role="none"},
+        {id="ally:88",kind="npc",relation="ally",group_role="member",hp=100,maxhp=100}
+    }}
     local group={leader="player:1",members={{id="player:1",self=1,here=1,hp=100,maxhp=100},
         {id="minion:1",self=0,here=1,hp=100,maxhp=100}}}
     local entities,combat,vitals={},nil,{hp=100,fatigue=10}
@@ -32,12 +36,18 @@ local function scenario(opts)
         group=function() return group end,vitals=function() return vitals end,connected=function() return true end}
     local map={current_room=function() return ids[r().id] end}
     local emit
-    local function arrive(key,kind)
+    local function arrive(key,kind,walker_arrival)
         position=key
         entities={room=r().id,entities=key=="D" and alive and mobs.D or {}}
         combat={room=r().id,relations={}}
         if opts.low_hp_on_d and key=="D" then vitals.hp=25 end
         if opts.low_hp_on_d and key=="A" then vitals.hp=100 end
+        if walker_arrival and opts.walker_arrival_first then
+            -- Actual Chimera: room.changed -> mapper.moved -> walker.arrived,
+            -- *then* Tower's room.changed listener runs.
+            emit("chimera.mapper.moved",ids[r().id],r())
+            emit("chimera.walk.arrived",walker_arrival)
+        end
         emit("chimera.room.changed",{id=r().id,how=kind or "reczny"})
         emit("chimera.room.entities",entities)
         emit("chimera.combat.state",combat)
@@ -76,8 +86,10 @@ local function scenario(opts)
             local key=lookup[target]
             if not key then return nil,"Brak mapy" end
             emit("chimera.walk.started")
-            arrive(key,"chodzik")
-            emit("chimera.walk.arrived",{target=r().id,map_room=target})
+            arrive(key,"chodzik",{target=rooms[key].id,map_room=target})
+            if not opts.walker_arrival_first then
+                emit("chimera.walk.arrived",{target=r().id,map_room=target})
+            end
             return true
         end,
         stop=function(reason) emit("chimera.walk.stopped",{reason=reason}) end
@@ -226,6 +238,30 @@ assert(m.highlights[1] and m.highlights[1][3]==250,
     "start color restored after mapper highlight update")
 assert(not contains(m.sent(),"stan na mozaice"),"Never ascend")
 print("Tower one-floor exploration: PASS")
+
+-- Reproduce real mapper event ordering: walker announces arrival from inside
+-- the mapper callback before Tower receives the outer room.changed event.
+-- The explorer must own this step, including its return from a blind alley.
+local nested=scenario({walker_arrival_first=true})
+assert(nested.tower.start())
+nested.run(45)
+local nested_status=nested.tower.status()
+assert(nested_status.phase=="COMPLETE",
+    "walker event race interrupted Tower: "..nested_status.phase.." / "..tostring(nested_status.reason))
+assert(nested.position()=="C")
+print("Nested mapper/walker arrival and dead-end backtrack: PASS")
+
+-- Mobs in Shoona are neutral *until* we attack them. They remain targets,
+-- unlike allies and other party members.
+local neutral=scenario({neutral_npc=true,walker_arrival_first=true})
+assert(neutral.tower.start())
+neutral.run(45)
+local neutral_status=neutral.tower.status()
+assert(neutral_status.phase=="COMPLETE",
+    "neutral tower NPC ignored: "..neutral_status.phase.." / "..tostring(neutral_status.reason))
+assert(contains(neutral.sent(),"zabij enemy:91"),"Must engage neutral dungeon creature")
+assert(not contains(neutral.sent(),"zabij ally:88"),"Must never attack allied NPC")
+print("Neutral Shoona NPCs and allied exclusion: PASS")
 
 local bodies=scenario({two_corpses=true})
 assert(bodies.tower.start())

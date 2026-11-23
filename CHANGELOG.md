@@ -1,3 +1,11 @@
+## 0.7.0-beta.37 — Wieża: chodzik wraca ze ślepych zaułków i atakuje neutralne NPC
+
+- Naprawiono wyścig zdarzeń oficjalnej Chimery: `chimera.walk.arrived` może zostać wyemitowane z callbacku mappera **przed** `chimera.room.changed` obsługiwanym przez Wieżę. Dotąd zakończenie automatycznego odwrotu z odnogi/ślepego zaułka powodowało fałszywą pauzę „Ruch poza kontrolą Wieży”.
+- Ostatni pokój trasy chodzika otrzymuje jednorazowe potwierdzenie własności przejścia. Zewnętrzny ruch gracza nadal wstrzymuje automat; nie poluzowano identyfikacji piętra ani potwierdzania GMCP.
+- NPC w Kręgach Shoona mogą mieć `relation="neutral"` **przed pierwszym atakiem**. Wieża dobiera teraz `kind="npc"` o relacji `neutral` lub `hostile`, nadal wykluczając sojuszników, drużynę i graczy.
+- Testy regresji odtwarzają zagnieżdżoną kolejność zdarzeń mapper → walker → Tower, cofanie ze ślepego zaułka, walkę z neutralnym NPC i ochronę sojuszników.
+- **Nadal jedno piętro:** wejście po potwierdzonej mozaice powrotnej, wyjście tylko ręczne `stan na mozaice`.
+
 ## 0.7.0-beta.36 — Wieża: łupy tylko po spotkaniu z wrogami, niebieska komnata startowa
 
 - Puste pomieszczenia są oznaczane jako oczyszczone bez zbędnych poleceń `policz ciala`, `wez ...`, `wloz monety do plecaka` i `napelnij plecak`. Zbieranie włącza się tylko po wykryciu wrogiego NPC, potwierdzonej walce lub zabiciu przez członka drużyny w tym pokoju.
