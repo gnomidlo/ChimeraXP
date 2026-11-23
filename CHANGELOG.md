@@ -1,3 +1,10 @@
+## 0.7.0-beta.36 — Wieża: łupy tylko po spotkaniu z wrogami, niebieska komnata startowa
+
+- Puste pomieszczenia są oznaczane jako oczyszczone bez zbędnych poleceń `policz ciala`, `wez ...`, `wloz monety do plecaka` i `napelnij plecak`. Zbieranie włącza się tylko po wykryciu wrogiego NPC, potwierdzonej walce lub zabiciu przez członka drużyny w tym pokoju.
+- Komnata startowa z potwierdzoną mozaiką powrotną jest wyraźnie oznaczona błękitem (RGB 96/165/250) i niebieskim obramowaniem na mapperze. Podświetlenie jest przywracane po zdarzeniach oficjalnego mappera; wcześniejsze własne obramowanie jest zachowywane i odtwarzane przy zatrzymaniu.
+- Testy regresji sprawdzają brak zbierania w pustych korytarzach i oznaczenie startu, również po odświeżeniu mapy.
+- Przedmioty na ziemi w pokoju bez wrogów i bez walki nie są automatycznie wykrywane w tej wersji.
+
 ## 0.7.0-beta.35 — Wieża: start z mozaiki powrotnej i pojedyncza obsługa aliasu
 
 - **Poprawiono błąd**: `/exp wieza start` odrzucał prawidłową komnatę wejściową, gdy opis/nazwa pokoju różniły się od sztywnego wzorca `Platforma mozaiki nad pustka`.
