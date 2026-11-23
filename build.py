@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-VERSION = '0.7.0-beta.34'
+VERSION = '0.7.0-beta.35'
 MODULES = ['safety', 'engine', 'tower_loot', 'tower', 'tactics_model', 'integration', 'tactics', 'hud', 'init']
 
 
