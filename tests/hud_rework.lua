@@ -321,8 +321,8 @@ do
     h.p.room.area="Kregi Shoona, poziom 4 #852429670"
     h.p.room.area_id="3fa8938ee59274e7"
     assert(api.tower.start(),"Tower mode must accept verified entry GMCP")
-    assert(h.triggers[[^Mozaika tli sie zimnym blaskiem\.]],"Tower return mosaic trigger present")
-    h.triggers[[^Mozaika tli sie zimnym blaskiem\.]]()
+    assert(h.triggers[ [[^Mozaika tli sie zimnym blaskiem\.]] ],"Tower return mosaic trigger present")
+    h.triggers[ [[^Mozaika tli sie zimnym blaskiem\.]] ]()
     assert(api.tower.status().started,"Tower preflight should create active session")
     api.hud:open("party")
     local classic=api.snapshot().profiles.alpha.partyAttack
