@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.35",
+    version = "0.7.0-beta.36",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2276,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.35 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.36 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.35"},
+                {"Wersja", "0.7.0-beta.36"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3383,7 +3383,8 @@ local DIRECTIONS={
     ["poludniowy-wschod"]="se",["poludniowy-zachod"]="sw",
     gora="u",dol="d",
 }
-local COLORS={ ["return"]={147,197,253}, inactive={253,186,116}, active={134,239,172} }
+local COLORS={ start={96,165,250}, ["return"]={147,197,253},
+    inactive={253,186,116}, active={134,239,172} }
 local DEFAULT_LOOT={"zlote monety","mithrylowe monety","kamienie","szkatulki"}
 local function trim(s) return tostring(s or ""):gsub("^%s+",""):gsub("%s+$","") end
 local function tower_info(r)
@@ -3509,18 +3510,65 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             highlightRoom(number,color[1],color[2],color[3],color[1],color[2],color[3],0.85,180,0)
         end
     end
+
+    -- The entrance has a persistent blue border as well as a blue highlight:
+    -- the official /zaznaczaj and walker overlays can replace highlightRoom.
+    -- Preserve any previous custom border and restore it when this run ends.
+    local function paint_start()
+        if not run then return end
+        local number=map_id(run.safe)
+        if not number then return end
+        paint(run.safe,"start")
+        if type(setRoomBorderColor)~="function" then return end
+        if not run.start_border then
+            local r,g,b,a
+            if type(getRoomBorderColor)=="function" then
+                r,g,b,a=getRoomBorderColor(number)
+            end
+            local thickness
+            if type(getRoomBorderThickness)=="function" then
+                thickness=getRoomBorderThickness(number)
+            end
+            run.start_border={room=number,
+                old_color=type(r)=="number" and {r,g,b,a or 255} or false,
+                old_thickness=type(thickness)=="number" and thickness or false}
+        end
+        setRoomBorderColor(number,96,165,250,255)
+        if type(setRoomBorderThickness)=="function" then
+            setRoomBorderThickness(number,3)
+        end
+    end
     local function marks()
         if not run or not this_floor(current()) then return end
         for id,node in pairs(run.rooms) do
-            if node.mosaic and COLORS[node.mosaic] then paint(id,node.mosaic) end
+            if id~=run.safe and node.mosaic and COLORS[node.mosaic] then
+                paint(id,node.mosaic)
+            end
         end
+        paint_start()
     end
     local function clear_marks(r)
-        if not r or type(unHighlightRoom)~="function" then return end
-        for id,node in pairs(r.rooms) do
-            if node.mosaic and COLORS[node.mosaic] then
-                local number=map_id(id)
-                if number then unHighlightRoom(number) end
+        if not r then return end
+        if type(unHighlightRoom)=="function" then
+            for id,node in pairs(r.rooms) do
+                if (id==r.safe or node.mosaic) and COLORS[id==r.safe and "start" or node.mosaic] then
+                    local number=map_id(id)
+                    if number then unHighlightRoom(number) end
+                end
+            end
+        end
+        local border=r.start_border
+        if border and map_id(r.safe)==border.room then
+            if border.old_color and type(setRoomBorderColor)=="function" then
+                setRoomBorderColor(border.room,border.old_color[1],border.old_color[2],
+                    border.old_color[3],border.old_color[4])
+            elseif type(clearRoomBorderColor)=="function" then
+                clearRoomBorderColor(border.room)
+            end
+            if border.old_thickness and type(setRoomBorderThickness)=="function" then
+                setRoomBorderThickness(border.room,border.old_thickness)
+            elseif type(clearRoomBorderThickness)=="function" then
+                clearRoomBorderThickness(border.room)
             end
         end
     end
@@ -3739,7 +3787,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             end
             r.exit=current().id
         end
-        if kind=="return" or kind=="active" or kind=="inactive" then paint(current().id,kind) end
+        if kind=="return" and current().id==r.safe then paint_start()
+        elseif kind=="active" or kind=="inactive" then paint(current().id,kind) end
         -- The known entrance is a safe lock; no reason to count or loot it.
         if kind=="return" and current().id==r.safe then node.cleared=true end
         if verify then
@@ -3895,6 +3944,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if #enemies_list>0 then
             if r.id==a.safe then pause("Przeciwnicy w bezpiecznej komnacie startowej");return end
             a.rooms[r.id].cleared=false
+            -- Only rooms containing a hostile encounter can need corpse/ground
+            -- collection. Empty corridor scans must not issue 'policz ciala'.
+            a.rooms[r.id].loot_due=true
             a.post_combat_at=nil
             attack(r,enemies_list,combat_state,in_combat)
             return
@@ -3911,6 +3963,14 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         local node=a.rooms[r.id]
         if not node.scanned then start_mosaic(false);return end
         if not node.cleared then
+            if not node.loot_due then
+                -- No detected hostile, combat or party kill: clean room,
+                -- without counting corpses or sending any loot commands.
+                node.cleared=true
+                a.phase="READY"
+                queue(0)
+                return
+            end
             if a.last_combat==r.id and not a.post_combat_at then
                 a.post_combat_at=os.time()+2
             end
@@ -3997,7 +4057,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         node.scanned=true
         node.mosaic="return"
         node.cleared=true
-        paint(r.id,"return")
+        paint_start()
         message("Potwierdzona mozaika powrotna. Poziom "..run.level..
             ". Rozpoczynam eksploracje; NIE przejde automatycznie dalej.")
         queue(0)
@@ -4111,6 +4171,15 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if not n or n%1~=0 or n<1 or n>30 then message("Uzyj /exp wieza limit 8 (1..30).",true);return end
         config.limit=n;persist();message("Limit przeciwnikow: "..n)
     end}
+    -- Repaint special rooms after mapper/visited highlights have run.
+    -- The timer avoids depending on event listener registration order.
+    ctx:on("chimera.mapper.moved",function()
+        if not run or not (run.started or run.done) then return end
+        local owner=run
+        ctx:timer(0.05,function()
+            if run==owner and this_floor(current()) then marks() end
+        end)
+    end)
     ctx:on("chimera.room.entities",function(packet)
         if not run or not run.started or run.paused then return end
         local r=current()
@@ -4186,6 +4255,11 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
                 local active=type(packet.relations)=="table" and #packet.relations>0
                 if active then
                     run.last_combat=r.id
+                    local node=run.rooms[r.id]
+                    if node then
+                        node.loot_due=true
+                        node.cleared=false
+                    end
                     if run.pending and run.pending.kind=="loot" then
                         loot.stop();run.pending=nil
                         local node=run.rooms[r.id]
@@ -4218,7 +4292,10 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             local group=gmcp_api.group() or {}
             for _,member in ipairs(group.members or {}) do
                 if kill.killer and tostring(kill.killer.id)==tostring(member.id) then
-                    run.kills=run.kills+1;break
+                    run.kills=run.kills+1
+                    local node=run.rooms[current().id]
+                    if node then node.loot_due=true;node.cleared=false end
+                    break
                 end
             end
         end
