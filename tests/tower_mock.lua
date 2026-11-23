@@ -8,7 +8,7 @@ os.time=function() return clock end
 local function scenario(opts)
     opts=opts or {}
     local rooms={
-        A={id="aaaa000000000001",name="Platforma mozaiki nad pustka, poziom 2",exits={poludnie="aaaa000000000002"}},
+        A={id="aaaa000000000001",name=opts.start_name or "Platforma mozaiki nad pustka, poziom 2",exits={poludnie="aaaa000000000002"}},
         B={id="aaaa000000000002",name="Most",exits={polnoc="aaaa000000000001",poludnie="aaaa000000000004",wschod="aaaa000000000003"}},
         C={id="aaaa000000000003",name="Boss",exits={zachod="aaaa000000000002"}},
         D={id="aaaa000000000004",name="Bestia",exits={polnoc="aaaa000000000002"}},
@@ -54,7 +54,14 @@ local function scenario(opts)
     end
     ctx.saved=function(_,name,default) return opts.saved or default end
     ctx.save=function(_,name,data) opts.saved=data end
-    ctx.command=function(_,def) commands[def[1]]=def.fn end
+    ctx.command=function(_,def)
+        -- Context:command uses optional args to create a second Mudlet alias
+        -- that also matches /exp wieza start. The short command must not overlap.
+        if def[1]=="exp wieza" then
+            assert(def.args==nil,"/exp wieza optional arguments duplicate explicit aliases")
+        end
+        commands[def[1]]=def.fn
+    end
     ctx.on=function(_,event,fn) handlers[event]=handlers[event] or {};table.insert(handlers[event],fn) end
     ctx.trigger=function(_,pattern,fn) triggers[#triggers+1]={pat=pattern,fn=fn} end
     ctx.cleanup=function(_,fn) end
@@ -79,7 +86,9 @@ local function scenario(opts)
         report.sent=report.sent or {}
         report.sent[#report.sent+1]=cmd
         if cmd=="ob mozaike" then
-            if position=="A" then text_line("Mozaika tli sie")
+            if position=="A" then
+                if opts.no_start_reply then return end
+                text_line(opts.wrong_start_mosaic and "Nie zauwazasz niczego takiego" or "Mozaika tli sie")
             elseif position=="C" then
                 local active=not opts.force_inactive and not alive
                 text_line(active and "Krag mozaiki jarzy" or "Krag mozaiki jest martwy")
@@ -145,6 +154,29 @@ local function contains(values,needle)
     for _,v in ipairs(values) do if v:find(needle,1,true) then return true end end
     return false
 end
+
+-- A differently named entrance is allowed only when its return mosaic is verified.
+local renamed=scenario({start_name="Platforma wejsciowa nad otchlania, poziom 2"})
+assert(renamed.tower.start(),"Different entrance name must not block startup")
+assert(renamed.tower.status().started,"Server-confirmed return mosaic starts the explorer")
+assert(contains(renamed.sent(),"ob mozaike"),"Start must inspect the entrance mosaic")
+print("Tower entrance validation independent of room name: PASS")
+
+-- A non-return mosaic cannot be promoted to a safe lock.
+local wrong=scenario({wrong_start_mosaic=true})
+assert(wrong.tower.start(),"Preflight request should be accepted")
+wrong.run(7)
+assert(not wrong.tower.status().started,"Never start without confirmed return mosaic")
+assert(#wrong.sent()==1 and wrong.sent()[1]=="ob mozaike","No movement on bad entrance")
+print("Tower unsafe entrance denied: PASS")
+
+local unanswered=scenario({no_start_reply=true})
+assert(unanswered.tower.start())
+assert(unanswered.tower.start()==false,"Only one entrance check in flight")
+unanswered.run(7)
+assert(not unanswered.tower.status().started and #unanswered.sent()==1,
+    "Timed-out verification never attacks or walks")
+print("Tower entrance timeout and deduplication: PASS")
 
 -- Full floor: entrance -> fight -> gather -> mosaic. No auto ascent, ever.
 local m=scenario()
