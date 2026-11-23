@@ -15,6 +15,7 @@ Wersja **jednopiętrowa**, bez automatycznego uruchamiania mozaiki. Po oczyszcze
 | Komenda | Znaczenie |
 | --- | --- |
 | `/exp wieza start` | Rozpoczęcie od komnaty wejściowej |
+| `/exp druzyna on|off` | Włączenie/wyłączenie wspólnego celu drużyny **dla Wieży** podczas jej działania; to samo co przełącznik w HUD |
 | `/exp wieza status` | Stan, poziom, liczba odwiedzonych/oczyszczonych pokoi, mozaika, punkty z serwera i gotowość przejścia |\n| `/exp wieza punkty` | Ostatnia punktacja zapisana z komunikatu serwera: poziom, zdobyte, razem |\n| `/exp wieza historia` | Ostatnie 10 wyników z historii (maksymalnie 50 przechowywanych) |
 | `/exp wieza pauza` / `wznow` / `stop` | Kontrola jednego piętra |
 | `/exp wieza lup lista` | Aktualne kategorie przedmiotów |
@@ -24,6 +25,10 @@ Wersja **jednopiętrowa**, bez automatycznego uruchamiania mozaiki. Po oczyszcze
 | `/exp wieza hp 35 85` | Progi odwrotu i powrotu drużyny (%) |
 
 Zbieracz nie uruchamia się w pustych pomieszczeniach: wymaga rozpoznania wrogiego NPC, stanu walki lub potwierdzonego zabicia przez drużynę. **Ograniczenie:** przedmioty leżące na ziemi w całkowicie pustej, niewalczącej lokacji nie mają obecnie wiarygodnego sygnału GMCP i mogą zostać pominięte; można je zebrać ręcznie.\n\nDomyślne łupy: `zlote monety`, `mithrylowe monety`, `kamienie`, `szkatulki`. Zbieramy najpierw z ziemi, potem z każdego policzonego ciała: `wez <kategoria> z <N>. ciala`. Na końcu automatycznie `wloz monety do plecaka` oraz `napelnij plecak`. Bez sprzedaży, bankowania i automatycznego przejścia na następny krąg.
+
+## Wspólny cel ataku podczas eksploracji Wieży
+
+Opcja **Wspólny cel ataku** w menu Drużyna pokazuje ustawienie aktualnego automatu. Podczas eksploracji Wieży jest to osobna, zapamiętywana opcja `tower.partyAttack` (domyślnie **włączona**, zgodnie z dotychczasowym zachowaniem). Po wyłączeniu Wieża nadal samodzielnie atakuje NPC, ale nie wysyła `rozkaz druzynie zaatakowac <ID>`. Podczas działania Wieży komenda `/exp druzyna on|off` steruje tym samym ustawieniem. Gdy Wieża nie jest uruchomiona, przełącznik i komenda dotyczą wybranego klasycznego expowiska. Ustawienia klasycznego EXP i Wieży nie nadpisują się nawzajem.
 
 ## Punkty Kręgów i otwarcie mozaiki
 
