@@ -26,6 +26,15 @@ return function(module)
             stop_tower=function()
                 if tower and tower.status().started then tower.stop("STOP /exp") end
             end,
+            set_party_attack=function(setting)
+                if not tower then return false end
+                local state=tower.status()
+                if not (state.started or state.done) then return false end
+                -- The real CLI and graphical HUD must both edit the Tower
+                -- setting, not the unrelated selected classic EXP profile.
+                tower.set_party_attack(setting)
+                return true
+            end,
         })
         local base_status=patrol.status
         local base_snapshot=patrol.snapshot
@@ -54,7 +63,8 @@ return function(module)
             local t=tower_status()
             if t then
                 snap.status=patrol.status()
-                snap.profile={name="Wieza / poziom "..tostring(t.level),economy={enabled=false},route={}}
+                snap.profile={name="Wieza / poziom "..tostring(t.level),partyAttack=t.partyAttack,
+                    economy={enabled=false},route={}}
                 snap.status.selected="wieza"
             end
             return snap
