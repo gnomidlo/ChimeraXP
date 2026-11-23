@@ -184,7 +184,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         local border=r.start_border
         if border and map_id(r.safe)==border.room then
             if border.old_color and type(setRoomBorderColor)=="function" then
-                setRoomBorderColor(border.room,unpack(border.old_color))
+                setRoomBorderColor(border.room,border.old_color[1],border.old_color[2],
+                    border.old_color[3],border.old_color[4])
             elseif type(clearRoomBorderColor)=="function" then
                 clearRoomBorderColor(border.room)
             end
