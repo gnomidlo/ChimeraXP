@@ -88,7 +88,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.37",
+    version = "0.7.0-beta.38",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2220,7 +2220,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.37 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.38 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2347,7 +2347,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.37"},
+                {"Wersja", "0.7.0-beta.38"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3106,9 +3106,12 @@ return {
         end)
         command("druzyna", "<on|off>", function(s)
             -- Safe runtime switch: affects only future attack commands.
+            -- While a Tower floor is active/complete, its own profile is
+            -- visible in the HUD. Do not silently modify the classic profile.
+            s = normalized(s)
+            if hooks.set_party_attack and hooks.set_party_attack(s) then return end
             local p = profile()
             if not p then note("Wybierz expowisko.", "warn"); return end
-            s = normalized(s)
             if s ~= "on" and s ~= "off" then
                 note("Uzycie: /exp druzyna on lub /exp druzyna off", "warn"); return
             end

@@ -59,6 +59,21 @@ local function scenario(opts)
         end
         error("No registered trigger for "..prefix)
     end
+    local function score_line(level,gained,total)
+        -- Mudlet tempRegexTrigger uses global matches[2..4] for captures.
+        local original=rawget(_G,"matches")
+        _G.matches={
+            "Poziom "..level.." jest czysty. Zyskujesz "..gained..
+                " punktow Kregow (razem "..total..").",
+            tostring(level),tostring(gained),tostring(total)
+        }
+        local ok=pcall(function() text_line("^Poziom (\\d+) jest czysty") end)
+        _G.matches=original
+        assert(ok,"Tower score trigger not registered or failed")
+    end
+    local function unlock_line()
+        text_line("Gdzies w komnacie straznika rozjarza sie mozaika przejscia")
+    end
     ctx.use=function(_,name)
         return ({gmcp=api,mapper=map,walker=ctx.walker})[name]
     end
@@ -126,6 +141,11 @@ local function scenario(opts)
                 combat={room=r().id,relations={}}
                 emit("chimera.room.entities",entities)
                 emit("chimera.combat.state",combat)
+                if opts.server_score then
+                    local score=opts.server_score
+                    score_line(score.level,score.gained,score.total)
+                    unlock_line()
+                end
             end)
         end
     end
@@ -171,7 +191,8 @@ local function scenario(opts)
     return {tower=tower,run=advance,logs=logs,opts=opts,call=function(name,arg) assert(commands[name],name)(arg) end,
         sent=function() return report.sent or {} end, report=report,position=function() return position end,
         move=function(key) arrive(key) end, alive=function() return alive end,
-        emit=emit, highlights=highlights,border_colors=border_colors,border_widths=border_widths}
+        emit=emit, highlights=highlights,border_colors=border_colors,border_widths=border_widths,
+        score_line=score_line,unlock_line=unlock_line}
 end
 
 local function contains(values,needle)
@@ -262,6 +283,55 @@ assert(neutral_status.phase=="COMPLETE",
 assert(contains(neutral.sent(),"zabij enemy:91"),"Must engage neutral dungeon creature")
 assert(not contains(neutral.sent(),"zabij ally:88"),"Must never attack allied NPC")
 print("Neutral Shoona NPCs and allied exclusion: PASS")
+
+-- The Tower setting controls ACTUAL orders, independently of a selected
+-- classic EXP terrain. Turning it off must not suppress personal attacks.
+local nofocus=scenario({saved={partyAttack=false}})
+assert(nofocus.tower.start())
+nofocus.run(45)
+assert(nofocus.tower.status().phase=="COMPLETE")
+assert(contains(nofocus.sent(),"zabij enemy:91"),
+    "player still attacks when shared target is disabled")
+assert(not contains(nofocus.sent(),"rozkaz druzynie zaatakowac enemy:91"),
+    "disabled shared attack must not send group target orders")
+assert(nofocus.tower.status().partyAttack==false)
+assert(nofocus.tower.set_party_attack("on"))
+assert(nofocus.tower.status().partyAttack==true
+    and nofocus.opts.saved.partyAttack==true,
+    "Tower shared attack preference is persisted and exposed to UI")
+print("Tower shared attack OFF/ON and actual group orders: PASS")
+
+-- Server-issued scores are the source of truth, not estimated NPC ratios.
+-- The mosaic signal is a readiness flag; it never issues a floor transition.
+local scored=scenario({server_score={level=2,gained=4,total=14}})
+assert(scored.tower.start())
+scored.run(45)
+local scored_status=scored.tower.status()
+assert(scored_status.phase=="COMPLETE")
+assert(scored_status.exit_ready and scored_status.server_clear)
+assert(scored_status.score and scored_status.score.level==2
+    and scored_status.score.gained==4 and scored_status.score.total==14)
+local summary=scored.report["ChimeraXP | Wieza - koniec pietra"]
+assert(summary and summary[1][2]=="2" and summary[2][2]=="+4"
+    and summary[3][2]=="14","Completion summary must show server score")
+scored.call("exp wieza status")
+local status_report=scored.report["ChimeraXP | Wieza"]
+assert(status_report and status_report[7][2]:find("poziom 2",1,true),
+    "Active floor status shows score")
+scored.call("exp wieza punkty")
+assert(scored.report["ChimeraXP | Wieza - punkty"][3][2]=="14")
+scored.call("exp wieza historia")
+assert(#scored.report["ChimeraXP | Wieza - historia"]==1)
+assert(#scored.opts.saved.results==1)
+scored.score_line(2,4,14) -- duplicate must be idempotent
+scored.score_line(3,99,99) -- stale or foreign level must be discarded
+assert(#scored.opts.saved.results==1)
+local restored=scenario({saved=scored.opts.saved})
+restored.call("exp wieza punkty")
+assert(restored.report["ChimeraXP | Wieza - punkty"][2][2]=="+4",
+    "Saved results survive rebuilding the module")
+assert(not contains(scored.sent(),"stan na mozaice"))
+print("Server scores, persistent history, mosaic announcement and completion report: PASS")
 
 local bodies=scenario({two_corpses=true})
 assert(bodies.tower.start())

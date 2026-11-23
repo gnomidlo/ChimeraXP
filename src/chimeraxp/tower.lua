@@ -88,6 +88,12 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     config.returnHP=tonumber(config.returnHP) or 85
     config.limit=tonumber(config.limit) or 8
     config.delay=tonumber(config.delay) or 0.7
+    -- Tower and classic patrol have independent group-focus settings.
+    -- Existing Tower sessions have always sent a group attack order.
+    if type(config.partyAttack)~="boolean" then config.partyAttack=true end
+    -- Small persistent history of scores issued by the server, not a local
+    -- estimate from the number of mobs or a guessed boss threshold.
+    if type(config.results)~="table" then config.results={} end
     local run,ours,stop_walk,deleted=nil,false,false,false
     -- Entrance verification is independent of the active explorer. Never
     -- trust an exact room title: the game changes its phrasing between floors.
@@ -119,6 +125,52 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     local function this_floor(r)
         local level=tower_info(r)
         return run and level==run.level and r.area_id==run.area_id
+    end
+    local function recorded_score(area_id)
+        if not area_id then return end
+        for i=#config.results,1,-1 do
+            local rec=config.results[i]
+            if type(rec)=="table" and rec.area_id==area_id then return rec end
+        end
+    end
+    local function score_text(rec)
+        if not rec then return "punktacja: brak komunikatu serwera" end
+        return "poziom "..rec.level..": +"..rec.gained.." pkt Kregow (razem "..rec.total..")"
+    end
+    local function record_score(level,gained,total)
+        local r=current()
+        local actual_level,seed=tower_info(r)
+        level,gained,total=tonumber(level),tonumber(gained),tonumber(total)
+        -- Ignore stale/foreign lines and refuse to infer totals ourselves.
+        if not r or not actual_level or actual_level~=level or not gained or not total
+            or gained<0 or total<0 or gained>total then return end
+        local prior=recorded_score(r.area_id)
+        if prior then
+            if prior.level~=level then return end
+            if prior.gained==gained and prior.total==total then
+                if run and this_floor(r) then run.score=prior end
+                return
+            end
+            prior.gained,prior.total=gained,total
+        else
+            prior={area_id=r.area_id,level=level,seed=seed,gained=gained,total=total,
+                at=os.time()}
+            config.results[#config.results+1]=prior
+            while #config.results>50 do table.remove(config.results,1) end
+        end
+        if run and this_floor(r) then
+            run.score=prior
+            run.server_clear=true
+        end
+        persist()
+        message("Serwer: "..score_text(prior))
+    end
+    local function report_score(rec,title)
+        ctx:report(title or "ChimeraXP | Wieza - punkty",{
+            {"Poziom",rec and tostring(rec.level) or "-"},
+            {"Punkty zdobyte",rec and ("+"..rec.gained) or "brak komunikatu"},
+            {"Punkty razem",rec and tostring(rec.total) or "brak komunikatu"}
+        })
     end
     local function map_id(id)
         local number=type(getRoomIDbyHash)=="function" and getRoomIDbyHash(id)
@@ -426,7 +478,11 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if verify then
             if kind=="active" and r.exit==current().id then
                 r.done=true;r.started=false;r.phase="COMPLETE";r.reason="Mozaika aktywna"
-                message("Poziom "..r.level.." oczyszczony. Mozaika aktywna. Przejdz recznie: stan na mozaice.")
+                -- The server score may precede discovering the exit by many
+                -- rooms. Show its recorded values here, never a calculated sum.
+                message("Mozaika aktywna; "..score_text(r.score)..
+                    ". Przejdz recznie: stan na mozaice.")
+                report_score(r.score,"ChimeraXP | Wieza - koniec pietra")
             else
                 pause("Mozaika nie jest aktywna mimo zamknietej eksploracji. Sprawdz przejscia.")
             end
@@ -492,7 +548,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             for _,member in ipairs(group_members) do
                 if member.id and member.id~=me and (member.here==1 or member.here==true) then others=others+1 end
             end
-            if others>0 then send_own("rozkaz druzynie zaatakowac "..best.id,true) end
+            if others>0 and config.partyAttack then
+                send_own("rozkaz druzynie zaatakowac "..best.id,true)
+            end
         end
         queue(1)
     end
@@ -659,9 +717,11 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         for _,n in pairs(a.rooms) do rooms=rooms+1;if n.cleared then cleared=cleared+1 end end
         return {started=a.started,paused=a.paused,phase=a.phase,defensive_only=
             not a.started or a.paused or (a.phase~="COMBAT" and a.phase~="ENGAGING"),
-            partyAttack=true,level=a.level,area_id=a.area_id,rooms=rooms,cleared=cleared,
+            partyAttack=config.partyAttack,level=a.level,area_id=a.area_id,rooms=rooms,cleared=cleared,
             exit=a.exit,mosaic=a.exit and a.rooms[a.exit] and a.rooms[a.exit].mosaic,
-            safe=a.safe,reason=a.reason,done=a.done or false}
+            safe=a.safe,reason=a.reason,done=a.done or false,
+            score=a.score,server_clear=a.server_clear or false,
+            exit_ready=a.exit_ready or false}
     end
     local function print_status()
         local s=status()
@@ -669,12 +729,29 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             {"Stan",s.phase},{"Poziom",tostring(s.level or "-")},
             {"Odkryte",tostring(s.rooms or 0)},{"Oczyszczone",tostring(s.cleared or 0)},
             {"Mozaika",tostring(s.mosaic or "nieodkryta")},
+            {"Przejscie odblokowane",s.exit_ready and "TAK (komunikat serwera)" or "niepotwierdzone"},
+            {"Wynik serwera",score_text(s.score)},
             {"Start (GMCP)",tostring(s.safe or "-")},
             {"Powod",tostring(s.reason or "-")},
             {"HP odwrot/powrot",config.retreat.."% / "..config.returnHP.."%"},
             {"Limit przeciwnikow",tostring(config.limit)},
             {"Lupy",table.concat(config.loot,", ")}
         })
+    end
+    local function print_score()
+        local r=current()
+        local rec=recorded_score(r and r.area_id)
+            or config.results[#config.results]
+        report_score(rec)
+    end
+    local function print_score_history()
+        local rows={}
+        for i=#config.results,math.max(1,#config.results-9),-1 do
+            local rec=config.results[i]
+            rows[#rows+1]={tostring(rec.level),score_text(rec)}
+        end
+        if #rows==0 then rows={{"Wyniki","Brak zapisanych wynikow"}} end
+        ctx:report("ChimeraXP | Wieza - historia",rows)
     end
     start_verified=function(pending)
         local r=current()
@@ -683,7 +760,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             return
         end
         run={started=true,paused=false,phase="READY",level=pending.level,seed=pending.seed,
-            area_id=pending.area_id,safe=r.id,rooms={},exit=nil,entities_confirmed=true,kills=0}
+            area_id=pending.area_id,safe=r.id,rooms={},exit=nil,entities_confirmed=true,kills=0,
+            score=recorded_score(pending.area_id)}
         observe(r)
         local node=run.rooms[r.id]
         node.scanned=true
@@ -750,6 +828,18 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         queue(0)
         return true
     end
+    local function set_party_attack(value)
+        local setting=trim(value):lower()
+        if setting~="on" and setting~="off" then
+            message("Uzycie: /exp druzyna on lub /exp druzyna off.",true)
+            return false
+        end
+        config.partyAttack=setting=="on"
+        persist()
+        message("Wspolny cel ataku "..(config.partyAttack and "WLACZONY" or "WYLACZONY")..
+            " (Wieza)")
+        return true
+    end
     local function edit_loot(action,name)
         if run and run.started and not run.paused then
             message("Zmiana listy lupow wymaga pauzy.",true);return
@@ -774,6 +864,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     -- No optional args here! Otherwise Mudlet matches BOTH /exp wieza
     -- and /exp wieza start and invokes the action twice.
     ctx:command{"exp wieza",help="Status eksploracji Kregow Shoona",fn=print_status}
+    ctx:command{"exp wieza punkty",help="Ostatni zapisany wynik Kregow",fn=print_score}
+    ctx:command{"exp wieza historia",help="Historia punktow za poziomy Kregow",fn=print_score_history}
     for _,action in ipairs({"start","pauza","wznow","stop","status"}) do
         local command=action
         ctx:command{"exp wieza "..command,help="Wieza: "..command,fn=function()
@@ -958,6 +1050,21 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             end
         end
     end)
+    -- Global text signals are scoped to a GMCP-confirmed tower instance.
+    -- Score text: "Poziom 6 jest czysty. Zyskujesz 4 punktow Kregow (razem 14)."
+    ctx:trigger([[^Poziom (\d+) jest czysty\. Zyskujesz (\d+) punkt(?:ow|y)? Kregow \(razem (\d+)\)\.$]],function()
+        local m=rawget(_G,"matches")
+        if type(m)=="table" then record_score(m[2],m[3],m[4]) end
+    end)
+    -- This names the guardian's chamber but NOT its map ID. Do not guess a
+    -- room, simulate an 80% threshold or trigger "stan na mozaice".
+    ctx:trigger([[^Gdzies w komnacie straznika rozjarza sie mozaika przejscia\.$]],function()
+        local r=current()
+        if not run or not this_floor(r) or run.exit_ready then return end
+        run.exit_ready=true
+        message("Serwer odblokowal mozaike przejscia w komnacie straznika."..
+            " Kontynuuje bezpieczna eksploracje; przejscie pozostaje reczne.")
+    end)
     ctx:trigger([[^Nie zauwazasz niczego takiego\.$]],function() mosaic_answer("none") end)
     ctx:trigger([[^Mozaika tli sie zimnym blaskiem\.]],function() mosaic_answer("return") end)
     ctx:trigger([[^Krag mozaiki jest martwy\.]],function() mosaic_answer("inactive") end)
@@ -981,7 +1088,10 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     end)
     return {status=status,start=start,pause=pause,resume=resume,stop=stop,
         issuing_attack_order=function() return ours end,
-        party_attack_enabled=function() return run and run.started and not run.paused or false end,
+        party_attack_enabled=function()
+            return run and run.started and not run.paused and config.partyAttack or false
+        end,
+        set_party_attack=set_party_attack,
         path=path,frontier=frontier}
 end
 return T
