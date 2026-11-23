@@ -3106,9 +3106,12 @@ return {
         end)
         command("druzyna", "<on|off>", function(s)
             -- Safe runtime switch: affects only future attack commands.
+            -- While a Tower floor is active/complete, its own profile is
+            -- visible in the HUD. Do not silently modify the classic profile.
+            s = normalized(s)
+            if hooks.set_party_attack and hooks.set_party_attack(s) then return end
             local p = profile()
             if not p then note("Wybierz expowisko.", "warn"); return end
-            s = normalized(s)
             if s ~= "on" and s ~= "off" then
                 note("Uzycie: /exp druzyna on lub /exp druzyna off", "warn"); return
             end
