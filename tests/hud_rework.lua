@@ -311,6 +311,52 @@ do
     assert(api.tactics.rows()[1].max_load==math.max(0,load-1),"load slider decrements through tactics.configure")
     h.dispose()
 end
+-- Regression: the synthetic Tower profile must expose the actual state of
+-- "Wspolny cel ataku", not an absent (falsey) partyAttack field.
+-- Both the HUD and /exp druzyna command must configure Tower while it owns
+-- the UI; the regular EXP terrain setting stays untouched.
+do
+    local h=fixture();local api=h.api
+    getRoomHashByID=function(id) if id==1 then return "rooma" end end
+    h.p.room.area="Kregi Shoona, poziom 4 #852429670"
+    h.p.room.area_id="3fa8938ee59274e7"
+    assert(api.tower.start(),"Tower mode must accept verified entry GMCP")
+    assert(h.triggers[[^Mozaika tli sie zimnym blaskiem\.]],"Tower return mosaic trigger present")
+    h.triggers[[^Mozaika tli sie zimnym blaskiem\.]]()
+    assert(api.tower.status().started,"Tower preflight should create active session")
+    api.hud:open("party")
+    local classic=api.snapshot().profiles.alpha.partyAttack
+    assert(api.snapshot().profile.partyAttack==true,
+        "Tower snapshot must display its own group-focus setting")
+    assert(api.hud.labels.item2_state.html:find("WŁ.",1,true),
+        "Tower group-focus switch is green when team orders are enabled")
+    api.hud.labels.item2_state.widget.click()
+    assert(api.snapshot().profile.partyAttack==false
+        and api.tower.status().partyAttack==false
+        and api.party_attack_enabled()==false,"GUI OFF disables Tower party orders")
+    assert(api.hud.labels.item2_state.html:find("WYŁ.",1,true),
+        "Tower switch turns grey after clicking OFF")
+    assert(h.saved.tower.partyAttack==false,"Tower option persists")
+    assert(api.snapshot().profiles.alpha.partyAttack==classic,
+        "Tower switch must not mutate selected regular expowisko")
+    api.hud.labels.item2_state.widget.click()
+    assert(api.snapshot().profile.partyAttack==true and api.party_attack_enabled()==true,
+        "GUI ON enables Tower group attack")
+    assert(api.hud.labels.item2_state.html:find("WŁ.",1,true),
+        "Tower switch turns green after clicking ON")
+    h.commands["exp druzyna"]("off")
+    assert(api.tower.status().partyAttack==false
+        and api.snapshot().profile.partyAttack==false,
+        "Direct CLI edits the same Tower preference as the GUI")
+    api.tower.stop("Test: end")
+    h.commands["exp druzyna"]("on")
+    assert(api.snapshot().profile.partyAttack==true,
+        "Outside Tower the same command still configures classic EXP")
+    assert(h.saved.tower.partyAttack==false,
+        "Editing classic EXP does not overwrite last Tower preference")
+    h.dispose()
+    getRoomHashByID=nil
+end
 Geyser=nil
 do
     local h=fixture();h.api.request("start")
