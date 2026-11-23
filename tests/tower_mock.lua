@@ -299,7 +299,7 @@ assert(summary and summary[1][2]=="2" and summary[2][2]=="+4"
     and summary[3][2]=="14","Completion summary must show server score")
 scored.call("exp wieza status")
 local status_report=scored.report["ChimeraXP | Wieza"]
-assert(status_report and status_report[6][2]:find("poziom 2",1,true),
+assert(status_report and status_report[7][2]:find("poziom 2",1,true),
     "Active floor status shows score")
 scored.call("exp wieza punkty")
 assert(scored.report["ChimeraXP | Wieza - punkty"][3][2]=="14")
