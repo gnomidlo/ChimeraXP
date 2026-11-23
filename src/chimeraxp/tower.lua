@@ -790,7 +790,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     ctx:trigger([[^Krag mozaiki jarzy sie jasno\.]],function() mosaic_answer("active") end)
     ctx:on("chimera.walker.unhighlighted",function() marks() end)
     ctx:on("chimera.session.end",function() if run then stop("Rozlaczono; wymagany nowy start") end end)
-    ctx:trigger([[^[ >]*Umierasz\.$]],function() if run then stop("Smierc postaci") end end)
+    ctx:trigger([[^[ >]*(?:)Umierasz\.$]],function() if run then stop("Smierc postaci") end end)
     ctx:cleanup(function()
         deleted=true
         if run then
