@@ -3162,9 +3162,12 @@ return {
         end)
         command("druzyna", "<on|off>", function(s)
             -- Safe runtime switch: affects only future attack commands.
+            -- While a Tower floor is active/complete, its own profile is
+            -- visible in the HUD. Do not silently modify the classic profile.
+            s = normalized(s)
+            if hooks.set_party_attack and hooks.set_party_attack(s) then return end
             local p = profile()
             if not p then note("Wybierz expowisko.", "warn"); return end
-            s = normalized(s)
             if s ~= "on" and s ~= "off" then
                 note("Uzycie: /exp druzyna on lub /exp druzyna off", "warn"); return
             end
@@ -3464,6 +3467,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     config.returnHP=tonumber(config.returnHP) or 85
     config.limit=tonumber(config.limit) or 8
     config.delay=tonumber(config.delay) or 0.7
+    -- Tower and classic patrol have independent group-focus settings.
+    -- Existing Tower sessions have always sent a group attack order.
+    if type(config.partyAttack)~="boolean" then config.partyAttack=true end
     -- Small persistent history of scores issued by the server, not a local
     -- estimate from the number of mobs or a guessed boss threshold.
     if type(config.results)~="table" then config.results={} end
@@ -3921,7 +3927,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             for _,member in ipairs(group_members) do
                 if member.id and member.id~=me and (member.here==1 or member.here==true) then others=others+1 end
             end
-            if others>0 then send_own("rozkaz druzynie zaatakowac "..best.id,true) end
+            if others>0 and config.partyAttack then
+                send_own("rozkaz druzynie zaatakowac "..best.id,true)
+            end
         end
         queue(1)
     end
@@ -4088,7 +4096,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         for _,n in pairs(a.rooms) do rooms=rooms+1;if n.cleared then cleared=cleared+1 end end
         return {started=a.started,paused=a.paused,phase=a.phase,defensive_only=
             not a.started or a.paused or (a.phase~="COMBAT" and a.phase~="ENGAGING"),
-            partyAttack=true,level=a.level,area_id=a.area_id,rooms=rooms,cleared=cleared,
+            partyAttack=config.partyAttack,level=a.level,area_id=a.area_id,rooms=rooms,cleared=cleared,
             exit=a.exit,mosaic=a.exit and a.rooms[a.exit] and a.rooms[a.exit].mosaic,
             safe=a.safe,reason=a.reason,done=a.done or false,
             score=a.score,server_clear=a.server_clear or false,
@@ -4197,6 +4205,18 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         run.pending_attack=nil;run.post_combat_at=nil
         message("Wznawiam eksploracje.")
         queue(0)
+        return true
+    end
+    local function set_party_attack(value)
+        local setting=trim(value):lower()
+        if setting~="on" and setting~="off" then
+            message("Uzycie: /exp druzyna on lub /exp druzyna off.",true)
+            return false
+        end
+        config.partyAttack=setting=="on"
+        persist()
+        message("Wspolny cel ataku "..(config.partyAttack and "WLACZONY" or "WYLACZONY")..
+            " (Wieza)")
         return true
     end
     local function edit_loot(action,name)
@@ -4447,7 +4467,10 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     end)
     return {status=status,start=start,pause=pause,resume=resume,stop=stop,
         issuing_attack_order=function() return ours end,
-        party_attack_enabled=function() return run and run.started and not run.paused or false end,
+        party_attack_enabled=function()
+            return run and run.started and not run.paused and config.partyAttack or false
+        end,
+        set_party_attack=set_party_attack,
         path=path,frontier=frontier}
 end
 return T
@@ -6459,6 +6482,15 @@ return function(module)
             stop_tower=function()
                 if tower and tower.status().started then tower.stop("STOP /exp") end
             end,
+            set_party_attack=function(setting)
+                if not tower then return false end
+                local state=tower.status()
+                if not (state.started or state.done) then return false end
+                -- The real CLI and graphical HUD must both edit the Tower
+                -- setting, not the unrelated selected classic EXP profile.
+                tower.set_party_attack(setting)
+                return true
+            end,
         })
         local base_status=patrol.status
         local base_snapshot=patrol.snapshot
@@ -6487,7 +6519,8 @@ return function(module)
             local t=tower_status()
             if t then
                 snap.status=patrol.status()
-                snap.profile={name="Wieza / poziom "..tostring(t.level),economy={enabled=false},route={}}
+                snap.profile={name="Wieza / poziom "..tostring(t.level),partyAttack=t.partyAttack,
+                    economy={enabled=false},route={}}
                 snap.status.selected="wieza"
             end
             return snap
