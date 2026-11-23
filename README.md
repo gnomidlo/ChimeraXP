@@ -20,6 +20,8 @@ Rozpakuj cały ZIP, uruchom `install.cmd` i wybierz katalog profilu Mudleta. Po 
 
 W komnacie wejściowej piętra wpisz `/exp wieza start`. Moduł sam wysyła `ob mozaike` i uruchamia eksplorację **dopiero po potwierdzeniu mozaiki powrotnej**. Nie wymaga konkretnej nazwy pokoju. Komnata startowa jest oznaczana niebieskim kolorem i obramowaniem na mapperze. Zbieranie uruchamia się tylko w pokojach, w których wystąpiło spotkanie z wrogami lub potwierdzona walka/zabicie; puste korytarze są pomijane. Moduł sam odkrywa pomieszczenia, walczy z NPC o relacji `hostile` lub `neutral`, zbiera wybrane łupy i zatrzymuje się **na aktywnej mozaice wyjściowej**. **Nigdy nie używa `stan na mozaice`** — przejście wykonujesz ręcznie, a na następnym piętrze ponawiasz `/exp wieza start`.
 
+W menu Drużyna przełącznik **Wspólny cel ataku** steruje teraz poprawnie rozkazami Wieży (domyślnie włączony) i nie zmienia opcji wybranego klasycznego expowiska. Identyczny efekt podczas działania Wieży ma `/exp druzyna on|off`. Po zatrzymaniu Wieży komenda znów steruje klasycznym EXP.
+
 Nowość: punkty Kręgów przyznane przez serwer są zapisywane (poziom, zdobyte, łącznie) i pokazywane na zakończenie piętra. Komendy: `/exp wieza punkty`, `/exp wieza historia`; informacja o rozjarzeniu mozaiki jest osobnym statusem gotowości, bez automatycznego awansu.\n\nSterowanie: `/exp wieza status`, `/exp wieza pauza`, `/exp wieza wznow`, `/exp wieza stop`. Lista zbieranych przedmiotów: `/exp wieza lup lista`, `/exp wieza lup dodaj szkatulki`, `/exp wieza lup usun kamienie`. Oficjalne `/zbieranie` musi być wyłączone. Zobacz [instrukcję i ograniczenia Wieży](docs/TOWER.md).
 
 ## Bezpieczeństwo wyprawy
