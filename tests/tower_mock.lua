@@ -284,6 +284,23 @@ assert(contains(neutral.sent(),"zabij enemy:91"),"Must engage neutral dungeon cr
 assert(not contains(neutral.sent(),"zabij ally:88"),"Must never attack allied NPC")
 print("Neutral Shoona NPCs and allied exclusion: PASS")
 
+-- The Tower setting controls ACTUAL orders, independently of a selected
+-- classic EXP terrain. Turning it off must not suppress personal attacks.
+local nofocus=scenario({saved={partyAttack=false}})
+assert(nofocus.tower.start())
+nofocus.run(45)
+assert(nofocus.tower.status().phase=="COMPLETE")
+assert(contains(nofocus.sent(),"zabij enemy:91"),
+    "player still attacks when shared target is disabled")
+assert(not contains(nofocus.sent(),"rozkaz druzynie zaatakowac enemy:91"),
+    "disabled shared attack must not send group target orders")
+assert(nofocus.tower.status().partyAttack==false)
+assert(nofocus.tower.set_party_attack("on"))
+assert(nofocus.tower.status().partyAttack==true
+    and nofocus.opts.saved.partyAttack==true,
+    "Tower shared attack preference is persisted and exposed to UI")
+print("Tower shared attack OFF/ON and actual group orders: PASS")
+
 -- Server-issued scores are the source of truth, not estimated NPC ratios.
 -- The mosaic signal is a readiness flag; it never issues a floor transition.
 local scored=scenario({server_score={level=2,gained=4,total=14}})
