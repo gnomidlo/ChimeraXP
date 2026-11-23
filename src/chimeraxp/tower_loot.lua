@@ -75,11 +75,11 @@ function L.new(ctx, gmcp_api, say)
     end
     for count,words in pairs(COUNTS) do
         local n=count
-        ctx:trigger("^Doliczyl(?:as|es) sie "..words..[[\.$]],function() counted(n) end)
-        ctx:trigger("^Doliczyl(?:as|es) sie "..n.." "..(n==1 and "sztuki" or "sztuk")..[[\.$]],function() counted(n) end)
+        ctx:trigger("^(?:)Doliczyl(?:as|es) sie "..words..[[\.$]],function() counted(n) end)
+        ctx:trigger("^(?:)Doliczyl(?:as|es) sie "..n.." "..(n==1 and "sztuki" or "sztuk")..[[\.$]],function() counted(n) end)
     end
-    ctx:trigger([[^Nie doliczyl(?:as|es) sie (?:ani jednej|zadnej) sztuki\.$]],function() counted(0) end)
-    ctx:trigger([[^Nie widzisz tu niczego takiego\.$]],function() counted(0) end)
+    ctx:trigger([[^(?:)Nie doliczyl(?:as|es) sie (?:ani jednej|zadnej) sztuki\.$]],function() counted(0) end)
+    ctx:trigger([[^(?:)Nie widzisz tu niczego takiego\.$]],function() counted(0) end)
     return {
         start=function(room_id,items,delay,done,fail)
             if active then return false,"Zbieranie juz trwa" end
