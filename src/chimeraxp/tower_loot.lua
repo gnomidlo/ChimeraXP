@@ -63,6 +63,8 @@ function L.new(ctx, gmcp_api, say)
             return
         end
         local ok,err=pcall(ctx.send,ctx,command)
+        -- A synchronous HP/event callback may have cancelled collection.
+        if active~=a then return end
         if not ok then failure("Blad komendy '"..command.."': "..tostring(err));return end
         schedule(a.delay,next_command)
     end
