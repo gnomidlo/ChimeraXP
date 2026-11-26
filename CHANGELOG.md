@@ -1,3 +1,12 @@
+## 0.7.0-beta.39 — Wieża: AUTO, strażnik, kolory pokojów i sesja
+
+- Opcjonalny automatyczny awans: `/exp wieza auto on|off` (domyślnie wyłączony). Aktywna mozaika, brak walki i próg HP, jedno przejście; następnie nowy poziom/area_id, mapper, świeże GMCP oraz ponowne potwierdzenie mozaiki powrotnej. Nie ponawiamy niepotwierdzonej komendy.
+- `ob mozaike` przed rozpoczęciem walki na nowej lokacji (walka już trwająca i bezpieczeństwo mają pierwszeństwo). Licznik serwera i komunikat „Dosc istot padlo” kierują do strażnika zamiast wymagać wyczyszczenia całego piętra. Neutralny strażnik może poczekać do spełnienia warunku; jeśli brak innych dróg, automat może wrócić do niego wcześniej. Nie zgadujemy procentów. Po spełnieniu limitu szukamy nieodkrytego strażnika bez zbędnych walk z neutralnymi NPC; przed awansem czekamy na regenerację HP.
+- Lokalny i globalny komunikat aktywacji mozaiki. Przed awansem nadal potwierdzenie przez `ob mozaike`.
+- Trwałe kolory pokoi w mapperze (błękit/pomarańcz/mięta), niezależne od chwilowego podświetlania chodzika.
+- Wyniki każdego piętra, suma nowych punktów w bieżącej sesji, `/exp wieza sesja` oraz raport po STOP. Historyczna punktacja nadal zapisywana osobno.
+- Regresje symulacyjne: odłożenie strażnika, pominięcie zbędnej odnogi, automatyczny awans i jego timeout, suma dwóch poziomów, trwały kolor mapy.
+
 ## 0.7.0-beta.38 — Punkty Kręgów, sygnał mozaiki i przełącznik wspólnego celu
 
 - Z komunikatu serwera `Poziom N jest czysty. Zyskujesz X punktow Kregow (razem Y).` odczytujemy poziom, nowe punkty i łączną liczbę punktów. Dane przechowywane są trwale, z identyfikatorem `area_id`, a ponowne pojawienie się tego samego komunikatu nie nalicza punktów drugi raz.

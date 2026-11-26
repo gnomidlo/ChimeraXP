@@ -13,15 +13,43 @@ local function scenario(opts)
         C={id="aaaa000000000003",name="Boss",exits={zachod="aaaa000000000002"}},
         D={id="aaaa000000000004",name="Bestia",exits={polnoc="aaaa000000000002"}},
     }
+    if opts.guardian then
+        rooms.B.exits.poludnie=rooms.C.id
+        rooms.B.exits.wschod=rooms.D.id
+        rooms.C.exits={polnoc=rooms.B.id}
+        rooms.D.exits={zachod=rooms.B.id}
+        rooms.E={id="aaaa000000000005",name="Zbedna odnoga",exits={wschod=rooms.B.id}}
+        rooms.B.exits.zachod=rooms.E.id
+        if opts.guardian_late then
+            rooms.B.exits.poludnie=rooms.D.id
+            rooms.B.exits.wschod=rooms.E.id
+            rooms.B.exits.zachod=rooms.C.id
+            rooms.D.exits={polnoc=rooms.B.id}
+            rooms.E.exits={zachod=rooms.B.id}
+            rooms.C.exits={wschod=rooms.B.id}
+        end
+    end
     local ids,lookup={},{}
-    for i,key in ipairs({"A","B","C","D"}) do ids[rooms[key].id]=i;lookup[i]=key end
+    local level,area=2,"8e8d3415f86872c6"
+    local function index_rooms()
+        ids,lookup={},{}
+        for i,key in ipairs({"A","B","C","D","E"}) do
+            if rooms[key] then ids[rooms[key].id]=i;lookup[i]=key end
+        end
+    end
+    index_rooms()
     local position="A"
     local alive=true
+    local guardian_alive=opts.guardian==true
+    local spare_alive=opts.guardian==true
+    local visits={}
     local mobs={D={
         {id="enemy:91",kind="npc",relation=opts.neutral_npc and "neutral" or "hostile",
             hp=920,maxhp=1060,group_role="none"},
         {id="ally:88",kind="npc",relation="ally",group_role="member",hp=100,maxhp=100}
     }}
+    mobs.C={{id="guardian:1",kind="npc",relation="neutral",hp=100,maxhp=100,group_role="none"}}
+    mobs.E={{id="spare:1",kind="npc",relation="neutral",hp=100,maxhp=100,group_role="none"}}
     local group={leader="player:1",members={{id="player:1",self=1,here=1,hp=100,maxhp=100},
         {id="minion:1",self=0,here=1,hp=100,maxhp=100}}}
     local entities,combat,vitals={},nil,{hp=100,fatigue=10}
@@ -29,8 +57,8 @@ local function scenario(opts)
     seq=0
     local ctx={log={info=function(s) logs.info[#logs.info+1]=s end,warn=function(s) logs.warn[#logs.warn+1]=s end}}
     local function r()
-        local v=rooms[position];return {id=v.id,name=v.name,area="Kregi Shoona, poziom 2 #421852174",
-            area_id="8e8d3415f86872c6",exits=v.exits}
+        local v=rooms[position];return {id=v.id,name=v.name,area="Kregi Shoona, poziom "..level.." #421852174",
+            area_id=area,exits=v.exits}
     end
     local api={room=r,entities=function() return entities end,combat=function() return combat end,
         group=function() return group end,vitals=function() return vitals end,connected=function() return true end}
@@ -38,7 +66,9 @@ local function scenario(opts)
     local emit
     local function arrive(key,kind,walker_arrival)
         position=key
-        entities={room=r().id,entities=key=="D" and alive and mobs.D or {}}
+        visits[#visits+1]=key
+        entities={room=r().id,entities=(key=="D" and alive and mobs.D)
+            or (key=="C" and guardian_alive and mobs.C) or (key=="E" and spare_alive and mobs.E) or {}}
         combat={room=r().id,relations={}}
         if opts.low_hp_on_d and key=="D" then vitals.hp=25 end
         if opts.low_hp_on_d and key=="A" then vitals.hp=100 end
@@ -73,6 +103,14 @@ local function scenario(opts)
     end
     local function unlock_line()
         text_line("Gdzies w komnacie straznika rozjarza sie mozaika przejscia")
+    end
+    local function remaining_line(n)
+        if n==0 then text_line("Dosc istot padlo")
+        else
+            _G.matches={"server count",tostring(n)}
+            text_line("Do przejscia trzeba jeszcze pokonac (\\d+)")
+            _G.matches=nil
+        end
     end
     ctx.use=function(_,name)
         return ({gmcp=api,mapper=map,walker=ctx.walker})[name]
@@ -117,9 +155,25 @@ local function scenario(opts)
                 if opts.no_start_reply then return end
                 text_line(opts.wrong_start_mosaic and "Nie zauwazasz niczego takiego" or "Mozaika tli sie")
             elseif position=="C" then
-                local active=not opts.force_inactive and not alive
+                local active=not opts.force_inactive and not alive and not guardian_alive
                 text_line(active and "Krag mozaiki jarzy" or "Krag mozaiki jest martwy")
             else text_line("Nie zauwazasz niczego takiego") end
+        elseif cmd=="stan na mozaice" then
+            assert(position=="C","Ascent from wrong room")
+            if opts.auto_next and level==2 then
+                level=opts.wrong_level and 4 or 3
+                area="9e8d3415f86872c7"
+                local replacement={}
+                for _,room in pairs(rooms) do
+                    replacement[room.id]=room.id:gsub("^aaaa","bbbb")
+                end
+                for _,room in pairs(rooms) do
+                    room.id=replacement[room.id]
+                    for dir,id in pairs(room.exits) do room.exits[dir]=replacement[id] end
+                end
+                index_rooms();alive=true;guardian_alive=opts.guardian==true;spare_alive=opts.guardian==true
+                arrive("A")
+            end
         elseif cmd=="policz ciala" then
             if opts.two_corpses then text_line("dwoch sztuk")
             else text_line("Nie doliczyl") end
@@ -131,19 +185,29 @@ local function scenario(opts)
             for k,node in pairs(rooms) do if node.id==next_id then key=k end end
             arrive(key,"reczny")
         elseif cmd:match("^zabij ") then
-            assert(position=="D")
-            combat={room=r().id,relations={{attacker="player:1",defender="enemy:91"}}}
+            assert(position=="D" or position=="C" or position=="E")
+            local victim=cmd:match("^zabij (.+)$")
+            assert(victim==(position=="D" and "enemy:91" or position=="C" and "guardian:1" or "spare:1"))
+            combat={room=r().id,relations={{attacker="player:1",defender=victim}}}
             emit("chimera.combat.state",combat)
             -- Kill is not immediate: send the combat completion on next tick.
             ctx:timer(0.5,function()
-                alive=false
+                if position=="D" then alive=false
+                elseif position=="C" then guardian_alive=false
+                else spare_alive=false end
                 entities={room=r().id,entities={}}
                 combat={room=r().id,relations={}}
                 emit("chimera.room.entities",entities)
                 emit("chimera.combat.state",combat)
-                if opts.server_score then
+                if opts.guardian and position=="D" then remaining_line(0) end
+                if opts.hp_after_guardian and position=="C" then
+                    vitals.hp=opts.hp_after_guardian
+                    emit("chimera.char.vitals",vitals)
+                end
+                if opts.server_score and (not opts.guardian or position=="C") then
                     local score=opts.server_score
-                    score_line(score.level,score.gained,score.total)
+                    score_line(level,score.gained,score.total+(level-2)*score.gained)
+                    if opts.guardian then text_line("Krag mozaiki w posadzce rozjarza") end
                     unlock_line()
                 end
             end)
@@ -156,6 +220,9 @@ local function scenario(opts)
         return true
     end
     local highlights, border_colors, border_widths={},{},{}
+    local envs,colors={},{}
+    _G.setRoomEnv=function(id,env) envs[id]=env end
+    _G.setCustomEnvColor=function(id,r,g,b,a) colors[id]={r,g,b,a} end
     _G.highlightRoom=function(id,red,green,blue)
         highlights[id]={red,green,blue}
     end
@@ -192,7 +259,9 @@ local function scenario(opts)
         sent=function() return report.sent or {} end, report=report,position=function() return position end,
         move=function(key) arrive(key) end, alive=function() return alive end,
         emit=emit, highlights=highlights,border_colors=border_colors,border_widths=border_widths,
-        score_line=score_line,unlock_line=unlock_line}
+        score_line=score_line,unlock_line=unlock_line,remaining_line=remaining_line,
+        envs=envs,colors=colors,visits=visits,
+        heal=function() vitals.hp=100;emit("chimera.char.vitals",vitals) end}
 end
 
 local function contains(values,needle)
@@ -232,10 +301,8 @@ print("Tower entrance timeout and deduplication: PASS")
 local m=scenario()
 assert(m.tower.start())
 -- Entry room must be blue on the mapper, even before the first step.
-local entry=m.highlights[1]
-assert(entry and entry[1]==96 and entry[2]==165 and entry[3]==250,"start highlight must be blue")
-assert(m.border_colors[1] and m.border_colors[1][3]==250
-    and m.border_widths[1]==3,"start room gets a persistent blue border")
+local entry=m.colors[m.envs[1]]
+assert(entry and entry[1]==96 and entry[2]==165 and entry[3]==250,"start room fill must be blue")
 m.run(40)
 local st=m.tower.status()
 assert(st.phase=="COMPLETE",st.phase..": "..tostring(st.reason))
@@ -255,8 +322,8 @@ assert(count(m.sent(),"napelnij plecak")==1,"No redundant bag fill commands")
 m.highlights[1]=nil
 m.emit("chimera.mapper.moved",4,{})
 m.run(0.1)
-assert(m.highlights[1] and m.highlights[1][3]==250,
-    "start color restored after mapper highlight update")
+assert(m.colors[m.envs[1]][3]==250 and m.colors[m.envs[3]][2]==239,
+    "start and active room fills survive highlight removal")
 assert(not contains(m.sent(),"stan na mozaice"),"Never ascend")
 print("Tower one-floor exploration: PASS")
 
@@ -332,6 +399,87 @@ assert(restored.report["ChimeraXP | Wieza - punkty"][2][2]=="+4",
     "Saved results survive rebuilding the module")
 assert(not contains(scored.sent(),"stan na mozaice"))
 print("Server scores, persistent history, mosaic announcement and completion report: PASS")
+
+-- The guardian room is discovered before combat and left until the server
+-- says enough creatures have fallen. A spare branch must not be cleared.
+local guardian=scenario({guardian=true,server_score={gained=4,total=18}})
+assert(guardian.tower.start())
+guardian.remaining_line(10)
+assert(guardian.tower.status().remaining==10)
+guardian.remaining_line(1)
+assert(guardian.tower.status().remaining==1)
+guardian.run(70)
+assert(guardian.tower.status().phase=="COMPLETE",tostring(guardian.tower.status().reason))
+local kills={}
+for _,cmd in ipairs(guardian.sent()) do
+    if cmd:match("^zabij ") then kills[#kills+1]=cmd end
+end
+assert(#kills==2 and kills[1]=="zabij enemy:91" and kills[2]=="zabij guardian:1",
+    "defer guardian and skip remaining branch")
+assert(not contains(guardian.visits,"E"),"Do not visit spare branch after quota")
+assert(guardian.tower.status().session_points==4)
+assert(guardian.envs[3]~=guardian.envs[1],"exit room has distinct real environment")
+print("Guardian deferred until server quota; unnecessary branch skipped: PASS")
+
+local late=scenario({guardian=true,guardian_late=true,server_score={gained=4,total=18}})
+assert(late.tower.start())
+late.run(70)
+assert(late.tower.status().phase=="COMPLETE",tostring(late.tower.status().reason))
+assert(contains(late.visits,"E"),"The guardian is still unknown, so inspect the next branch")
+assert(not contains(late.sent(),"zabij spare:1"),"Quota met: skip neutral non-guardian")
+assert(contains(late.sent(),"zabij guardian:1"))
+print("Quota before guardian discovery: inspect without fighting spare neutral NPCs: PASS")
+
+local multi=scenario({guardian=true,auto_next=true,server_score={gained=4,total=18}})
+multi.call("exp wieza auto","on")
+assert(multi.tower.start())
+for i=1,100 do
+    multi.run(1)
+    if multi.tower.status().level==3 then
+        multi.call("exp wieza auto","off")
+        break
+    end
+end
+assert(multi.tower.status().level==3,"Auto ascent must start next GMCP floor")
+multi.run(70)
+assert(multi.tower.status().phase=="COMPLETE",tostring(multi.tower.status().reason))
+assert(count(multi.sent(),"stan na mozaice")==1,"Exactly one ascent")
+assert(multi.tower.status().session_points==8,"Sum of both server gains")
+multi.call("exp wieza sesja")
+local session_report=multi.report["ChimeraXP | Wieza - sesja"]
+assert(#session_report==4 and session_report[4][2]=="+8")
+print("Verified auto ascent and cross-floor session points: PASS")
+
+local timeout=scenario({server_score={gained=4,total=18}})
+timeout.call("exp wieza auto","on")
+assert(timeout.tower.start())
+timeout.run(80)
+assert(timeout.tower.status().phase=="PAUSED")
+assert(count(timeout.sent(),"stan na mozaice")==1,"Never repeat unconfirmed ascent")
+print("Unconfirmed ascent pauses without retry: PASS")
+
+local weak=scenario({guardian=true,auto_next=true,hp_after_guardian=70,server_score={gained=4,total=18}})
+weak.call("exp wieza auto","on")
+assert(weak.tower.start())
+weak.run(70)
+assert(weak.tower.status().phase=="RECOVERY")
+assert(count(weak.sent(),"stan na mozaice")==0,"No ascent until HP recovery")
+weak.heal()
+for i=1,15 do
+    weak.run(1)
+    if weak.tower.status().level==3 then break end
+end
+assert(weak.tower.status().level==3 and count(weak.sent(),"stan na mozaice")==1)
+weak.tower.stop("test stop")
+print("Auto ascent waits for team HP recovery: PASS")
+
+local wrong_floor=scenario({auto_next=true,wrong_level=true,server_score={gained=4,total=18}})
+wrong_floor.call("exp wieza auto","on")
+assert(wrong_floor.tower.start())
+wrong_floor.run(70)
+assert(wrong_floor.tower.status().phase=="PAUSED")
+assert(count(wrong_floor.sent(),"stan na mozaice")==1,"Unexpected destination: never retry")
+print("Unexpected next level blocks auto ascent: PASS")
 
 local bodies=scenario({two_corpses=true})
 assert(bodies.tower.start())

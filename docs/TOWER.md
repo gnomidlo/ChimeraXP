@@ -1,6 +1,6 @@
-# ChimeraXP — Wieża (Kręgi Shoona), beta.1
+# ChimeraXP — Wieża (Kręgi Shoona), beta.39
 
-Wersja **jednopiętrowa**, bez automatycznego uruchamiania mozaiki. Po oczyszczeniu wszystkich osiągalnych pomieszczeń bot wraca do mozaiki wyjściowej, wysyła `ob mozaike` i kończy działanie **wyłącznie** po odpowiedzi `Krag mozaiki jarzy sie jasno.` Gracz sam wysyła `stan na mozaice`, a na kolejnym piętrze ponownie `/exp wieza start`.
+Tryb domyślny zatrzymuje się na aktywnej mozaice. `/exp wieza auto on` włącza opcjonalny automatyczny awans. Moduł korzysta z rzeczywistego licznika pozostałych istot i potwierdzeń serwera, a nie szacowanego progu procentowego.
 
 ## Jak uruchomić
 
@@ -8,14 +8,16 @@ Wersja **jednopiętrowa**, bez automatycznego uruchamiania mozaiki. Po oczyszcze
 2. **Stanąć w komnacie wejściowej nowego piętra**, przy mozaice powrotnej (nazwa lokacji może się różnić) przy aktualnych GMCP Room.Info, Room.Entities, Combat.State i Group.State.
 3. Uruchom `/exp wieza start`. Automat najpierw wysyła `ob mozaike` i czeka maksymalnie 5 s na odpowiedź `Mozaika tli sie zimnym blaskiem.`. Tylko wtedy przypisuje komnatę jako safe lock i zaczyna eksplorację. Automat rozpoznaje piętro po `area`, konkretne losowanie po `area_id` i wykorzystuje **oficjalny** mapper + walker.
 4. Kontroluj stan komendą `/exp wieza status`. W razie problemów: `/exp wieza pauza`, `/exp wieza wznow` albo `/exp wieza stop`. Główny STOP ChimeraXP również zatrzymuje Wieżę.
-5. Po komunikacie o aktywnej mozaice wyślij **ręcznie** `stan na mozaice`. W nowej komnacie wejściowej kolejny raz `/exp wieza start`.
+5. W trybie ręcznym po komunikacie o aktywnej mozaice wyślij `stan na mozaice`, a na nowym piętrze `/exp wieza start`. W trybie AUTO skrypt wykona to sam po sprawdzeniu bezpieczeństwa i potwierdzeniu nowej komnaty wejściowej.
 
 ## Komendy
 
 | Komenda | Znaczenie |
 | --- | --- |
 | `/exp wieza start` | Rozpoczęcie od komnaty wejściowej |
-| `/exp druzyna on|off` | Włączenie/wyłączenie wspólnego celu drużyny **dla Wieży** podczas jej działania; to samo co przełącznik w HUD |
+| `/exp wieza auto on` / `/exp wieza auto off` | Opcjonalny automatyczny awans (domyślnie wyłączony) |
+| `/exp wieza sesja` | Wyniki kolejnych pięter i suma punktów zdobytych w aktualnej sesji |
+| `/exp druzyna on` / `off` | Włączenie/wyłączenie wspólnego celu drużyny **dla Wieży** podczas jej działania; to samo co przełącznik w HUD |
 | `/exp wieza status` | Stan, poziom, liczba odwiedzonych/oczyszczonych pokoi, mozaika, punkty z serwera i gotowość przejścia |\n| `/exp wieza punkty` | Ostatnia punktacja zapisana z komunikatu serwera: poziom, zdobyte, razem |\n| `/exp wieza historia` | Ostatnie 10 wyników z historii (maksymalnie 50 przechowywanych) |
 | `/exp wieza pauza` / `wznow` / `stop` | Kontrola jednego piętra |
 | `/exp wieza lup lista` | Aktualne kategorie przedmiotów |
@@ -34,17 +36,23 @@ Opcja **Wspólny cel ataku** w menu Drużyna pokazuje ustawienie aktualnego auto
 
 Po komunikacie serwera `Poziom 6 jest czysty. Zyskujesz 4 punktow Kregow (razem 14).` Wieża zapisuje **trzy niezależne liczby** (numer poziomu, zdobyte punkty, punkty razem) wraz z identyfikatorem losowania `area_id`. Liczby nie są szacowane z liczby zabitych NPC. Powtórzona wiadomość z tego samego poziomu nie dodaje podwójnego wyniku. Historia jest zachowywana po przeładowaniu wtyczki.
 
-Komunikat `Gdzies w komnacie straznika rozjarza sie mozaika przejscia.` sygnalizuje odblokowanie wyjścia. Pokazujemy go w `/exp wieza status`. Nie wskazuje jednak identyfikatora komnaty w GMCP, dlatego skrypt nie zgaduje jej położenia; nadal lokalizuje i potwierdza mozaikę przez `ob mozaike`. **Na razie kontynuuje ustaloną eksplorację piętra i zatrzymuje się na aktywnej mozaice**, zamiast przerywać wyprawę na podstawie domniemanego progu 80% wrogów i bossa. Dokładny warunek aktywacji nie jest zweryfikowany.
+Komunikaty o pozostałych istotach podają liczbę wymaganą przez serwer (`istot`, `istote`, `istoty`). `Dosc istot padlo, a straznik kregu wciaz czeka.` oznacza zero pozostałych zwykłych przeciwników. Automat rozpoznaje mozaikę przed rozpoczęciem walki, jeżeli nie został już zaatakowany; odkłada neutralnych NPC w komnacie strażnika do spełnienia warunku albo do wyczerpania innych osiągalnych dróg. Gdy wymóg jest spełniony i komnata jest znana, wraca do niej. Jeśli nie jest jeszcze znana, szuka mozaiki, omijając neutralne NPC w zwykłych pomieszczeniach; aktywna walka ma pierwszeństwo. `Krag mozaiki w posadzce rozjarza sie jasnym blaskiem.` identyfikuje lokalne wyjście; ogłoszenie `Gdzies w komnacie straznika rozjarza sie mozaika przejscia.` potwierdza otwarcie bez identyfikowania konkretnego pokoju. Przed zakończeniem lub awansem zawsze ponownie potwierdza aktywną mozaikę przez `ob mozaike`.
 
 Przy zakończeniu piętra Wieża wyświetla osobne podsumowanie z punktami i zapisuje wynik nawet wtedy, gdy komunikat serwera pojawił się kilka pokoi wcześniej. Jeśli serwer nie wysłał jeszcze punktacji, raport wyraźnie zaznacza brak danych.
+
+## Sesja i automatyczny awans
+
+Wynik piętra i suma sesji są raportowane po każdym zakończeniu oraz po STOP. Sumujemy tylko nowe punkty z komunikatów w sesji, nie łączną historyczną wartość serwera. Sesja obejmuje kolejne piętra, także ręcznie uruchomione bez STOP; po STOP i nowym starcie rozpoczyna się nowa sesja. Brak wyniku jest oznaczony jako niepełne dane; historia poziomów pozostaje zapisana po przeładowaniu.
+
+AUTO sprawdza świeże GMCP, brak walki, HP co najmniej na progu powrotu i aktywną mozaikę. Przy bezpiecznej lokacji z mozaiką czeka na regenerację do progu powrotu; krytyczne HP nadal uruchamia mechanizm odwrotu. Jednokrotnie wysyła `stan na mozaice`; czeka maksymalnie 15 sekund na nowy poziom N+1 i nowe `area_id`, zgodność mappera i świeże dane. Następnie sprawdza mozaikę powrotną, zapisuje nowe schronienie i rozpoczyna piętro. Nie ponawia niepotwierdzonej komendy; nieoczekiwany poziom lub brak danych pauzuje sesję. Pierwsze próby prowadzić pod nadzorem.
 
 ## Mechanika i bezpieczeństwo
 
 - Nowe pokoje poznajemy przez wyjścia GMCP, ale **własna** pamięć odwiedzonych lokacji przechowuje tylko aktualne `area_id`. Pomiędzy odwiedzonymi lokacjami korzystamy z oficjalnego `walker.go`, po kontroli, że trasa nie przechodzi przez nieodkryte lokacje. Nowe przejścia wykonujemy pojedynczym, potwierdzonym krokiem. Cofanie i nawigacja po znanych trasach uwzględnia kolejność zdarzeń oficjalnego chodzika: jego `walk.arrived` może nadejść, zanim Wieża otrzyma `room.changed` z tej samej zmiany pokoju.
 - Cel ataku musi mieć `kind="npc"`, `relation="hostile"` **lub** `relation="neutral"` i nie należeć do drużyny. Wrogie istoty w Kręgach mogą być neutralne do pierwszego ataku. Preferowany jest najbardziej zraniony wróg. Istniejący silnik taktyki drużyny działa w tym samym HUD-zie; przed nową walką Wieża wydaje potwierdzany GMCP rozkaz celu grupowego.
 - Komnata wejściowa każdego piętra stanowi lokalne schronienie. Przy krytycznie niskim HP drużyny bot próbuje odwrotu **wyłącznie potwierdzoną** trasą do startu. Powtarzający się krytyczny HP w tej samej lokacji wstrzymuje automat; brak drogi również pauzuje. Nie gwarantuje to przeżycia podczas walki.
-- Mozaikę identyfikuje `ob mozaike`: powrotna `Mozaika tli sie zimnym blaskiem.`, nieaktywna `Krag mozaiki jest martwy.`, aktywna `Krag mozaiki jarzy sie jasno.`, brak `Nie zauwazasz niczego takiego.`. Nigdy nie wywołuje `stan na mozaice`.
-- Oficjalny mapper ma własne podświetlenia, dlatego Wieża maluje tylko mozaiki: **wyraźny błękit oraz niebieskie obramowanie komnaty startowej** (mozaika powrotna), pomarańcz dla nieaktywnej i miętowy dla aktywnej. Oznaczenie wejścia jest przywracane po zmianach podświetlenia przez oficjalny mapper. Poprzedni własny kolor i grubość obramowania są przywracane po zatrzymaniu Wieży. Na zakończenie/pauzę nie usuwa mapy.
+- Mozaikę identyfikuje `ob mozaike`: powrotna `Mozaika tli sie zimnym blaskiem.`, nieaktywna `Krag mozaiki jest martwy.`, aktywna `Krag mozaiki jarzy sie jasno.`, brak `Nie zauwazasz niczego takiego.`. Wysyła `stan na mozaice` wyłącznie w trybie AUTO po weryfikacji wyjścia.
+- Trwałe kolory pokojów przez `setRoomEnv` i `setCustomEnvColor`: błękit wejścia, pomarańcz nieaktywnego wyjścia, mięta aktywnego. Pozostają po ręcznym ruchu i STOP; stare pokoje usuwa oficjalny mapper przy nowym losowaniu. Awaryjny fallback w starszym Mudlecie to podświetlenie.
 - Zmiana poziomu, losowania (`area_id`), ruch poza automatem, brak świeżych danych GMCP, nieznana droga lub nieaktywna mozaika na końcu **pauzują** zamiast zgadywania.
 - Stan eksploracji trwa w pamięci podczas pauzy i wznowienia; rozłączenie/przeładowanie wymaga nowego startu. Start obsługiwany jest wyłącznie w pokoju z potwierdzoną mozaiką powrotną danego piętra, a nie na podstawie nazwy lokacji.
 
