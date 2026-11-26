@@ -1,3 +1,10 @@
+## 0.7.0-beta.42 — Wieża: bezpieczny odwrót przed pauzą
+
+- Trzeci niezależny alarm HP w tym samym pokoju nie wstrzymuje automatu w miejscu zagrożenia; skrypt najpierw wraca do komnaty wejściowej i potwierdza brak walki. Po ręcznym wznowieniu nadal czeka na regenerację.
+- Krytyczny HP gracza lub członka drużyny przerywa oczekiwanie na liczenie ciał, zbieranie oraz sprawdzanie mozaiki. Anuluje ich timery; opóźniona odpowiedź podczas odwrotu nie wznawia pracy.
+- Utrzymujący się niski HP nie zatrzymuje własnego chodzika odwrotu. Wysłany pojedynczy krok nadal wymaga potwierdzenia; nie ponawiamy w ciemno ruchu.
+- Regresje obejmują trzeci odwrót, krytyczny HP pachołka, przerwanie liczenia i zbierania, opóźnione odpowiedzi, regenerację i powrót do eksploracji.
+
 ## 0.7.0-beta.41 — Wieża: dodatkowe punkty za pokonane istoty
 
 - Obsługa komunikatu o bladej iskrze: +1 punkt Kręgów, z odczytem aktualnego stanu „razem N”.
