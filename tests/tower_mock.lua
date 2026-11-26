@@ -20,6 +20,14 @@ local function scenario(opts)
         rooms.D.exits={zachod=rooms.B.id}
         rooms.E={id="aaaa000000000005",name="Zbedna odnoga",exits={wschod=rooms.B.id}}
         rooms.B.exits.zachod=rooms.E.id
+        if opts.guardian_late then
+            rooms.B.exits.poludnie=rooms.D.id
+            rooms.B.exits.wschod=rooms.E.id
+            rooms.B.exits.zachod=rooms.C.id
+            rooms.D.exits={polnoc=rooms.B.id}
+            rooms.E.exits={zachod=rooms.B.id}
+            rooms.C.exits={wschod=rooms.B.id}
+        end
     end
     local ids,lookup={},{}
     local level,area=2,"8e8d3415f86872c6"
@@ -192,6 +200,10 @@ local function scenario(opts)
                 emit("chimera.room.entities",entities)
                 emit("chimera.combat.state",combat)
                 if opts.guardian and position=="D" then remaining_line(0) end
+                if opts.hp_after_guardian and position=="C" then
+                    vitals.hp=opts.hp_after_guardian
+                    emit("chimera.char.vitals",vitals)
+                end
                 if opts.server_score and (not opts.guardian or position=="C") then
                     local score=opts.server_score
                     score_line(level,score.gained,score.total+(level-2)*score.gained)
@@ -248,7 +260,8 @@ local function scenario(opts)
         move=function(key) arrive(key) end, alive=function() return alive end,
         emit=emit, highlights=highlights,border_colors=border_colors,border_widths=border_widths,
         score_line=score_line,unlock_line=unlock_line,remaining_line=remaining_line,
-        envs=envs,colors=colors,visits=visits}
+        envs=envs,colors=colors,visits=visits,
+        heal=function() vitals.hp=100;emit("chimera.char.vitals",vitals) end}
 end
 
 local function contains(values,needle)
@@ -408,6 +421,15 @@ assert(guardian.tower.status().session_points==4)
 assert(guardian.envs[3]~=guardian.envs[1],"exit room has distinct real environment")
 print("Guardian deferred until server quota; unnecessary branch skipped: PASS")
 
+local late=scenario({guardian=true,guardian_late=true,server_score={gained=4,total=18}})
+assert(late.tower.start())
+late.run(70)
+assert(late.tower.status().phase=="COMPLETE",tostring(late.tower.status().reason))
+assert(contains(late.visits,"E"),"The guardian is still unknown, so inspect the next branch")
+assert(not contains(late.sent(),"zabij spare:1"),"Quota met: skip neutral non-guardian")
+assert(contains(late.sent(),"zabij guardian:1"))
+print("Quota before guardian discovery: inspect without fighting spare neutral NPCs: PASS")
+
 local multi=scenario({guardian=true,auto_next=true,server_score={gained=4,total=18}})
 multi.call("exp wieza auto","on")
 assert(multi.tower.start())
@@ -435,6 +457,29 @@ timeout.run(80)
 assert(timeout.tower.status().phase=="PAUSED")
 assert(count(timeout.sent(),"stan na mozaice")==1,"Never repeat unconfirmed ascent")
 print("Unconfirmed ascent pauses without retry: PASS")
+
+local weak=scenario({guardian=true,auto_next=true,hp_after_guardian=70,server_score={gained=4,total=18}})
+weak.call("exp wieza auto","on")
+assert(weak.tower.start())
+weak.run(70)
+assert(weak.tower.status().phase=="RECOVERY")
+assert(count(weak.sent(),"stan na mozaice")==0,"No ascent until HP recovery")
+weak.heal()
+for i=1,15 do
+    weak.run(1)
+    if weak.tower.status().level==3 then break end
+end
+assert(weak.tower.status().level==3 and count(weak.sent(),"stan na mozaice")==1)
+weak.tower.stop("test stop")
+print("Auto ascent waits for team HP recovery: PASS")
+
+local wrong_floor=scenario({auto_next=true,wrong_level=true,server_score={gained=4,total=18}})
+wrong_floor.call("exp wieza auto","on")
+assert(wrong_floor.tower.start())
+wrong_floor.run(70)
+assert(wrong_floor.tower.status().phase=="PAUSED")
+assert(count(wrong_floor.sent(),"stan na mozaice")==1,"Unexpected destination: never retry")
+print("Unexpected next level blocks auto ascent: PASS")
 
 local bodies=scenario({two_corpses=true})
 assert(bodies.tower.start())
