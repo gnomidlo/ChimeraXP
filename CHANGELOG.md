@@ -1,3 +1,10 @@
+## 0.7.0-beta.40 — Wspólne przyciski i komendy Wieży
+
+- Górny pasek, API i aliasy `/exp start|pauza|wznow|stop` używają wspólnego dyspozytora. W Kręgach Shoona start wybiera Wieżę także po STOP lub przeładowaniu, zamiast uruchamiać ostatnie klasyczne expowisko. Zatrzymuje również pozostawiony klasyczny patrol przed weryfikacją wejścia.
+- STOP anuluje oczekującą odpowiedź na mozaikę, zatrzymuje sesję Wieży i nie wyłącza niezależnej Ochrony. Wymaganie mozaiki powrotnej pozostaje bez zmian.
+- HUD rozpoznaje Wieżę nawet przed startem i udostępnia właściwe akcje oraz komendy ustawień zamiast klasycznych profili.
+- Testy regresji: przyciski start/pauza/wznow/stop, aliasy CLI, restart, opóźniona odpowiedź po STOP, stary patrol w Wieży i klasyczne EXP poza Wieżą.
+
 ## 0.7.0-beta.39 — Wieża: AUTO, strażnik, kolory pokojów i sesja
 
 - Opcjonalny automatyczny awans: `/exp wieza auto on|off` (domyślnie wyłączony). Aktywna mozaika, brak walki i próg HP, jedno przejście; następnie nowy poziom/area_id, mapper, świeże GMCP oraz ponowne potwierdzenie mozaiki powrotnej. Nie ponawiamy niepotwierdzonej komendy.

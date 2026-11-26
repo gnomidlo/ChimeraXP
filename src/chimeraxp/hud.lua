@@ -143,6 +143,12 @@ function H.new(ctx,patrol,tactics,stop)
         local selected=find_row(rows,self.selected)
         if (self.menu=="member" or self.menu=="member_advanced") and not selected then self.menu="party" end
         local p=snap.profile;local st=snap.status
+        -- Tower does not have a classic patrol profile. Never render classic
+        -- settings against its synthetic profile or mutate a hidden terrain.
+        if st.tower and (self.menu=="combat" or self.menu=="safety" or self.menu=="loot"
+            or self.menu=="trade" or self.menu=="profiles") then
+            self.menu="settings";self.page=1
+        end
         if self.menu=="party" then
             title="Drużyna"
             toggle("Automatyczna ochrona",ts.on,function() tactics.toggle(not ts.on) end,
@@ -233,6 +239,16 @@ function H.new(ctx,patrol,tactics,stop)
         elseif self.menu=="areas" or self.menu=="allareas" then
             local all=self.menu=="allareas"
             title=all and "Wszystkie expowiska" or "Najbliższe expowiska"
+            if st.tower then
+                title="Wieża — Kręgi Shoona"
+                add(p and p.name or "Wieża",nil,P.lavender,"hint")
+                add(st.started and (st.paused and "▶ Wznów Wieżę" or "Ⅱ Wstrzymaj Wieżę") or "▶ Uruchom Wieżę",
+                    function() request(st.started and (st.paused and "wznow" or "pauza") or "start") end,P.mint)
+                add("■ Zatrzymaj Wieżę",stop,P.rose)
+                add("Status Wieży",function() prefill("wieza status") end)
+                add("Punkty sesji",function() prefill("wieza sesja") end)
+                return items,title,"Start z komnaty mozaiki powrotnej."
+            end
             local profiles={}
             if all then
                 for key,v in pairs(snap.profiles) do profiles[#profiles+1]={key=key,value=v} end
@@ -262,6 +278,15 @@ function H.new(ctx,patrol,tactics,stop)
             note="Kliknij teren, aby wybrać. Zarobek przełączysz obok nazwy."
         elseif self.menu=="settings" then
             title="Ustawienia ChimeraXP"
+            if st.tower then
+                add("Wieża — ustawienia przez /exp wieza",nil,P.lavender,"hint")
+                add("Status Wieży",function() prefill("wieza status") end)
+                add("Automatyczny awans…",function() prefill("wieza auto ") end)
+                add("Progi HP…",function() prefill("wieza hp ") end)
+                add("Lista łupów",function() prefill("wieza lup lista") end)
+                add("Punkty sesji",function() prefill("wieza sesja") end)
+                return items,title,"Ustawienia klasycznych expowisk są oddzielne."
+            end
             for _,entry in ipairs({{"combat","Walka i cele",ICON.attack},{"safety","Schronienie i powrót",ICON.safety},
                 {"loot","Łupy",ICON.loot},{"trade","Auto-zarobek",ICON.trade},
                 {"profiles","Zarządzanie terenami",ICON.map},{"session","Sesja i komunikaty",ICON.session}}) do
@@ -381,7 +406,7 @@ function H.new(ctx,patrol,tactics,stop)
         -- Status LED is visible even with the dropdown closed. The pilot
         -- cares about AUTO on/off, not a tiny grey-on-grey shield glyph.
         nav("tactics","●","Ochrona",widths[2],tacticscolor)
-        nav("areas",ICON.area,"Expowiska",widths[3],xpcolor)
+        nav("areas",ICON.area,st.tower and "Wieża" or "Expowiska",widths[3],xpcolor)
         widget("pause",self.root,right,y,cw-3,bh,
             (not st.started or st.paused) and ICON.play or ICON.pause,
             st.paused and P.yellow or P.mint,P.card,

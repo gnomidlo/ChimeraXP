@@ -773,7 +773,11 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     loot=Loot.new(ctx,gmcp_api,message)
     local function status()
         local a=run
-        if not a then return {started=false,paused=false,phase="OFF",defensive_only=true,partyAttack=false} end
+        if not a then
+            return {started=false,paused=false,pending=start_pending~=nil,
+                phase=start_pending and "VERIFY_ENTRY" or "OFF",defensive_only=true,
+                partyAttack=config.partyAttack,level=tower_info(current())}
+        end
         local rooms,cleared=0,0
         for _,n in pairs(a.rooms) do rooms=rooms+1;if n.cleared then cleared=cleared+1 end end
         return {started=a.started,paused=a.paused,phase=a.phase,defensive_only=
@@ -1247,6 +1251,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
     end)
     return {status=status,start=start,pause=pause,resume=resume,stop=stop,
+        in_tower=function() return tower_info(current())~=nil end,
         issuing_attack_order=function() return ours end,
         party_attack_enabled=function()
             return run and run.started and not run.paused and config.partyAttack or false

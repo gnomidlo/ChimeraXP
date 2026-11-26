@@ -349,6 +349,7 @@ do
         and api.snapshot().profile.partyAttack==false,
         "Direct CLI edits the same Tower preference as the GUI")
     api.tower.stop("Test: end")
+    h.p.room.area=nil;h.p.room.area_id=nil
     h.commands["exp druzyna"]("on")
     assert(api.snapshot().profile.partyAttack==true,
         "Outside Tower the same command still configures classic EXP")
@@ -356,6 +357,70 @@ do
         "Editing classic EXP does not overwrite last Tower preference")
     h.dispose()
     getRoomHashByID=nil
+end
+-- After reload, STOP or a finished floor, the generic controls must infer
+-- Shoona from GMCP rather than launching the previously selected expowisko.
+do
+    local h=fixture();local api=h.api
+    getRoomHashByID=function(id) if id==1 then return "rooma" end end
+    h.p.room.area="Kregi Shoona, poziom 4 #852429670"
+    h.p.room.area_id="3fa8938ee59274e7"
+    api.hud:render()
+    assert(api.status().tower and not api.status().started)
+    assert(api.hud.labels.areas.html:find("Wieża",1,true))
+    local reply=h.triggers[ [[^Mozaika tli sie zimnym blaskiem\.]] ]
+    api.tactics.toggle(true)
+    api.hud.labels.pause.widget.click()
+    assert(api.tower.status().pending and h.sent[#h.sent]=="ob mozaike",
+        "toolbar PLAY verifies the Tower entrance")
+    api.hud.labels.stop.widget.click()
+    assert(not api.tower.status().pending and not api.status().started)
+    reply()
+    assert(not api.tower.status().started,"late reply after STOP must not start")
+    h.commands["exp start"]()
+    assert(api.tower.status().pending,"generic CLI start verifies Shoona")
+    reply()
+    assert(api.tower.status().started and api.status().tower)
+    api.hud.labels.pause.widget.click()
+    assert(api.tower.status().paused,"toolbar pause targets Tower")
+    h.commands["exp wznow"]()
+    assert(not api.tower.status().paused,"generic CLI resume targets Tower")
+    h.commands["exp pauza"]()
+    assert(api.tower.status().paused,"generic CLI pause targets Tower")
+    api.hud.labels.pause.widget.click()
+    assert(not api.tower.status().paused,"toolbar resumes Tower")
+    h.commands["exp stop"]()
+    assert(not api.status().started and api.tactics.status().on,
+        "generic STOP stops Tower but preserves independent Defense")
+    api.hud.labels.pause.widget.click()
+    assert(api.tower.status().pending,"toolbar restarts after STOP")
+    reply()
+    assert(api.tower.status().started)
+    api.hud:open("settings")
+    assert(visible_item(h,"Automatyczny awans"),"Tower settings do not render classic-only rules")
+    api.hud.labels.stop.widget.click()
+    h.p.room.area=nil;h.p.room.area_id=nil
+    api.hud:render()
+    h.commands["exp start"]()
+    assert(api.status().started and not api.status().tower,"outside Tower classic start works")
+    h.dispose();getRoomHashByID=nil
+end
+-- Recover a stale paused classic patrol in Shoona (the reported bug).
+do
+    local h=fixture();local api=h.api
+    api.request("start");api.request("pauza")
+    assert(api.status().started and api.status().paused)
+    getRoomHashByID=function(id) if id==1 then return "rooma" end end
+    h.p.room.area="Kregi Shoona, poziom 4 #852429670"
+    h.p.room.area_id="3fa8938ee59274e7"
+    h.commands["exp start"]()
+    assert(api.tower.status().pending and api.status().tower,
+        "START in Shoona discards stale classic patrol before entry verification")
+    h.triggers[ [[^Mozaika tli sie zimnym blaskiem\.]] ]()
+    assert(api.tower.status().started)
+    h.commands["exp stop"]()
+    assert(not api.status().started)
+    h.dispose();getRoomHashByID=nil
 end
 Geyser=nil
 do
