@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.38",
+    version = "0.7.0-beta.39",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2276,7 +2276,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.38 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.39 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2403,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.38"},
+                {"Wersja", "0.7.0-beta.39"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3377,8 +3377,7 @@ end
 return L
 end
 factories["tower"] = function()
--- ChimeraXP: Kregi Shoona, conservative one-floor explorer.
--- Never uses 'stan na mozaice': a completed floor stops on the exit mosaic.
+-- ChimeraXP: Kregi Shoona, server-driven exploration and opt-in ascent.
 local T={}
 local DIRECTIONS={
     polnoc="n",poludnie="s",wschod="e",zachod="w",
@@ -3388,6 +3387,7 @@ local DIRECTIONS={
 }
 local COLORS={ start={96,165,250}, ["return"]={147,197,253},
     inactive={253,186,116}, active={134,239,172} }
+local ENV={start=61001,["return"]=61001,inactive=61002,active=61003}
 local DEFAULT_LOOT={"zlote monety","mithrylowe monety","kamienie","szkatulki"}
 local function trim(s) return tostring(s or ""):gsub("^%s+",""):gsub("%s+$","") end
 local function tower_info(r)
@@ -3438,7 +3438,7 @@ end
 local function frontier(rooms,current)
     local best
     for origin,node in pairs(rooms) do
-        if node.visited and node.cleared then
+        if node.visited and (node.cleared or node.deferred) then
             for dir,target in pairs(node.exits) do
                 if type(target)=="string" and target~="" and not rooms[target]
                     and not (node.blocked and node.blocked[dir]) then
@@ -3470,13 +3470,15 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     -- Tower and classic patrol have independent group-focus settings.
     -- Existing Tower sessions have always sent a group attack order.
     if type(config.partyAttack)~="boolean" then config.partyAttack=true end
+    config.autoAscent=config.autoAscent==true
     -- Small persistent history of scores issued by the server, not a local
     -- estimate from the number of mobs or a guessed boss threshold.
     if type(config.results)~="table" then config.results={} end
     local run,ours,stop_walk,deleted=nil,false,false,false
     -- Entrance verification is independent of the active explorer. Never
     -- trust an exact room title: the game changes its phrasing between floors.
-    local start_pending, start_verified
+    local start_pending, start_verified, begin_entry, auto_advance, poll_transition, queue
+    local session
     local function notify() if changed then changed() end end
     local function message(msg,warn)
         if warn then ctx.log.warn("[Wieza] "..msg)
@@ -3512,6 +3514,38 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             if type(rec)=="table" and rec.area_id==area_id then return rec end
         end
     end
+    local function session_floor(a)
+        if not session or not a then return end
+        local row=session.by_area[a.area_id]
+        if not row then
+            row={area_id=a.area_id,level=a.level}
+            session.by_area[a.area_id]=row
+            session.rows[#session.rows+1]=row
+        end
+        return row
+    end
+    local function session_totals()
+        local floors,points,missing=0,0,0
+        for _,row in ipairs(session and session.rows or {}) do
+            if row.finished then floors=floors+1 end
+            if row.score then points=points+row.score.gained
+            elseif row.finished then missing=missing+1 end
+        end
+        return floors,points,missing
+    end
+    local function report_session()
+        local floors,points,missing=session_totals()
+        local rows={}
+        for _,row in ipairs(session and session.rows or {}) do
+            if row.finished or row.score then
+                rows[#rows+1]={"Poziom "..row.level,row.score and
+                    ("+"..row.score.gained.." pkt | razem "..row.score.total) or "brak nowego wyniku serwera"}
+            end
+        end
+        rows[#rows+1]={"Pietra zakonczone",tostring(floors)}
+        rows[#rows+1]={"Punkty w sesji","+"..points..(missing>0 and " (niepelne dane)" or "")}
+        ctx:report("ChimeraXP | Wieza - sesja",rows)
+    end
     local function score_text(rec)
         if not rec then return "punktacja: brak komunikatu serwera" end
         return "poziom "..rec.level..": +"..rec.gained.." pkt Kregow (razem "..rec.total..")"
@@ -3527,7 +3561,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if prior then
             if prior.level~=level then return end
             if prior.gained==gained and prior.total==total then
-                if run and this_floor(r) then run.score=prior end
+                if run and this_floor(r) then
+                    run.score=prior;run.server_clear=true
+                end
                 return
             end
             prior.gained,prior.total=gained,total
@@ -3540,6 +3576,9 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if run and this_floor(r) then
             run.score=prior
             run.server_clear=true
+            local row=session_floor(run)
+            if row then row.score=prior end
+            if queue then queue(0) end
         end
         persist()
         message("Serwer: "..score_text(prior))
@@ -3559,71 +3598,35 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     end
     local function paint(id,kind)
         if not run then return end
-        if type(highlightRoom)~="function" then return end
-        local number,color=map_id(id),COLORS[kind]
-        if number and color then
+        local number,color,env=map_id(id),COLORS[kind],ENV[kind]
+        if not number or not color then return end
+        if type(setRoomEnv)=="function" and type(setCustomEnvColor)=="function" then
+            setCustomEnvColor(env,color[1],color[2],color[3],255)
+            setRoomEnv(number,env)
+            if type(updateMap)=="function" then updateMap() end
+        elseif type(highlightRoom)=="function" then
             highlightRoom(number,color[1],color[2],color[3],color[1],color[2],color[3],0.85,180,0)
         end
     end
-
-    -- The entrance has a persistent blue border as well as a blue highlight:
-    -- the official /zaznaczaj and walker overlays can replace highlightRoom.
-    -- Preserve any previous custom border and restore it when this run ends.
     local function paint_start()
-        if not run then return end
-        local number=map_id(run.safe)
-        if not number then return end
-        paint(run.safe,"start")
-        if type(setRoomBorderColor)~="function" then return end
-        if not run.start_border then
-            local r,g,b,a
-            if type(getRoomBorderColor)=="function" then
-                r,g,b,a=getRoomBorderColor(number)
-            end
-            local thickness
-            if type(getRoomBorderThickness)=="function" then
-                thickness=getRoomBorderThickness(number)
-            end
-            run.start_border={room=number,
-                old_color=type(r)=="number" and {r,g,b,a or 255} or false,
-                old_thickness=type(thickness)=="number" and thickness or false}
-        end
-        setRoomBorderColor(number,96,165,250,255)
-        if type(setRoomBorderThickness)=="function" then
-            setRoomBorderThickness(number,3)
-        end
+        if run then paint(run.safe,"start") end
     end
     local function marks()
         if not run or not this_floor(current()) then return end
         for id,node in pairs(run.rooms) do
-            if id~=run.safe and node.mosaic and COLORS[node.mosaic] then
-                paint(id,node.mosaic)
-            end
+            if id~=run.safe and node.mosaic and COLORS[node.mosaic] then paint(id,node.mosaic) end
         end
         paint_start()
     end
     local function clear_marks(r)
-        if not r then return end
-        if type(unHighlightRoom)=="function" then
-            for id,node in pairs(r.rooms) do
-                if (id==r.safe or node.mosaic) and COLORS[id==r.safe and "start" or node.mosaic] then
-                    local number=map_id(id)
-                    if number then unHighlightRoom(number) end
-                end
-            end
-        end
-        local border=r.start_border
-        if border and map_id(r.safe)==border.room then
-            if border.old_color and type(setRoomBorderColor)=="function" then
-                setRoomBorderColor(border.room,border.old_color[1],border.old_color[2],
-                    border.old_color[3],border.old_color[4])
-            elseif type(clearRoomBorderColor)=="function" then
-                clearRoomBorderColor(border.room)
-            end
-            if border.old_thickness and type(setRoomBorderThickness)=="function" then
-                setRoomBorderThickness(border.room,border.old_thickness)
-            elseif type(clearRoomBorderThickness)=="function" then
-                clearRoomBorderThickness(border.room)
+        -- Real room colours survive STOP and manual movement. Official mapper
+        -- deletes old generated rooms on a new area_id.
+        if type(setRoomEnv)=="function" and type(setCustomEnvColor)=="function" then return end
+        if not r or type(unHighlightRoom)~="function" then return end
+        for id,node in pairs(r.rooms) do
+            if id==r.safe or node.mosaic then
+                local number=map_id(id)
+                if number then unHighlightRoom(number) end
             end
         end
     end
@@ -3646,8 +3649,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     end
     local loot
     local evaluate
-    local function queue(delay)
-        if not run or not run.started or run.paused or run.pending or run.moving then return end
+    queue=function(delay)
+        if not run or not run.started or run.paused or run.pending or run.moving or run.transition then return end
         if run.timer then return end
         local r=run
         timer(r,delay or 0,function() evaluate() end)
@@ -3658,6 +3661,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         cancel(r)
         loot.stop()
         r.pending=nil
+        r.transition=nil
+        cancel_start_pending()
         if r.moving and r.moving.kind=="walk" then
             stop_walk=true;walker.stop("Wieza: pauza");stop_walk=false
         end
@@ -3683,6 +3688,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
         clear_marks(r)
         run=nil
+        if session then report_session() end
         message(reason or "Zatrzymano")
     end
     local function valid_entities(r)
@@ -3819,14 +3825,16 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             if not here or here.id~=pending.room or here.area_id~=pending.area_id
                 or tower_info(here)~=pending.level then
                 cancel_start_pending()
-                message("Nie moge potwierdzic mozaiki: zmieniono pokoj lub pietro.",true)
+                if pending.owner and run==pending.owner then pause("Awans: zmieniono pokoj podczas weryfikacji")
+                else message("Nie moge potwierdzic mozaiki: zmieniono pokoj lub pietro.",true) end
                 return
             end
             cancel_start_pending()
             if kind=="return" then
                 start_verified(pending)
             else
-                message("Start wymaga mozaiki POWROTNEJ. Odpowiedz 'ob mozaike': "..kind..".",true)
+                if pending.owner and run==pending.owner then pause("Awans: brak mozaiki powrotnej")
+                else message("Start wymaga mozaiki POWROTNEJ. Odpowiedz 'ob mozaike': "..kind..".",true) end
             end
             return
         end
@@ -3849,6 +3857,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
                 return pause("Wykryto wiecej niz jedna mozaike wyjsciowa")
             end
             r.exit=current().id
+            if kind=="active" then r.exit_ready=true;node.deferred=nil end
         end
         if kind=="return" and current().id==r.safe then paint_start()
         elseif kind=="active" or kind=="inactive" then paint(current().id,kind) end
@@ -3856,12 +3865,19 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if kind=="return" and current().id==r.safe then node.cleared=true end
         if verify then
             if kind=="active" and r.exit==current().id then
-                r.done=true;r.started=false;r.phase="COMPLETE";r.reason="Mozaika aktywna"
-                -- The server score may precede discovering the exit by many
-                -- rooms. Show its recorded values here, never a calculated sum.
-                message("Mozaika aktywna; "..score_text(r.score)..
-                    ". Przejdz recznie: stan na mozaice.")
+                local fighting=combat(current())
+                if fighting~=false or not valid_entities(current()) then queue(0);return end
+                r.done=true;r.phase="COMPLETE";r.reason="Mozaika aktywna"
+                local row=session_floor(r)
+                if row then row.finished=true end
                 report_score(r.score,"ChimeraXP | Wieza - koniec pietra")
+                report_session()
+                if config.autoAscent then auto_advance(r)
+                else
+                    r.started=false
+                    message("Mozaika aktywna; "..score_text(r.score)..
+                        ". Przejdz recznie: stan na mozaice.")
+                end
             else
                 pause("Mozaika nie jest aktywna mimo zamknietej eksploracji. Sprawdz przejscia.")
             end
@@ -3877,6 +3893,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             if run~=owner or not owner.started or owner.paused then return end
             owner.pending=nil
             node.cleared=true
+            node.loot_due=false
             owner.phase="READY"
             queue(0)
         end,function(reason)
@@ -3946,7 +3963,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     end
     evaluate=function()
         local a=run
-        if deleted or not a or not a.started or a.paused or a.pending then return end
+        if deleted or not a or not a.started or a.paused or a.pending or a.transition then return end
         local r=current()
         if not r or not this_floor(r) then pause("Zmiana pietra lub losowania; nie kontynuuje automatycznie");return end
         if not map_id(r.id) or map_id(r.id)~=mapper.current_room() then
@@ -4006,11 +4023,26 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
         if a.moving then return end
         local enemies_list=enemies(r)
-        if #enemies_list>config.limit then
+        local node=a.rooms[r.id]
+        -- Inspect before initiating combat; active attacks and HP take priority.
+        if not node.scanned and not in_combat then start_mosaic(false);return end
+        local hostile=false
+        for _,e in ipairs(enemies_list) do if e.relation=="hostile" then hostile=true end end
+        local quota_met=a.remaining==0 or a.server_clear or a.exit_ready
+        local defer_guardian=r.id==a.exit and not quota_met and not a.guardian_force
+            and not in_combat and not hostile and #enemies_list>0
+        local exit_priority=a.exit and quota_met and not in_combat and not hostile
+            and not a.pending_attack and (r.id~=a.exit or a.exit_ready)
+        if defer_guardian then
+            node.deferred=true;node.cleared=false
+        elseif #enemies_list>0 and not exit_priority then
+            node.deferred=nil
+        end
+        if #enemies_list>config.limit and not defer_guardian and not exit_priority then
             pause("Zbyt wielu przeciwnikow ("..#enemies_list.."/"..config.limit.."). Zwieksz /exp wieza limit lub interweniuj.")
             return
         end
-        if #enemies_list>0 then
+        if #enemies_list>0 and not defer_guardian and not exit_priority then
             if r.id==a.safe then pause("Przeciwnicy w bezpiecznej komnacie startowej");return end
             a.rooms[r.id].cleared=false
             -- Only rooms containing a hostile encounter can need corpse/ground
@@ -4029,13 +4061,12 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             if os.time()-a.pending_attack.at<4 then queue(1);return end
             a.pending_attack=nil
         end
-        local node=a.rooms[r.id]
         if not node.scanned then start_mosaic(false);return end
-        if not node.cleared then
+        if not node.cleared and not defer_guardian and (not exit_priority or node.loot_due or #enemies_list==0) then
             if not node.loot_due then
                 -- No detected hostile, combat or party kill: clean room,
                 -- without counting corpses or sending any loot commands.
-                node.cleared=true
+                node.cleared=#enemies_list==0
                 a.phase="READY"
                 queue(0)
                 return
@@ -4053,12 +4084,16 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if r.id==a.safe and hp<config.returnHP then
             a.phase="RECOVERY";queue(3);return
         end
+        if a.exit and quota_met then
+            if r.id~=a.exit then walk_to(a.exit,"exit");return end
+            if a.exit_ready or #enemies_list==0 then start_mosaic(true);return end
+        end
         -- A known intermediate walker room may have been crossed without
         -- inspection. Return and clear it before declaring this floor done.
         local candidate=frontier(a.rooms,r.id)
         local nearest_unprocessed
         for id,node in pairs(a.rooms) do
-            if id~=r.id and node.visited and not node.cleared then
+            if id~=r.id and node.visited and not node.cleared and not node.deferred then
                 local route=path(a.rooms,r.id,id)
                 if route and (not nearest_unprocessed or #route<nearest_unprocessed.steps
                     or (#route==nearest_unprocessed.steps and id<nearest_unprocessed.target)) then
@@ -4077,6 +4112,12 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             else
                 walk_to(candidate.origin,"frontier")
             end
+            return
+        end
+        -- If no other reachable room remains, revisit the deferred guardian.
+        if a.exit and a.rooms[a.exit].deferred then
+            a.guardian_force=true
+            if r.id~=a.exit then walk_to(a.exit,"guardian") else queue(0) end
             return
         end
         -- No reachable frontier left: only the *server* can confirm completion.
@@ -4100,7 +4141,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             exit=a.exit,mosaic=a.exit and a.rooms[a.exit] and a.rooms[a.exit].mosaic,
             safe=a.safe,reason=a.reason,done=a.done or false,
             score=a.score,server_clear=a.server_clear or false,
-            exit_ready=a.exit_ready or false}
+            exit_ready=a.exit_ready or false,remaining=a.remaining,autoAscent=config.autoAscent,
+            session_points=select(2,session_totals())}
     end
     local function print_status()
         local s=status()
@@ -4114,7 +4156,10 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             {"Powod",tostring(s.reason or "-")},
             {"HP odwrot/powrot",config.retreat.."% / "..config.returnHP.."%"},
             {"Limit przeciwnikow",tostring(config.limit)},
-            {"Lupy",table.concat(config.loot,", ")}
+            {"Lupy",table.concat(config.loot,", ")},
+            {"Istoty do pokonania",s.remaining~=nil and tostring(s.remaining) or "brak komunikatu"},
+            {"Automatyczny awans",config.autoAscent and "WL." or "WYL."},
+            {"Punkty w sesji","+"..select(2,session_totals())}
         })
     end
     local function print_score()
@@ -4138,6 +4183,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             message("Zmiana lokacji podczas potwierdzania startu.",true)
             return
         end
+        if not pending.continue_session or not session then session={rows={},by_area={}} end
         run={started=true,paused=false,phase="READY",level=pending.level,seed=pending.seed,
             area_id=pending.area_id,safe=r.id,rooms={},exit=nil,entities_confirmed=true,kills=0,
             score=recorded_score(pending.area_id)}
@@ -4148,13 +4194,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         node.cleared=true
         paint_start()
         message("Potwierdzona mozaika powrotna. Poziom "..run.level..
-            ". Rozpoczynam eksploracje; NIE przejde automatycznie dalej.")
+            ". Rozpoczynam eksploracje; awans "..(config.autoAscent and "AUTO." or "reczny."))
         queue(0)
     end
     local function start()
         if run and run.started then message("Wieza dziala lub jest w pauzie; uzyj /exp wieza wznow albo stop.",true);return false end
         if start_pending then message("Juz sprawdzam mozaike wejscia; czekam na odpowiedz.",true);return false end
-        if run and run.done then clear_marks(run);run=nil end
+        local previous=run and run.done and run or nil
         if patrol_status().started then message("Najpierw zatrzymaj klasyczny EXP.",true);return false end
         local r=current()
         local level,seed=tower_info(r)
@@ -4173,26 +4219,82 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if reason then message(reason,true);return false end
         -- A return mosaic is the only reliable evidence of the entrance.
         -- Verify its live server response BEFORE assigning the safe lock.
-        local pending={room=r.id,area_id=r.area_id,level=level,seed=seed}
+        local continue_session=previous and level==previous.level+1 and r.area_id~=previous.area_id
+        if previous then clear_marks(previous);run=nil end
+        return begin_entry({room=r.id,area_id=r.area_id,level=level,seed=seed,
+            continue_session=continue_session})
+    end
+    begin_entry=function(pending)
         start_pending=pending
         pending.timer=ctx:timer(5,function()
             if start_pending==pending then
                 cancel_start_pending()
-                message("Brak odpowiedzi na 'ob mozaike' (5 s). Start anulowany.",true)
+                if pending.owner and run==pending.owner then pause("Brak potwierdzenia mozaiki powrotnej po awansie")
+                else message("Brak odpowiedzi na 'ob mozaike' (5 s). Start anulowany.",true) end
             end
         end)
         message("Sprawdzam mozaike powrotna przed uruchomieniem...")
         local ok,err=pcall(ctx.send,ctx,"ob mozaike")
         if not ok then
             if start_pending==pending then cancel_start_pending() end
-            message("Nie udalo sie sprawdzic mozaiki: "..tostring(err),true)
+            if pending.owner and run==pending.owner then pause("Nie udalo sie sprawdzic mozaiki po awansie: "..tostring(err))
+            else message("Nie udalo sie sprawdzic mozaiki: "..tostring(err),true) end
             return false
         end
         return true
     end
+    poll_transition=function(a)
+        if run~=a or not a.started or a.paused or not a.transition then return end
+        local r=current()
+        local level,seed=tower_info(r)
+        if r and r.id~=a.transition.origin then
+            if level~=a.level+1 or r.area_id==a.area_id then
+                pause("Awans: nieoczekiwana lokacja/poziom. Sprawdz recznie.");return
+            end
+            local packet=gmcp_api.entities()
+            local fighting=combat(r)
+            if map_id(r.id) and map_id(r.id)==mapper.current_room() and packet
+                and packet.room==r.id and type(packet.entities)=="table" and fighting==false
+                and gmcp_api.connected() and health() then
+                local reason=integration and integration.check and integration.check({economy={enabled=true},loot=config.loot})
+                if reason then pause(reason);return end
+                if #enemies(r)>0 then pause("Awans: przeciwnicy na nowym wejsciu");return end
+                return begin_entry({room=r.id,area_id=r.area_id,level=level,seed=seed,
+                    continue_session=true,owner=a})
+            end
+        end
+        if os.time()-a.transition.at>=15 then
+            pause("Brak potwierdzenia nowego pietra po 15 s; nie ponawiam mozaiki.");return
+        end
+        timer(a,0.5,function() poll_transition(a) end)
+    end
+    auto_advance=function(a)
+        local r=current()
+        local hp=health()
+        if not r or not this_floor(r) or r.id~=a.exit or r.id==a.safe
+            or not valid_entities(r) or combat(r)~=false or not hp or hp<config.returnHP then
+            a.started=false
+            message("Awans AUTO wstrzymany: wejdz recznie, gdy bedzie bezpiecznie.",true)
+            return
+        end
+        for _,e in ipairs(enemies(r)) do
+            if e.relation=="hostile" then a.started=false;message("Awans AUTO wstrzymany: wrog w pokoju.",true);return end
+        end
+        local reason=integration and integration.check and integration.check({economy={enabled=true},loot=config.loot})
+        if reason then a.started=false;message(reason,true);return end
+        a.phase="ASCENDING"
+        a.transition={origin=r.id,at=os.time()}
+        message("Mozaika aktywna; przechodze na kolejny poziom.")
+        if send_own("stan na mozaice") and run==a and a.transition then
+            timer(a,0.5,function() poll_transition(a) end)
+        end
+    end
     local function resume()
         if not run or not run.started or not run.paused then
             message("Brak wstrzymanej eksploracji.",true);return false
+        end
+        if run.done then
+            message("Awans niepotwierdzony. Uzyj stop, sprawdz wejscie i uruchom start.",true);return false
         end
         if not this_floor(current()) then
             message("Nie mozna wznowic: zmienila sie instancja lub poziom.",true);return false
@@ -4245,6 +4347,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     ctx:command{"exp wieza",help="Status eksploracji Kregow Shoona",fn=print_status}
     ctx:command{"exp wieza punkty",help="Ostatni zapisany wynik Kregow",fn=print_score}
     ctx:command{"exp wieza historia",help="Historia punktow za poziomy Kregow",fn=print_score_history}
+    ctx:command{"exp wieza sesja",help="Wyniki poziomow i suma punktow biezacej sesji",fn=report_session}
+    ctx:command{"exp wieza auto",args="[on|off]",help="Automatyczny awans na kolejne pietro",fn=function(arg)
+        arg=trim(arg):lower()
+        if run and run.transition then message("Poczekaj na potwierdzenie awansu lub uzyj stop.",true);return end
+        if arg=="on" or arg=="off" then config.autoAscent=arg=="on";persist() end
+        message("Automatyczny awans: "..(config.autoAscent and "WLACZONY" or "WYLACZONY"))
+    end}
     for _,action in ipairs({"start","pauza","wznow","stop","status"}) do
         local command=action
         ctx:command{"exp wieza "..command,help="Wieza: "..command,fn=function()
@@ -4300,11 +4409,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             local here=current()
             if not here or here.id~=start_pending.room or here.area_id~=start_pending.area_id then
                 cancel_start_pending()
-                message("Zmiana pokoju przed potwierdzeniem mozaiki; start anulowany.",true)
+                if run and run.transition then pause("Awans: zmiana pokoju przed potwierdzeniem wejscia")
+                else message("Zmiana pokoju przed potwierdzeniem mozaiki; start anulowany.",true) end
             end
         end
         local a=run
         if not a or not a.started or a.paused then return end
+        if a.transition then return end
         local r=current()
         if not r or not this_floor(r) then
             pause("Opuszczono pietro lub zmienilo sie losowanie.");return
@@ -4380,7 +4491,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     ctx:on("chimera.combat.state",function(packet)
         if run and run.started and not run.paused then
             local r=current()
-            if r and packet and packet.room==r.id then
+            if r and this_floor(r) and packet and packet.room==r.id then
                 local active=type(packet.relations)=="table" and #packet.relations>0
                 if active then
                     run.last_combat=r.id
@@ -4435,15 +4546,43 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         local m=rawget(_G,"matches")
         if type(m)=="table" then record_score(m[2],m[3],m[4]) end
     end)
-    -- This names the guardian's chamber but NOT its map ID. Do not guess a
-    -- room, simulate an 80% threshold or trigger "stan na mozaice".
-    ctx:trigger([[^Gdzies w komnacie straznika rozjarza sie mozaika przejscia\.$]],function()
+    -- The server supplies remaining creatures, not an estimated percentage.
+    local function remaining_count(n)
         local r=current()
-        if not run or not this_floor(r) or run.exit_ready then return end
-        run.exit_ready=true
-        message("Serwer odblokowal mozaike przejscia w komnacie straznika."..
-            " Kontynuuje bezpieczna eksploracje; przejscie pozostaje reczne.")
+        if not run or not run.started or not this_floor(r) then return end
+        run.remaining=tonumber(n)
+        if run.remaining~=nil then
+            notify();queue(0)
+        end
+    end
+    ctx:trigger([[^Gdzies w kregu cichnie kolejne echo\. Do przejscia trzeba jeszcze pokonac (\d+) istot(?:e|y)?, a straznik kregu wciaz czeka\.$]],function()
+        local m=rawget(_G,"matches")
+        if type(m)=="table" then remaining_count(m[2]) end
     end)
+    ctx:trigger([[^Gdzies w kregu cichnie kolejne echo\. Dosc istot padlo, a straznik kregu wciaz czeka\.$]],function()
+        remaining_count(0)
+    end)
+    local function unlocked(local_room)
+        local r=current()
+        if not run or not this_floor(r) then return end
+        if local_room and r.id~=run.safe then
+            observe(r)
+            if run.exit and run.exit~=r.id then
+                pause("Niezgodne polozenie mozaiki przejscia");return
+            end
+            run.exit=r.id
+            local node=run.rooms[r.id]
+            node.mosaic="active";node.scanned=true;node.deferred=nil
+            paint(r.id,"active")
+        end
+        if not run.exit_ready then
+            run.exit_ready=true
+            message("Serwer odblokowal mozaike. Kieruje sie do komnaty straznika.")
+        end
+        queue(0)
+    end
+    ctx:trigger([[^Gdzies w komnacie straznika rozjarza sie mozaika przejscia\.$]],function() unlocked(false) end)
+    ctx:trigger([[^Krag mozaiki w posadzce rozjarza sie jasnym blaskiem\.$]],function() unlocked(true) end)
     ctx:trigger([[^Nie zauwazasz niczego takiego\.$]],function() mosaic_answer("none") end)
     ctx:trigger([[^Mozaika tli sie zimnym blaskiem\.]],function() mosaic_answer("return") end)
     ctx:trigger([[^Krag mozaiki jest martwy\.]],function() mosaic_answer("inactive") end)
