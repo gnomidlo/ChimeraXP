@@ -1,8 +1,10 @@
-# ChimeraXP — Wieża (Kręgi Shoona), beta.39
+# ChimeraXP — Wieża (Kręgi Shoona), beta.40
 
 Tryb domyślny zatrzymuje się na aktywnej mozaice. `/exp wieza auto on` włącza opcjonalny automatyczny awans. Moduł korzysta z rzeczywistego licznika pozostałych istot i potwierdzeń serwera, a nie szacowanego progu procentowego.
 
 ## Jak uruchomić
+
+Górny pasek i `/exp start`, `/exp pauza`, `/exp wznow`, `/exp stop` rozpoznają Kręgi Shoona przez GMCP. Start nadal wymaga potwierdzonej mozaiki powrotnej; STOP anuluje także oczekującą weryfikację wejścia. Poza Wieżą komendy pozostają klasyczne.
 
 1. Zainstaluj oficjalną Chimerę **5.0.4-beta.2** lub nowszą z obsługą mapowania Kręgów Shoona. Wyłącz oficjalne `/zbieranie`, `/autopogon` i `/autowsparcie` oraz konkurencyjne automaty, które sterują ruchem lub walką.
 2. **Stanąć w komnacie wejściowej nowego piętra**, przy mozaice powrotnej (nazwa lokacji może się różnić) przy aktualnych GMCP Room.Info, Room.Entities, Combat.State i Group.State.
