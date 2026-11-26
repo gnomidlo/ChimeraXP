@@ -101,6 +101,12 @@ local function scenario(opts)
         _G.matches=original
         assert(ok,"Tower score trigger not registered or failed")
     end
+    local function spark_line(total)
+        local original=rawget(_G,"matches")
+        _G.matches={"Blada iskra Kregow ulatuje znad pokonanej istoty -- zyskujesz punkt Kregow (razem "..total..").",tostring(total)}
+        text_line("Blada iskra Kregow ulatuje")
+        _G.matches=original
+    end
     local function unlock_line()
         text_line("Gdzies w komnacie straznika rozjarza sie mozaika przejscia")
     end
@@ -259,7 +265,7 @@ local function scenario(opts)
         sent=function() return report.sent or {} end, report=report,position=function() return position end,
         move=function(key) arrive(key) end, alive=function() return alive end,
         emit=emit, highlights=highlights,border_colors=border_colors,border_widths=border_widths,
-        score_line=score_line,unlock_line=unlock_line,remaining_line=remaining_line,
+        score_line=score_line,spark_line=spark_line,unlock_line=unlock_line,remaining_line=remaining_line,
         envs=envs,colors=colors,visits=visits,
         heal=function() vitals.hp=100;emit("chimera.char.vitals",vitals) end}
 end
@@ -399,6 +405,41 @@ assert(restored.report["ChimeraXP | Wieza - punkty"][2][2]=="+4",
     "Saved results survive rebuilding the module")
 assert(not contains(scored.sent(),"stan na mozaice"))
 print("Server scores, persistent history, mosaic announcement and completion report: PASS")
+
+local sparks=scenario({server_score={gained=4,total=36}})
+assert(sparks.tower.start())
+sparks.spark_line(31)
+sparks.spark_line(31)
+sparks.spark_line(32)
+sparks.spark_line(31)
+local spark_status=sparks.tower.status()
+assert(spark_status.session_points==2 and spark_status.score.mob_gained==2)
+assert(not spark_status.server_clear and not spark_status.exit_ready,
+    "Spark rewards must not change completion or guardian routing")
+sparks.run(45)
+assert(sparks.tower.status().phase=="COMPLETE")
+local result=sparks.tower.status().score
+assert(result.gained==6 and result.mob_gained==2 and result.clear_gained==4 and result.total==36)
+assert(sparks.tower.status().session_points==6)
+sparks.score_line(2,4,36)
+sparks.spark_line(37)
+sparks.spark_line(37)
+assert(sparks.tower.status().session_points==7)
+sparks.score_line(2,4,36)
+assert(sparks.tower.status().score.total==37 and sparks.tower.status().session_points==7)
+sparks.call("exp wieza sesja")
+assert(sparks.report["ChimeraXP | Wieza - sesja"][1][2]:find("istoty +3, pietro +4",1,true))
+sparks.call("exp wieza punkty")
+local reward_report=sparks.report["ChimeraXP | Wieza - punkty"]
+assert(reward_report[2][2]=="+7" and reward_report[3][2]=="37"
+    and reward_report[4][2]=="+3" and reward_report[5][2]=="+4")
+local again=scenario({saved=sparks.opts.saved})
+assert(again.tower.start())
+again.spark_line(37)
+again.spark_line(38)
+assert(again.tower.status().session_points==1 and again.tower.status().score.gained==8,
+    "Historical points must not be credited to the new session")
+print("Spark rewards, clear reward, stale lines and session isolation: PASS")
 
 -- The guardian room is discovered before combat and left until the server
 -- says enough creatures have fallen. A spare branch must not be cleared.
