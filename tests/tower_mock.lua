@@ -163,7 +163,7 @@ local function scenario(opts)
             elseif position=="C" then
                 local active=not opts.force_inactive and not alive and not guardian_alive
                 text_line(active and "Krag mozaiki jarzy" or "Krag mozaiki jest martwy")
-            else text_line("Nie zauwazasz niczego takiego") end
+            elseif not (opts.hold_mosaic and position=="D") then text_line("Nie zauwazasz niczego takiego") end
         elseif cmd=="stan na mozaice" then
             assert(position=="C","Ascent from wrong room")
             if opts.auto_next and level==2 then
@@ -181,6 +181,7 @@ local function scenario(opts)
                 arrive("A")
             end
         elseif cmd=="policz ciala" then
+            if opts.hold_count then return end
             if opts.two_corpses then text_line("dwoch sztuk")
             else text_line("Nie doliczyl") end
         elseif cmd=="n" or cmd=="s" or cmd=="e" or cmd=="w" then
@@ -267,7 +268,14 @@ local function scenario(opts)
         emit=emit, highlights=highlights,border_colors=border_colors,border_widths=border_widths,
         score_line=score_line,spark_line=spark_line,unlock_line=unlock_line,remaining_line=remaining_line,
         envs=envs,colors=colors,visits=visits,
-        heal=function() vitals.hp=100;emit("chimera.char.vitals",vitals) end}
+        party_hp=function(hp)
+            group.members[2].hp=hp
+            emit("chimera.group.state",group)
+        end,
+        text_line=text_line,
+        heal=function() vitals.hp=100;group.members[2].hp=100
+            emit("chimera.char.vitals",vitals);emit("chimera.group.state",group)
+        end}
 end
 
 local function contains(values,needle)
@@ -548,9 +556,69 @@ print("Manual movement pauses: PASS")
 -- Low HP forces a confirmed retreat, not suicidal engagement.
 local retreat=scenario({low_hp_on_d=true})
 assert(retreat.tower.start())
-retreat.run(12)
+retreat.run(40)
 assert(not contains(retreat.sent(),"zabij enemy:91"),"No attack below retreat threshold")
-print("Health safety/retreat: PASS")
+assert(retreat.tower.status().phase=="PAUSED","Third incident must pause")
+assert(retreat.position()=="A","Repeated critical HP must pause ONLY in the entrance")
+assert(count(retreat.visits,"D")==3,"Count distinct retreats, not HP packets")
+assert(not contains(retreat.sent(),"stan na mozaice"),"Retreat must never leave the floor via mosaic")
+print("Health safety/third retreat pauses only at entrance: PASS")
+
+-- A group member, not the player, drops below threshold while loot is
+-- waiting for a corpse count. Cancel the pending reply and its watchdog.
+local count_wait=scenario({hold_count=true})
+assert(count_wait.tower.start())
+for i=1,30 do
+    count_wait.run(1)
+    if count_wait.tower.status().phase=="LOOTING" then break end
+end
+assert(count_wait.tower.status().phase=="LOOTING" and count_wait.position()=="D")
+count_wait.party_hp(25)
+count_wait.run(1)
+assert(count_wait.position()=="A" and count_wait.tower.status().phase=="RECOVERY",
+    "Group HP must interrupt a pending corpse count and retreat")
+count_wait.text_line("Nie doliczyl")
+count_wait.run(8)
+assert(not contains(count_wait.sent(),"wez zlote monety"),"Late corpse count must not restart loot")
+assert(count_wait.tower.status().phase=="RECOVERY","Cancelled count timeout must not pause retreat")
+count_wait.opts.hold_count=false
+count_wait.heal()
+count_wait.run(70)
+assert(count_wait.tower.status().phase=="COMPLETE","Recovery must resume interrupted exploration")
+print("Group HP interrupts corpse count; late response ignored and recovery resumes: PASS")
+
+-- HP can also drop in the middle of the paced collection commands.
+local collecting=scenario({two_corpses=true})
+assert(collecting.tower.start())
+for i=1,30 do
+    collecting.run(0.5)
+    if collecting.tower.status().phase=="LOOTING" then break end
+end
+assert(collecting.tower.status().phase=="LOOTING")
+local commands_before=#collecting.sent()
+collecting.party_hp(25)
+collecting.run(10)
+assert(collecting.position()=="A" and collecting.tower.status().phase=="RECOVERY")
+for i=commands_before+1,#collecting.sent() do
+    local cmd=collecting.sent()[i]
+    assert(not cmd:match("^wez ") and not cmd:match("^wloz ") and cmd~="napelnij plecak",
+        "No further loot commands after critical HP")
+end
+print("Critical HP interrupts active loot timers: PASS")
+
+-- A delayed optional mosaic inspection must not delay an emergency.
+local scanning=scenario({hold_mosaic=true})
+assert(scanning.tower.start())
+scanning.run(1)
+assert(scanning.position()=="D" and scanning.tower.status().phase=="MOSAIC")
+scanning.party_hp(25)
+scanning.run(1)
+assert(scanning.position()=="A" and scanning.tower.status().phase=="RECOVERY")
+scanning.text_line("Nie zauwazasz niczego takiego")
+scanning.run(8)
+assert(scanning.tower.status().phase=="RECOVERY")
+assert(not contains(scanning.sent(),"zabij enemy:91"))
+print("Critical HP cancels mosaic inspection and ignores its late reply: PASS")
 
 -- Conflict with official auto-collect blocks start before any commands.
 local conflict=scenario({conflict=true})

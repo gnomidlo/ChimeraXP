@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.41",
+    version = "0.7.0-beta.42",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2280,7 +2280,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.41 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.42 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2407,7 +2407,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.41"},
+                {"Wersja", "0.7.0-beta.42"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3341,6 +3341,8 @@ function L.new(ctx, gmcp_api, say)
             return
         end
         local ok,err=pcall(ctx.send,ctx,command)
+        -- A synchronous HP/event callback may have cancelled collection.
+        if active~=a then return end
         if not ok then failure("Blad komendy '"..command.."': "..tostring(err));return end
         schedule(a.delay,next_command)
     end
@@ -3755,6 +3757,50 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
         return weakest
     end
+    -- One incident per retreat, regardless of how many Vitals/Group.State
+    -- packets arrive. Repeated incidents may require manual intervention,
+    -- but never turn that retry limit into a pause in the dangerous room.
+    local function latch_retreat(a,r)
+        if a.retreat then return false end
+        a.retreat=true
+        if r.id~=a.safe then
+            a.retreat_counts=a.retreat_counts or {}
+            local attempts=(a.retreat_counts[r.id] or 0)+1
+            a.retreat_counts[r.id]=attempts
+            if attempts>2 then
+                a.stop_at_safe="Powtarzajacy sie krytyczny HP w tym samym pokoju; dotarto do schronienia. Dalsza proba wymaga interwencji."
+            end
+        end
+        return true
+    end
+    local function health_changed()
+        local a,r=run,current()
+        if not a or not a.started or a.paused or a.transition or not this_floor(r) then return end
+        local hp=health()
+        if hp and hp<=config.retreat then
+            local changed=latch_retreat(a,r)
+            -- Looting and mosaic inspection must not hold the movement lock
+            -- when HP drops. Late replies cannot finish a cancelled action.
+            if a.pending then
+                if a.pending.kind=="loot" then loot.stop() end
+                a.pending=nil
+                changed=true
+            end
+            -- Never stop our own retreat walker merely because the party is
+            -- still injured. An already-sent single step must be confirmed.
+            if a.moving and a.moving.kind=="walk" and a.moving.purpose~="retreat" then
+                stop_walk=true;walker.stop("Wieza: niski HP");stop_walk=false
+                cancel(a);a.moving=nil
+                changed=true
+            end
+            if changed and not a.moving then
+                cancel(a)
+                a.phase="RETREAT"
+                notify()
+            end
+        end
+        queue(0)
+    end
     local function enemies(r)
         local group=gmcp_api.group() or {}
         local own={}
@@ -4037,31 +4083,23 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         a.combat_wait=nil
         local hp=health()
         if not hp then pause("Brak poprawnych danych HP druzyny");return end
-        if hp<=config.retreat and not a.retreat then
-            a.retreat=true
-            if r.id~=a.safe then
-                a.retreat_counts=a.retreat_counts or {}
-                local attempts=(a.retreat_counts[r.id] or 0)+1
-                a.retreat_counts[r.id]=attempts
-                if attempts>2 then
-                    pause("Powtarzajacy sie krytyczny HP w tym samym pokoju; dalsza proba wymaga interwencji")
-                    return
-                end
-            end
-        end
+        if hp<=config.retreat then latch_retreat(a,r) end
         if a.retreat then
-            if a.moving then
-                if a.moving.kind=="walk" then
-                    stop_walk=true;walker.stop("Wieza: niski HP");stop_walk=false
-                end
-                a.moving=nil
-            end
+            if a.moving then return end
             if r.id~=a.safe then
                 a.phase="RETREAT"
                 route_to_safe(r,in_combat)
                 return
             end
             if in_combat then pause("ALARM: walka w komnacie bezpiecznej");return end
+            if a.stop_at_safe then
+                local reason=a.stop_at_safe
+                a.stop_at_safe=nil
+                -- Keep retreat latched: a manual resume must still wait
+                -- for the recovery threshold before entering danger again.
+                pause(reason)
+                return
+            end
             if hp<config.returnHP then
                 a.phase="RECOVERY";queue(3);return
             end
@@ -4579,21 +4617,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             queue(0)
         end
     end)
-    ctx:on("chimera.char.vitals",function()
-        if run and run.started and not run.paused then
-            local hp=health()
-            if hp and hp<=config.retreat then
-                run.urgent=true
-                -- A native multi-room walk can still be stopped before combat.
-                if run.moving and run.moving.kind=="walk" then
-                    stop_walk=true;walker.stop("Wieza: niski HP");stop_walk=false
-                    cancel(run);run.moving=nil
-                end
-            end
-        end
-        queue(0)
-    end)
-    ctx:on("chimera.group.state",function() queue(0) end)
+    ctx:on("chimera.char.vitals",health_changed)
+    ctx:on("chimera.group.state",health_changed)
     ctx:on("chimera.combat.kill",function(kill)
         if run and run.started and not run.paused and this_floor(current())
             and kill and kill.room==current().id then
