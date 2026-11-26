@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.40",
+    version = "0.7.0-beta.41",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2280,7 +2280,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.40 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.41 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2407,7 +2407,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.40"},
+                {"Wersja", "0.7.0-beta.41"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -3528,12 +3528,26 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
         return row
     end
+    -- Old records only held the reward for clearing the level. Migrate
+    -- lazily, keeping the original fields and the historical total intact.
+    local function split_score(rec)
+        if rec.mob_gained==nil then rec.mob_gained=0 end
+        if rec.clear_gained==nil and rec.mob_gained==0 then
+            rec.clear_gained=rec.gained
+            rec.clear_total=rec.total
+        end
+        return rec
+    end
+    local function breakdown(rec)
+        if not rec or not rec.mob_gained or rec.mob_gained==0 then return "" end
+        return " (istoty +"..rec.mob_gained..", pietro +"..(rec.clear_gained or 0)..")"
+    end
     local function session_totals()
         local floors,points,missing=0,0,0
         for _,row in ipairs(session and session.rows or {}) do
             if row.finished then floors=floors+1 end
-            if row.score then points=points+row.score.gained
-            elseif row.finished then missing=missing+1 end
+            if row.score then points=points+row.score.gained end
+            if row.finished and (not row.score or row.score.clear_gained==nil) then missing=missing+1 end
         end
         return floors,points,missing
     end
@@ -3543,7 +3557,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         for _,row in ipairs(session and session.rows or {}) do
             if row.finished or row.score then
                 rows[#rows+1]={"Poziom "..row.level,row.score and
-                    ("+"..row.score.gained.." pkt | razem "..row.score.total) or "brak nowego wyniku serwera"}
+                    ("+"..row.score.gained.." pkt"..breakdown(row.score).." | razem "..row.score.total) or "brak nowego wyniku serwera"}
             end
         end
         rows[#rows+1]={"Pietra zakonczone",tostring(floors)}
@@ -3552,46 +3566,71 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     end
     local function score_text(rec)
         if not rec then return "punktacja: brak komunikatu serwera" end
-        return "poziom "..rec.level..": +"..rec.gained.." pkt Kregow (razem "..rec.total..")"
+        return "poziom "..rec.level..": +"..rec.gained.." pkt Kregow"..breakdown(rec).." (razem "..rec.total..")"
     end
-    local function record_score(level,gained,total)
+    local function add_reward(kind,level,gained,total)
         local r=current()
         local actual_level,seed=tower_info(r)
         level,gained,total=tonumber(level),tonumber(gained),tonumber(total)
-        -- Ignore stale/foreign lines and refuse to infer totals ourselves.
         if not r or not actual_level or actual_level~=level or not gained or not total
             or gained<0 or total<0 or gained>total then return end
         local prior=recorded_score(r.area_id)
         if prior then
             if prior.level~=level then return end
-            if prior.gained==gained and prior.total==total then
+            split_score(prior)
+            if kind=="clear" and prior.clear_gained~=nil then
                 if run and this_floor(r) then
                     run.score=prior;run.server_clear=true
                 end
                 return
             end
-            prior.gained,prior.total=gained,total
+            -- Balance is the server's running total, not another reward.
+            -- Ignore duplicate/stale reward lines in the same floor.
+            if total<=prior.total then return end
         else
-            prior={area_id=r.area_id,level=level,seed=seed,gained=gained,total=total,
-                at=os.time()}
+            prior={area_id=r.area_id,level=level,seed=seed,gained=0,total=0,
+                mob_gained=0,at=os.time()}
             config.results[#config.results+1]=prior
             while #config.results>50 do table.remove(config.results,1) end
         end
+        local function apply(rec)
+            rec.gained=rec.gained+gained
+            rec.total=total
+            if kind=="mob" then rec.mob_gained=(rec.mob_gained or 0)+gained
+            else rec.clear_gained=gained;rec.clear_total=total end
+        end
+        apply(prior)
         if run and this_floor(r) then
             run.score=prior
-            run.server_clear=true
+            -- A spark reward does NOT mean that the floor has been cleared.
+            if kind=="clear" then run.server_clear=true end
             local row=session_floor(run)
-            if row then row.score=prior end
-            if queue then queue(0) end
+            if row then
+                -- Do not re-credit historical points when restarting a floor.
+                if not row.score then
+                    row.score={level=level,gained=0,mob_gained=0,total=0}
+                end
+                apply(row.score)
+            end
+            if kind=="clear" and queue then queue(0) end
         end
         persist()
         message("Serwer: "..score_text(prior))
     end
+    local function record_score(level,gained,total)
+        add_reward("clear",level,gained,total)
+    end
+    local function record_mob_score(total)
+        add_reward("mob",tower_info(current()),1,total)
+    end
     local function report_score(rec,title)
+        local split=rec and split_score(rec)
         ctx:report(title or "ChimeraXP | Wieza - punkty",{
             {"Poziom",rec and tostring(rec.level) or "-"},
             {"Punkty zdobyte",rec and ("+"..rec.gained) or "brak komunikatu"},
-            {"Punkty razem",rec and tostring(rec.total) or "brak komunikatu"}
+            {"Punkty razem",rec and tostring(rec.total) or "brak komunikatu"},
+            {"Za istoty",split and ("+"..split.mob_gained) or "-"},
+            {"Za ukonczenie pietra",split and split.clear_gained~=nil and ("+"..split.clear_gained) or "brak komunikatu"}
         })
     end
     local function map_id(id)
@@ -4574,6 +4613,10 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     ctx:trigger([[^Poziom (\d+) jest czysty\. Zyskujesz (\d+) punkt(?:ow|y)? Kregow \(razem (\d+)\)\.$]],function()
         local m=rawget(_G,"matches")
         if type(m)=="table" then record_score(m[2],m[3],m[4]) end
+    end)
+    ctx:trigger([[^Blada iskra Kregow ulatuje znad pokonanej istoty -- zyskujesz punkt Kregow \(razem (\d+)\)\.$]],function()
+        local m=rawget(_G,"matches")
+        if type(m)=="table" then record_mob_score(m[2]) end
     end)
     -- The server supplies remaining creatures, not an estimated percentage.
     local function remaining_count(n)
