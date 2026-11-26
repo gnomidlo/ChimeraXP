@@ -1,3 +1,10 @@
+## 0.7.0-beta.41 — Wieża: dodatkowe punkty za pokonane istoty
+
+- Obsługa komunikatu o bladej iskrze: +1 punkt Kręgów, z odczytem aktualnego stanu „razem N”.
+- Osobne sumy za istoty i zakończenie piętra; oba rodzaje nagród wliczane do historii i bieżącej sesji. Stan „razem” nie jest dodawany do przyrostu.
+- Powtórzone i starsze komunikaty w tej samej instancji nie podwajają punktów; nowe sesje nie doliczają historycznych nagród. Iskra nie oznacza oczyszczenia piętra.
+- Zgodność z dotychczasowymi zapisami i regresje księgowania punktów.
+
 ## 0.7.0-beta.40 — Wspólne przyciski i komendy Wieży
 
 - Górny pasek, API i aliasy `/exp start|pauza|wznow|stop` używają wspólnego dyspozytora. W Kręgach Shoona start wybiera Wieżę także po STOP lub przeładowaniu, zamiast uruchamiać ostatnie klasyczne expowisko. Zatrzymuje również pozostawiony klasyczny patrol przed weryfikacją wejścia.

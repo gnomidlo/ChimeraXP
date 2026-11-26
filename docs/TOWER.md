@@ -1,4 +1,4 @@
-# ChimeraXP — Wieża (Kręgi Shoona), beta.40
+# ChimeraXP — Wieża (Kręgi Shoona), beta.41
 
 Tryb domyślny zatrzymuje się na aktywnej mozaice. `/exp wieza auto on` włącza opcjonalny automatyczny awans. Moduł korzysta z rzeczywistego licznika pozostałych istot i potwierdzeń serwera, a nie szacowanego progu procentowego.
 
@@ -35,6 +35,8 @@ Zbieracz nie uruchamia się w pustych pomieszczeniach: wymaga rozpoznania wrogie
 Opcja **Wspólny cel ataku** w menu Drużyna pokazuje ustawienie aktualnego automatu. Podczas eksploracji Wieży jest to osobna, zapamiętywana opcja `tower.partyAttack` (domyślnie **włączona**, zgodnie z dotychczasowym zachowaniem). Po wyłączeniu Wieża nadal samodzielnie atakuje NPC, ale nie wysyła `rozkaz druzynie zaatakowac <ID>`. Podczas działania Wieży komenda `/exp druzyna on|off` steruje tym samym ustawieniem. Gdy Wieża nie jest uruchomiona, przełącznik i komenda dotyczą wybranego klasycznego expowiska. Ustawienia klasycznego EXP i Wieży nie nadpisują się nawzajem.
 
 ## Punkty Kręgów i otwarcie mozaiki
+
+Komunikat `Blada iskra Kregow ulatuje znad pokonanej istoty -- zyskujesz punkt Kregow (razem 31).` przyznaje **jeden dodatkowy punkt**, niezależnie od nagrody za ukończenie piętra. Raporty pokazują punkty za istoty, za ukończenie piętra, sumę obu i ostatni łączny stan serwera. Powtórzony lub starszy stan punktów w tej samej instancji jest ignorowany. Nie naliczamy punktów za każde zabicie ani nie wyliczamy ich z różnicy stanów serwera. Iskra nie zmienia warunku ukończenia piętra ani gotowości mozaiki. Nowa sesja nie dolicza zapisanych wcześniej nagród z tej samej instancji.
 
 Po komunikacie serwera `Poziom 6 jest czysty. Zyskujesz 4 punktow Kregow (razem 14).` Wieża zapisuje **trzy niezależne liczby** (numer poziomu, zdobyte punkty, punkty razem) wraz z identyfikatorem losowania `area_id`. Liczby nie są szacowane z liczby zabitych NPC. Powtórzona wiadomość z tego samego poziomu nie dodaje podwójnego wyniku. Historia jest zachowywana po przeładowaniu wtyczki.
 
