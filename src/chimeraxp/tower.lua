@@ -59,7 +59,7 @@ end
 local function frontier(rooms,current)
     local best
     for origin,node in pairs(rooms) do
-        if node.visited and (node.cleared or node.deferred) then
+        if node.visited and (node.cleared or node.deferred or node.transit) then
             for dir,target in pairs(node.exits) do
                 if type(target)=="string" and target~="" and not rooms[target]
                     and not (node.blocked and node.blocked[dir]) then
@@ -488,6 +488,10 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             if kind=="active" and r.exit==current().id then
                 local fighting=combat(current())
                 if fighting~=false or not valid_entities(current()) then queue(0);return end
+                local hp=health()
+                if config.autoAscent and hp and hp<config.returnHP then
+                    r.phase="RECOVERY";queue(3);return
+                end
                 r.done=true;r.phase="COMPLETE";r.reason="Mozaika aktywna"
                 local row=session_floor(r)
                 if row then row.finished=true end
@@ -513,7 +517,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         local ok,why=loot.start(r.id,config.loot,config.delay,function()
             if run~=owner or not owner.started or owner.paused then return end
             owner.pending=nil
-            node.cleared=true
+            node.cleared=#enemies(r)==0
             node.loot_due=false
             owner.phase="READY"
             queue(0)
@@ -645,6 +649,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if a.moving then return end
         local enemies_list=enemies(r)
         local node=a.rooms[r.id]
+        if a.pending_attack and a.pending_attack.room==r.id then
+            local still_here=false
+            for _,e in ipairs(enemies_list) do
+                if e.id==a.pending_attack.id then still_here=true;break end
+            end
+            if not still_here then a.pending_attack=nil end
+        end
         -- Inspect before initiating combat; active attacks and HP take priority.
         if not node.scanned and not in_combat then start_mosaic(false);return end
         local hostile=false
@@ -652,12 +663,15 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         local quota_met=a.remaining==0 or a.server_clear or a.exit_ready
         local defer_guardian=r.id==a.exit and not quota_met and not a.guardian_force
             and not in_combat and not hostile and #enemies_list>0
-        local exit_priority=a.exit and quota_met and not in_combat and not hostile
+        local exit_priority=quota_met and not in_combat and not hostile
             and not a.pending_attack and (r.id~=a.exit or a.exit_ready)
+        -- Once the server quota is met, neutral creatures in ordinary rooms
+        -- need not be killed merely to find the as-yet undiscovered guardian.
+        node.transit=exit_priority and #enemies_list>0 and r.id~=a.exit or nil
         if defer_guardian then
             node.deferred=true;node.cleared=false
         elseif #enemies_list>0 and not exit_priority then
-            node.deferred=nil
+            node.deferred=nil;node.transit=nil
         end
         if #enemies_list>config.limit and not defer_guardian and not exit_priority then
             pause("Zbyt wielu przeciwnikow ("..#enemies_list.."/"..config.limit.."). Zwieksz /exp wieza limit lub interweniuj.")
@@ -705,16 +719,22 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if r.id==a.safe and hp<config.returnHP then
             a.phase="RECOVERY";queue(3);return
         end
+        local function verify_or_recover()
+            if config.autoAscent and hp<config.returnHP then
+                a.phase="RECOVERY";queue(3);return
+            end
+            start_mosaic(true)
+        end
         if a.exit and quota_met then
             if r.id~=a.exit then walk_to(a.exit,"exit");return end
-            if a.exit_ready or #enemies_list==0 then start_mosaic(true);return end
+            if a.exit_ready or #enemies_list==0 then verify_or_recover();return end
         end
         -- A known intermediate walker room may have been crossed without
         -- inspection. Return and clear it before declaring this floor done.
         local candidate=frontier(a.rooms,r.id)
         local nearest_unprocessed
         for id,node in pairs(a.rooms) do
-            if id~=r.id and node.visited and not node.cleared and not node.deferred then
+            if id~=r.id and node.visited and not node.cleared and not node.deferred and not node.transit then
                 local route=path(a.rooms,r.id,id)
                 if route and (not nearest_unprocessed or #route<nearest_unprocessed.steps
                     or (#route==nearest_unprocessed.steps and id<nearest_unprocessed.target)) then
@@ -747,7 +767,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         elseif r.id~=a.exit then
             walk_to(a.exit,"exit")
         else
-            start_mosaic(true)
+            verify_or_recover()
         end
     end
     loot=Loot.new(ctx,gmcp_api,message)
@@ -1149,7 +1169,8 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     end)
     ctx:on("chimera.group.state",function() queue(0) end)
     ctx:on("chimera.combat.kill",function(kill)
-        if run and run.started and not run.paused and current() and kill and kill.room==current().id then
+        if run and run.started and not run.paused and this_floor(current())
+            and kill and kill.room==current().id then
             local group=gmcp_api.group() or {}
             for _,member in ipairs(group.members or {}) do
                 if kill.killer and tostring(kill.killer.id)==tostring(member.id) then
