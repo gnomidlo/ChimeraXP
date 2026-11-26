@@ -446,14 +446,16 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             if not here or here.id~=pending.room or here.area_id~=pending.area_id
                 or tower_info(here)~=pending.level then
                 cancel_start_pending()
-                message("Nie moge potwierdzic mozaiki: zmieniono pokoj lub pietro.",true)
+                if pending.owner and run==pending.owner then pause("Awans: zmieniono pokoj podczas weryfikacji")
+                else message("Nie moge potwierdzic mozaiki: zmieniono pokoj lub pietro.",true) end
                 return
             end
             cancel_start_pending()
             if kind=="return" then
                 start_verified(pending)
             else
-                message("Start wymaga mozaiki POWROTNEJ. Odpowiedz 'ob mozaike': "..kind..".",true)
+                if pending.owner and run==pending.owner then pause("Awans: brak mozaiki powrotnej")
+                else message("Start wymaga mozaiki POWROTNEJ. Odpowiedz 'ob mozaike': "..kind..".",true) end
             end
             return
         end
@@ -681,7 +683,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             a.pending_attack=nil
         end
         if not node.scanned then start_mosaic(false);return end
-        if not node.cleared and not defer_guardian and (not exit_priority or node.loot_due) then
+        if not node.cleared and not defer_guardian and (not exit_priority or node.loot_due or #enemies_list==0) then
             if not node.loot_due then
                 -- No detected hostile, combat or party kill: clean room,
                 -- without counting corpses or sending any loot commands.
@@ -802,6 +804,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             message("Zmiana lokacji podczas potwierdzania startu.",true)
             return
         end
+        if not pending.continue_session or not session then session={rows={},by_area={}} end
         run={started=true,paused=false,phase="READY",level=pending.level,seed=pending.seed,
             area_id=pending.area_id,safe=r.id,rooms={},exit=nil,entities_confirmed=true,kills=0,
             score=recorded_score(pending.area_id)}
@@ -812,13 +815,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         node.cleared=true
         paint_start()
         message("Potwierdzona mozaika powrotna. Poziom "..run.level..
-            ". Rozpoczynam eksploracje; NIE przejde automatycznie dalej.")
+            ". Rozpoczynam eksploracje; awans "..(config.autoAscent and "AUTO." or "reczny."))
         queue(0)
     end
     local function start()
         if run and run.started then message("Wieza dziala lub jest w pauzie; uzyj /exp wieza wznow albo stop.",true);return false end
         if start_pending then message("Juz sprawdzam mozaike wejscia; czekam na odpowiedz.",true);return false end
-        if run and run.done then clear_marks(run);run=nil end
+        local previous=run and run.done and run or nil
         if patrol_status().started then message("Najpierw zatrzymaj klasyczny EXP.",true);return false end
         local r=current()
         local level,seed=tower_info(r)
@@ -837,26 +840,82 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         if reason then message(reason,true);return false end
         -- A return mosaic is the only reliable evidence of the entrance.
         -- Verify its live server response BEFORE assigning the safe lock.
-        local pending={room=r.id,area_id=r.area_id,level=level,seed=seed}
+        local continue_session=previous and level==previous.level+1 and r.area_id~=previous.area_id
+        if previous then clear_marks(previous);run=nil end
+        return begin_entry({room=r.id,area_id=r.area_id,level=level,seed=seed,
+            continue_session=continue_session})
+    end
+    begin_entry=function(pending)
         start_pending=pending
         pending.timer=ctx:timer(5,function()
             if start_pending==pending then
                 cancel_start_pending()
-                message("Brak odpowiedzi na 'ob mozaike' (5 s). Start anulowany.",true)
+                if pending.owner and run==pending.owner then pause("Brak potwierdzenia mozaiki powrotnej po awansie")
+                else message("Brak odpowiedzi na 'ob mozaike' (5 s). Start anulowany.",true) end
             end
         end)
         message("Sprawdzam mozaike powrotna przed uruchomieniem...")
         local ok,err=pcall(ctx.send,ctx,"ob mozaike")
         if not ok then
             if start_pending==pending then cancel_start_pending() end
-            message("Nie udalo sie sprawdzic mozaiki: "..tostring(err),true)
+            if pending.owner and run==pending.owner then pause("Nie udalo sie sprawdzic mozaiki po awansie: "..tostring(err))
+            else message("Nie udalo sie sprawdzic mozaiki: "..tostring(err),true) end
             return false
         end
         return true
     end
+    poll_transition=function(a)
+        if run~=a or not a.started or a.paused or not a.transition then return end
+        local r=current()
+        local level,seed=tower_info(r)
+        if r and r.id~=a.transition.origin then
+            if level~=a.level+1 or r.area_id==a.area_id then
+                pause("Awans: nieoczekiwana lokacja/poziom. Sprawdz recznie.");return
+            end
+            local packet=gmcp_api.entities()
+            local fighting=combat(r)
+            if map_id(r.id) and map_id(r.id)==mapper.current_room() and packet
+                and packet.room==r.id and type(packet.entities)=="table" and fighting==false
+                and gmcp_api.connected() and health() then
+                local reason=integration and integration.check and integration.check({economy={enabled=true},loot=config.loot})
+                if reason then pause(reason);return end
+                if #enemies(r)>0 then pause("Awans: przeciwnicy na nowym wejsciu");return end
+                return begin_entry({room=r.id,area_id=r.area_id,level=level,seed=seed,
+                    continue_session=true,owner=a})
+            end
+        end
+        if os.time()-a.transition.at>=15 then
+            pause("Brak potwierdzenia nowego pietra po 15 s; nie ponawiam mozaiki.");return
+        end
+        timer(a,0.5,function() poll_transition(a) end)
+    end
+    auto_advance=function(a)
+        local r=current()
+        local hp=health()
+        if not r or not this_floor(r) or r.id~=a.exit or r.id==a.safe
+            or not valid_entities(r) or combat(r)~=false or not hp or hp<config.returnHP then
+            a.started=false
+            message("Awans AUTO wstrzymany: wejdz recznie, gdy bedzie bezpiecznie.",true)
+            return
+        end
+        for _,e in ipairs(enemies(r)) do
+            if e.relation=="hostile" then a.started=false;message("Awans AUTO wstrzymany: wrog w pokoju.",true);return end
+        end
+        local reason=integration and integration.check and integration.check({economy={enabled=true},loot=config.loot})
+        if reason then a.started=false;message(reason,true);return end
+        a.phase="ASCENDING"
+        a.transition={origin=r.id,at=os.time()}
+        message("Mozaika aktywna; przechodze na kolejny poziom.")
+        if send_own("stan na mozaice") and run==a and a.transition then
+            timer(a,0.5,function() poll_transition(a) end)
+        end
+    end
     local function resume()
         if not run or not run.started or not run.paused then
             message("Brak wstrzymanej eksploracji.",true);return false
+        end
+        if run.done then
+            message("Awans niepotwierdzony. Uzyj stop, sprawdz wejscie i uruchom start.",true);return false
         end
         if not this_floor(current()) then
             message("Nie mozna wznowic: zmienila sie instancja lub poziom.",true);return false
@@ -909,6 +968,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     ctx:command{"exp wieza",help="Status eksploracji Kregow Shoona",fn=print_status}
     ctx:command{"exp wieza punkty",help="Ostatni zapisany wynik Kregow",fn=print_score}
     ctx:command{"exp wieza historia",help="Historia punktow za poziomy Kregow",fn=print_score_history}
+    ctx:command{"exp wieza sesja",help="Wyniki poziomow i suma punktow biezacej sesji",fn=report_session}
+    ctx:command{"exp wieza auto",args="[on|off]",help="Automatyczny awans na kolejne pietro",fn=function(arg)
+        arg=trim(arg):lower()
+        if run and run.transition then message("Poczekaj na potwierdzenie awansu lub uzyj stop.",true);return end
+        if arg=="on" or arg=="off" then config.autoAscent=arg=="on";persist() end
+        message("Automatyczny awans: "..(config.autoAscent and "WLACZONY" or "WYLACZONY"))
+    end}
     for _,action in ipairs({"start","pauza","wznow","stop","status"}) do
         local command=action
         ctx:command{"exp wieza "..command,help="Wieza: "..command,fn=function()
@@ -964,11 +1030,13 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
             local here=current()
             if not here or here.id~=start_pending.room or here.area_id~=start_pending.area_id then
                 cancel_start_pending()
-                message("Zmiana pokoju przed potwierdzeniem mozaiki; start anulowany.",true)
+                if run and run.transition then pause("Awans: zmiana pokoju przed potwierdzeniem wejscia")
+                else message("Zmiana pokoju przed potwierdzeniem mozaiki; start anulowany.",true) end
             end
         end
         local a=run
         if not a or not a.started or a.paused then return end
+        if a.transition then return end
         local r=current()
         if not r or not this_floor(r) then
             pause("Opuszczono pietro lub zmienilo sie losowanie.");return
@@ -1044,7 +1112,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     ctx:on("chimera.combat.state",function(packet)
         if run and run.started and not run.paused then
             local r=current()
-            if r and packet and packet.room==r.id then
+            if r and this_floor(r) and packet and packet.room==r.id then
                 local active=type(packet.relations)=="table" and #packet.relations>0
                 if active then
                     run.last_combat=r.id
@@ -1099,15 +1167,43 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         local m=rawget(_G,"matches")
         if type(m)=="table" then record_score(m[2],m[3],m[4]) end
     end)
-    -- This names the guardian's chamber but NOT its map ID. Do not guess a
-    -- room, simulate an 80% threshold or trigger "stan na mozaice".
-    ctx:trigger([[^Gdzies w komnacie straznika rozjarza sie mozaika przejscia\.$]],function()
+    -- The server supplies remaining creatures, not an estimated percentage.
+    local function remaining_count(n)
         local r=current()
-        if not run or not this_floor(r) or run.exit_ready then return end
-        run.exit_ready=true
-        message("Serwer odblokowal mozaike przejscia w komnacie straznika."..
-            " Kontynuuje bezpieczna eksploracje; przejscie pozostaje reczne.")
+        if not run or not run.started or not this_floor(r) then return end
+        run.remaining=tonumber(n)
+        if run.remaining~=nil then
+            notify();queue(0)
+        end
+    end
+    ctx:trigger([[^Gdzies w kregu cichnie kolejne echo\. Do przejscia trzeba jeszcze pokonac (\d+) istot(?:e|y)?, a straznik kregu wciaz czeka\.$]],function()
+        local m=rawget(_G,"matches")
+        if type(m)=="table" then remaining_count(m[2]) end
     end)
+    ctx:trigger([[^Gdzies w kregu cichnie kolejne echo\. Dosc istot padlo, a straznik kregu wciaz czeka\.$]],function()
+        remaining_count(0)
+    end)
+    local function unlocked(local_room)
+        local r=current()
+        if not run or not this_floor(r) then return end
+        if local_room and r.id~=run.safe then
+            observe(r)
+            if run.exit and run.exit~=r.id then
+                pause("Niezgodne polozenie mozaiki przejscia");return
+            end
+            run.exit=r.id
+            local node=run.rooms[r.id]
+            node.mosaic="active";node.scanned=true;node.deferred=nil
+            paint(r.id,"active")
+        end
+        if not run.exit_ready then
+            run.exit_ready=true
+            message("Serwer odblokowal mozaike. Kieruje sie do komnaty straznika.")
+        end
+        queue(0)
+    end
+    ctx:trigger([[^Gdzies w komnacie straznika rozjarza sie mozaika przejscia\.$]],function() unlocked(false) end)
+    ctx:trigger([[^Krag mozaiki w posadzce rozjarza sie jasnym blaskiem\.$]],function() unlocked(true) end)
     ctx:trigger([[^Nie zauwazasz niczego takiego\.$]],function() mosaic_answer("none") end)
     ctx:trigger([[^Mozaika tli sie zimnym blaskiem\.]],function() mosaic_answer("return") end)
     ctx:trigger([[^Krag mozaiki jest martwy\.]],function() mosaic_answer("inactive") end)
