@@ -1,4 +1,4 @@
-# ChimeraXP — Wieża (Kręgi Shoona), beta.41
+# ChimeraXP — Wieża (Kręgi Shoona), beta.42
 
 Tryb domyślny zatrzymuje się na aktywnej mozaice. `/exp wieza auto on` włącza opcjonalny automatyczny awans. Moduł korzysta z rzeczywistego licznika pozostałych istot i potwierdzeń serwera, a nie szacowanego progu procentowego.
 
@@ -51,6 +51,8 @@ Wynik piętra i suma sesji są raportowane po każdym zakończeniu oraz po STOP.
 AUTO sprawdza świeże GMCP, brak walki, HP co najmniej na progu powrotu i aktywną mozaikę. Przy bezpiecznej lokacji z mozaiką czeka na regenerację do progu powrotu; krytyczne HP nadal uruchamia mechanizm odwrotu. Jednokrotnie wysyła `stan na mozaice`; czeka maksymalnie 15 sekund na nowy poziom N+1 i nowe `area_id`, zgodność mappera i świeże dane. Następnie sprawdza mozaikę powrotną, zapisuje nowe schronienie i rozpoczyna piętro. Nie ponawia niepotwierdzonej komendy; nieoczekiwany poziom lub brak danych pauzuje sesję. Pierwsze próby prowadzić pod nadzorem.
 
 ## Mechanika i bezpieczeństwo
+
+Alarm HP (najsłabszy obecny członek drużyny) przerywa zbieranie łupów i oczekujące sprawdzanie mozaiki; skrypt korzysta z potwierdzonej drogi do wejścia aktualnego piętra. Po trzecim niezależnym alarmie w tej samej lokacji wstrzymuje dalszą eksplorację dopiero po dotarciu do komnaty wejściowej i potwierdzeniu braku walki. Ręczne wznowienie nadal wymaga regeneracji do ustawionego progu. Nie przerywa własnego chodzika odwrotu z powodu utrzymującego się niskiego HP. Brak potwierdzonej drogi, danych lub kroku nadal może wymagać interwencji; odwrót nie wykonuje `stan na mozaice`.
 
 - Nowe pokoje poznajemy przez wyjścia GMCP, ale **własna** pamięć odwiedzonych lokacji przechowuje tylko aktualne `area_id`. Pomiędzy odwiedzonymi lokacjami korzystamy z oficjalnego `walker.go`, po kontroli, że trasa nie przechodzi przez nieodkryte lokacje. Nowe przejścia wykonujemy pojedynczym, potwierdzonym krokiem. Cofanie i nawigacja po znanych trasach uwzględnia kolejność zdarzeń oficjalnego chodzika: jego `walk.arrived` może nadejść, zanim Wieża otrzyma `room.changed` z tej samej zmiany pokoju.
 - Cel ataku musi mieć `kind="npc"`, `relation="hostile"` **lub** `relation="neutral"` i nie należeć do drużyny. Wrogie istoty w Kręgach mogą być neutralne do pierwszego ataku. Preferowany jest najbardziej zraniony wróg. Istniejący silnik taktyki drużyny działa w tym samym HUD-zie; przed nową walką Wieża wydaje potwierdzany GMCP rozkaz celu grupowego.
