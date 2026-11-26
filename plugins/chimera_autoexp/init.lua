@@ -144,7 +144,7 @@ end
 
 return {
     name = "autoexp",
-    version = "0.7.0-beta.39",
+    version = "0.7.0-beta.40",
     title = "ChimeraXP / AutoExp 5",
     section = "automatyzacja",
     description = "Ostrozny patrol PvE oparty na oficjalnym mapperze i GMCP",
@@ -2210,6 +2210,10 @@ return {
         local function command(name, args, fn, help)
             local function invoke(arg)
                 if destroyed then return false end
+                if hooks.control then
+                    local handled,result=hooks.control(name,arg)
+                    if handled then ui_refresh();return result end
+                end
                 local result = fn(arg)
                 ui_refresh()
                 return result
@@ -2276,7 +2280,7 @@ return {
         local function panel(section)
             local p=profile()
             section=normalized(section)
-            ui_line("---- CHIMERA XP 0.7.0-beta.39 | "..(section=="" and "PANEL" or section:upper()).." ----")
+            ui_line("---- CHIMERA XP 0.7.0-beta.40 | "..(section=="" and "PANEL" or section:upper()).." ----")
             if section == "" then
                 ui_line("Stan: "..(economy_run and "HANDEL/"..economy_run.stage or phase)..
                     " | Expowisko: "..(p and p.name or "brak"))
@@ -2403,7 +2407,7 @@ return {
         local function print_status()
             local p = profile()
             ctx:report("AutoExp 5", {
-                {"Wersja", "0.7.0-beta.39"},
+                {"Wersja", "0.7.0-beta.40"},
                 {"Stan", (economy_run and ("HANDEL/" .. economy_run.stage) or phase) ..
                     (dry and " [TEST]" or "")},
                 {"Profil", p and p.name or "brak"},
@@ -4152,7 +4156,11 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
     loot=Loot.new(ctx,gmcp_api,message)
     local function status()
         local a=run
-        if not a then return {started=false,paused=false,phase="OFF",defensive_only=true,partyAttack=false} end
+        if not a then
+            return {started=false,paused=false,pending=start_pending~=nil,
+                phase=start_pending and "VERIFY_ENTRY" or "OFF",defensive_only=true,
+                partyAttack=config.partyAttack,level=tower_info(current())}
+        end
         local rooms,cleared=0,0
         for _,n in pairs(a.rooms) do rooms=rooms+1;if n.cleared then cleared=cleared+1 end end
         return {started=a.started,paused=a.paused,phase=a.phase,defensive_only=
@@ -4626,6 +4634,7 @@ function T.new(ctx,patrol_status,integration,changed,Loot)
         end
     end)
     return {status=status,start=start,pause=pause,resume=resume,stop=stop,
+        in_tower=function() return tower_info(current())~=nil end,
         issuing_attack_order=function() return ours end,
         party_attack_enabled=function()
             return run and run.started and not run.paused and config.partyAttack or false
@@ -6042,6 +6051,12 @@ function H.new(ctx,patrol,tactics,stop)
         local selected=find_row(rows,self.selected)
         if (self.menu=="member" or self.menu=="member_advanced") and not selected then self.menu="party" end
         local p=snap.profile;local st=snap.status
+        -- Tower does not have a classic patrol profile. Never render classic
+        -- settings against its synthetic profile or mutate a hidden terrain.
+        if st.tower and (self.menu=="combat" or self.menu=="safety" or self.menu=="loot"
+            or self.menu=="trade" or self.menu=="profiles") then
+            self.menu="settings";self.page=1
+        end
         if self.menu=="party" then
             title="Drużyna"
             toggle("Automatyczna ochrona",ts.on,function() tactics.toggle(not ts.on) end,
@@ -6132,6 +6147,16 @@ function H.new(ctx,patrol,tactics,stop)
         elseif self.menu=="areas" or self.menu=="allareas" then
             local all=self.menu=="allareas"
             title=all and "Wszystkie expowiska" or "Najbliższe expowiska"
+            if st.tower then
+                title="Wieża — Kręgi Shoona"
+                add(p and p.name or "Wieża",nil,P.lavender,"hint")
+                add(st.started and (st.paused and "▶ Wznów Wieżę" or "Ⅱ Wstrzymaj Wieżę") or "▶ Uruchom Wieżę",
+                    function() request(st.started and (st.paused and "wznow" or "pauza") or "start") end,P.mint)
+                add("■ Zatrzymaj Wieżę",stop,P.rose)
+                add("Status Wieży",function() prefill("wieza status") end)
+                add("Punkty sesji",function() prefill("wieza sesja") end)
+                return items,title,"Start z komnaty mozaiki powrotnej."
+            end
             local profiles={}
             if all then
                 for key,v in pairs(snap.profiles) do profiles[#profiles+1]={key=key,value=v} end
@@ -6161,6 +6186,15 @@ function H.new(ctx,patrol,tactics,stop)
             note="Kliknij teren, aby wybrać. Zarobek przełączysz obok nazwy."
         elseif self.menu=="settings" then
             title="Ustawienia ChimeraXP"
+            if st.tower then
+                add("Wieża — ustawienia przez /exp wieza",nil,P.lavender,"hint")
+                add("Status Wieży",function() prefill("wieza status") end)
+                add("Automatyczny awans…",function() prefill("wieza auto ") end)
+                add("Progi HP…",function() prefill("wieza hp ") end)
+                add("Lista łupów",function() prefill("wieza lup lista") end)
+                add("Punkty sesji",function() prefill("wieza sesja") end)
+                return items,title,"Ustawienia klasycznych expowisk są oddzielne."
+            end
             for _,entry in ipairs({{"combat","Walka i cele",ICON.attack},{"safety","Schronienie i powrót",ICON.safety},
                 {"loot","Łupy",ICON.loot},{"trade","Auto-zarobek",ICON.trade},
                 {"profiles","Zarządzanie terenami",ICON.map},{"session","Sesja i komunikaty",ICON.session}}) do
@@ -6280,7 +6314,7 @@ function H.new(ctx,patrol,tactics,stop)
         -- Status LED is visible even with the dropdown closed. The pilot
         -- cares about AUTO on/off, not a tiny grey-on-grey shield glyph.
         nav("tactics","●","Ochrona",widths[2],tacticscolor)
-        nav("areas",ICON.area,"Expowiska",widths[3],xpcolor)
+        nav("areas",ICON.area,st.tower and "Wieża" or "Expowiska",widths[3],xpcolor)
         widget("pause",self.root,right,y,cw-3,bh,
             (not st.started or st.paused) and ICON.play or ICON.pause,
             st.paused and P.yellow or P.mint,P.card,
@@ -6626,26 +6660,33 @@ return function(module)
     Engine.title="ChimeraXP — wyprawy i taktyka"
     Engine.description="Zwięzły HUD, role drużyny, patrol, auto-zarobek i Wieża"
     Engine.setup=function(ctx)
-        local view,tactics,patrol,tower
+        local view,tactics,patrol,tower,control
         local integration=Integration.new(ctx)
         local function changed() if view then view:render() end end
         patrol=setup(ctx,{
             changed=changed, safety=module("safety").new(),
+            control=function(name,arg) if control then return control(name,arg) end end,
             open=function() if view then return view:open("areas") end return false end,
             on_stop=function() if tactics then tactics.stop("STOP ChimeraXP") end end,
             before_start=function(profile)
-                if tower and tower.status().started then
-                    return "Wieza prowadzi eksploracje. Zatrzymaj ja przed klasycznym EXP."
+                if tower then
+                    local t=tower.status()
+                    if t.started or t.pending or tower.in_tower() then
+                        return "W Kregach Shoona uzyj Wiezy, nie klasycznego EXP."
+                    end
                 end
                 return integration.check(profile or {})
             end,
             stop_tower=function()
-                if tower and tower.status().started then tower.stop("STOP /exp") end
+                if tower then
+                    local t=tower.status()
+                    if t.started or t.pending or t.done then tower.stop("STOP /exp") end
+                end
             end,
             set_party_attack=function(setting)
                 if not tower then return false end
                 local state=tower.status()
-                if not (state.started or state.done) then return false end
+                if not (state.started or state.pending or tower.in_tower()) then return false end
                 -- The real CLI and graphical HUD must both edit the Tower
                 -- setting, not the unrelated selected classic EXP profile.
                 tower.set_party_attack(setting)
@@ -6662,13 +6703,13 @@ return function(module)
         -- and HUD, but never run both movement planners simultaneously.
         local function tower_status()
             local t=tower.status()
-            if t.started or t.done then return t end
+            if t.started or t.pending or (tower.in_tower() and not base_status().started) then return t end
         end
         patrol.status=function()
             local s=base_status()
             local t=tower_status()
             if t then
-                s.started=t.started;s.paused=t.paused;s.phase=t.phase
+                s.started=t.started or t.pending or false;s.paused=t.paused;s.phase=t.phase
                 s.defensive_only=t.defensive_only;s.tower=true
                 s.reason=t.reason;s.economy=nil
             end
@@ -6679,8 +6720,10 @@ return function(module)
             local t=tower_status()
             if t then
                 snap.status=patrol.status()
-                snap.profile={name="Wieza / poziom "..tostring(t.level),partyAttack=t.partyAttack,
-                    economy={enabled=false},route={}}
+                snap.profile={name="Wieza / poziom "..tostring(t.level or "?"),partyAttack=t.partyAttack,
+                    economy={enabled=false},route={},targets={},avoid={},loot={},rules={}}
+                snap.status.elapsed=0
+                snap.status.xp=0
                 snap.status.selected="wieza"
             end
             return snap
@@ -6692,20 +6735,46 @@ return function(module)
             if tower_status() then return tower.party_attack_enabled() end
             return base_party()
         end
-        patrol.request=function(name,arg)
-            if tower.status().started then
-                if name=="pauza" then tower.pause("Pauza z HUD");return true end
-                if name=="wznow" then return tower.resume() end
-                if name=="stop" then tower.stop("STOP ChimeraXP");return true end
-                if name=="start" then return false,"Wieza juz dziala" end
-            end
-            return base_request(name,arg)
-        end
         local stop_patrol=patrol.stop
-        -- Stopping an expedition must not disable independently enabled Defense.
+        -- One dispatcher for the CLI, toolbar, dropdown and API requests.
+        -- A classic run already active remains its own owner; START in Shoona
+        -- explicitly clears the stale classic patrol before verifying entrance.
+        control=function(name,arg)
+            local t=tower.status()
+            local classic=base_status()
+            if name=="stop" then
+                if t.started or t.pending or t.done then
+                    tower.stop("STOP Wieza")
+                    if classic.started then stop_patrol("STOP AutoExp") end
+                    return true,true
+                end
+                if tower.in_tower() and not classic.started then return true,true end
+                return false
+            end
+            if name~="start" and name~="pauza" and name~="wznow" then return false end
+            if t.started or t.pending then
+                if name=="pauza" then
+                    if t.pending and not t.started then tower.stop("Anulowano start Wiezy")
+                    else tower.pause("Pauza uzytkownika") end
+                    return true,true
+                end
+                if name=="wznow" then return true,tower.resume() end
+                if t.paused then return true,tower.resume() end
+                return true,tower.start()
+            end
+            if tower.in_tower() then
+                if name=="start" or name=="wznow" then
+                    if classic.started then stop_patrol("Zatrzymano klasyczny EXP przed startem Wiezy") end
+                    return true,tower.start()
+                end
+                if not classic.started then return true,false end
+            end
+            return false
+        end
+        patrol.request=base_request
+        -- Same STOP semantics as /exp stop, leaving Defense untouched.
         local function stop()
-            if tower.status().started then tower.stop("STOP ChimeraXP") end
-            stop_patrol("STOP AutoExp")
+            return base_request("stop")
         end
         local function stop_all()
             tactics.stop("STOP ChimeraXP")
@@ -6713,7 +6782,9 @@ return function(module)
         end
         patrol.stop=stop
         patrol.pause=function(reason)
-            if tower.status().started then return tower.pause(reason) end
+            local t=tower.status()
+            if t.started then return tower.pause(reason) end
+            if t.pending then return tower.stop(reason) end
             return base_request("pauza")
         end
         tactics=Tactics.new(ctx,Model,integration,patrol,changed)
